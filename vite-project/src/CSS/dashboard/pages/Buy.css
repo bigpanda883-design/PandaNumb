@@ -1,0 +1,401 @@
+/* Container Layout */
+.buy-flow-container {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #0d1727;
+  background-color: #f6f8fc;
+  box-sizing: border-box;
+}
+
+/* Slide Up Entrance Animation */
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-up-anim {
+  animation: slideUpFade 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Header & Progress Bar */
+.buy-header {
+  margin-bottom: 20px;
+}
+
+.buy-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.buy-back-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.buy-back-btn:hover {
+  background-color: #f3f4f6;
+}
+
+.buy-main-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.buy-step-indicator {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* 3 Segment Progress Line */
+.buy-progress-bar {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.progress-segment {
+  flex: 1;
+  height: 4px;
+  border-radius: 4px;
+  background-color: #e2e8f0;
+  transition: background-color 0.3s ease;
+}
+
+.progress-segment.active {
+  background-color: #0066ff;
+}
+
+.step-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 16px;
+}
+
+/* STEP 1: SERVICES GRID (STRICT 2-COLUMN MOBILE FIT) */
+.buy-flow-container .services-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.buy-flow-container .service-card {
+  width: calc(50% - 6px);
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 20px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.015);
+  box-sizing: border-box;
+  opacity: 0;
+  animation: slideUpFade 0.3s ease forwards;
+}
+
+.buy-flow-container .service-card:hover,
+.buy-flow-container .service-card:active {
+  border-color: #0066ff;
+  transform: scale(0.98);
+}
+
+.buy-flow-container .service-icon-wrapper {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: #f0f4f8;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.buy-flow-container .service-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0d1727;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.01em;
+}
+
+.service-price {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0066ff;
+  margin: 0 0 2px 0;
+}
+
+.service-countries-count {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 400;
+}
+
+/* STEP 2: COUNTRY SEARCH & LIST */
+.country-search-bar {
+  display: flex;
+  align-items: center;
+  background-color: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 30px;
+  padding: 12px 18px;
+  gap: 10px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.country-search-bar .search-icon {
+  font-size: 18px;
+  color: #94a3b8;
+}
+
+.country-search-bar input {
+  border: none;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  font-size: 14px;
+  color: #0d1727;
+}
+
+.countries-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.country-card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 20px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0;
+  animation: slideUpFade 0.25s ease forwards;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.015);
+}
+
+.country-card:hover,
+.country-card:active {
+  border-color: #0066ff;
+}
+
+.country-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.country-flag-img {
+  width: 28px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.country-flag-img-sm {
+  width: 22px;
+  height: 15px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.country-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0d1727;
+}
+
+.country-subtext {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.country-price {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0066ff;
+}
+
+/* STEP 3: CONFIRM ORDER CARD */
+.confirm-card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 20px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.015);
+}
+
+.confirm-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  color: #0d1727;
+}
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+}
+
+.confirm-label {
+  color: #64748b;
+}
+
+.confirm-value {
+  color: #0d1727;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.flex-align-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm-app-logo {
+  display: flex;
+  align-items: center;
+  font-size: 18px;
+}
+
+.confirm-divider {
+  border: none;
+  border-top: 1px solid #f1f5f9;
+  margin: 12px 0;
+}
+
+.confirm-price {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0066ff;
+}
+
+.confirm-balance {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0d1727;
+}
+
+/* Submit Purchase Button */
+.confirm-submit-btn {
+  width: 100%;
+  background-color: #0066ff;
+  color: #ffffff;
+  border: none;
+  border-radius: 30px;
+  padding: 16px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition:
+    background-color 0.2s ease,
+    transform 0.1s ease;
+}
+
+.confirm-submit-btn:hover {
+  background-color: #0052cc;
+}
+
+.confirm-submit-btn:active {
+  transform: scale(0.98);
+}
+
+.confirm-submit-btn:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.spinner-icon {
+  animation: spin 1s linear infinite;
+  font-size: 20px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.balance-verification-notice {
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.shield-icon {
+  color: #0066ff;
+}
+
+.no-results {
+  text-align: center;
+  padding: 30px;
+  color: #64748b;
+}
+
+/* Desktop override to support 3 columns on larger screens */
+@media (min-width: 769px) {
+  .buy-flow-container .service-card {
+    width: calc(33.333% - 11px);
+  }
+}

@@ -1,0 +1,245 @@
+/* Sidebar Container */
+.dashboard-sidebar {
+  width: 256px !important;
+  height: 100dvh !important;
+  position: fixed !important;
+  inset: 0 auto 0 0;
+  background-color: #ffffff;
+  border-right: 1px solid #f1f5f9;
+  padding: 20px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #dce3ef transparent;
+  z-index: 100;
+}
+
+.dashboard-sidebar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.dashboard-sidebar::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: #dce3ef;
+}
+
+/* Brand Section */
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding-left: 8px;
+  flex-shrink: 0;
+}
+
+.dashboard-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.brand-logo-square {
+  width: 42px;
+  height: 42px;
+  background: #0066ff;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.25);
+}
+
+.brand-logo-p {
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 22px;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  line-height: 1;
+}
+
+.brand-logo-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #38ef7d;
+  border-radius: 50%;
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+}
+
+.brand-text {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+.brand-name-dark {
+  color: #0f172a;
+}
+
+.brand-name-blue {
+  color: #0066ff;
+}
+
+.sidebar-close {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #64748b;
+  cursor: pointer;
+}
+
+/* Navigation List */
+.dashboard-nav {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-nav-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.8px;
+  margin: 16px 0 8px 14px;
+}
+
+/* Nav Item Links */
+.dashboard-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-radius: 24px;
+  color: #475569;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s ease-in-out;
+}
+
+.dashboard-nav-item .nav-icon {
+  font-size: 19px;
+  color: #64748b;
+  transition: color 0.2s ease-in-out;
+}
+
+.dashboard-nav-item:hover {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+.dashboard-nav-item:hover .nav-icon {
+  color: #0f172a;
+}
+
+/* Active Nav Item pill */
+.dashboard-nav-item.active {
+  background-color: #0066ff;
+  color: #ffffff;
+}
+
+.dashboard-nav-item.active .nav-icon {
+  color: #ffffff;
+}
+
+/* Logout Button */
+.dashboard-logout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: #475569 !important;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: auto;
+  border-radius: 24px;
+  flex-shrink: 0;
+  transition: all 0.2s ease-in-out;
+}
+
+.dashboard-main-shell {
+  margin-left: 256px !important;
+}
+
+.dashboard-logout .nav-icon {
+  font-size: 19px;
+  color: #64748b;
+}
+
+.dashboard-logout:hover {
+  background-color: #fef2f2;
+  color: #ef4444;
+}
+
+.dashboard-logout:hover .nav-icon {
+  color: #ef4444;
+}
+.dashboard-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Mobile Responsive Drawer Overlay */
+@media (max-width: 900px) {
+  .dashboard-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 256px !important;
+    height: 100dvh;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  }
+
+  .dashboard-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-close {
+    display: block;
+  }
+
+  .dashboard-main-shell {
+    margin-left: 0 !important;
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.4);
+    z-index: 999;
+    border: none;
+  }
+}

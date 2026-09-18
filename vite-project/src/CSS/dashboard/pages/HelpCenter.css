@@ -1,0 +1,7 @@
+.help-center-page {
+  max-width: 760px;
+}
+
+.help-center-page .section-empty-panel {
+  border-top: 3px solid #1d9bf0;
+}

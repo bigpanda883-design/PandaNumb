@@ -1,0 +1,8 @@
+.service-card:focus-visible {
+  outline: 3px solid rgba(11, 107, 255, 0.2);
+  outline-offset: 2px;
+}
+
+.service-card-copy small {
+  white-space: nowrap;
+}

@@ -1,0 +1,149 @@
+/* Outer Page Container */
+.notifications-page-container {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-sizing: border-box;
+}
+
+/* Header Section */
+.notifications-header {
+  margin-bottom: 28px;
+}
+
+.notifications-header h1 {
+  font-size: 32px;
+  font-weight: 800;
+  color: #0d141c;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.02em;
+}
+
+.notifications-header p {
+  font-size: 15px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* List Flex Layout */
+.notifications-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Single Notification Card */
+.notification-card {
+  background-color: #ffffff;
+  border: 1px solid #edf2f7;
+  border-radius: 20px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.01);
+}
+
+.notification-card:hover {
+  border-color: #0066ff;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.05);
+}
+
+.notification-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0d141c;
+  margin: 0;
+}
+
+.notification-description {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.notification-date {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+/* Empty State Card */
+.notification-empty-card {
+  background-color: #ffffff;
+  border: 1px solid #edf2f7;
+  border-top: 3px solid #d34d8a;
+  border-radius: 20px;
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.empty-bell-icon {
+  font-size: 32px;
+  color: #d34d8a;
+  margin-bottom: 12px;
+}
+
+.notification-empty-card h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0d141c;
+  margin: 0 0 6px 0;
+}
+
+.notification-empty-card p {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0 0 20px 0;
+}
+
+.back-dashboard-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #0066ff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.back-dashboard-btn:hover {
+  text-decoration: underline;
+}
+
+/* Mobile Responsive */
+@media (max-width: 600px) {
+  .notifications-page-container {
+    padding: 24px 16px 60px;
+  }
+
+  .notifications-header h1 {
+    font-size: 26px;
+  }
+
+  .notification-card {
+    padding: 16px 18px;
+    border-radius: 16px;
+  }
+
+  .notification-title {
+    font-size: 15px;
+  }
+
+  .notification-description {
+    font-size: 13px;
+  }
+}

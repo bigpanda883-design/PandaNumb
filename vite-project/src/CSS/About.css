@@ -1,0 +1,195 @@
+.how-it-works-section {
+  width: 100%;
+  background-color: #f8fafc;
+  padding: 80px 24px;
+  box-sizing: border-box;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+.how-it-works-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.how-it-works-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.section-pill-badge {
+  background-color: #e8f3ff;
+  color: #0066ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+}
+
+.section-title {
+  font-size: 38px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.8px;
+  margin: 0 0 12px 0;
+}
+
+.section-subtitle {
+  font-size: 16px;
+  color: #64748b;
+  margin: 0;
+  font-weight: 400;
+}
+
+.steps-row {
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.step-card {
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.step-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.05);
+  border-color: #cbd5e1;
+}
+
+.step-card.active-card {
+  border: 1px solid #93c5fd;
+  box-shadow: 0 16px 32px rgba(0, 102, 255, 0.12);
+}
+
+.step-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.step-icon-wrapper {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: #e8f3ff;
+  color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.step-icon-wrapper.active-icon {
+  background-color: #0066ff;
+  color: #ffffff;
+}
+
+.step-number {
+  font-size: 24px;
+  font-weight: 800;
+  color: #cbd5e1;
+}
+
+.step-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 12px 0;
+  line-height: 1.3;
+}
+
+.step-description {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #64748b;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* ==========================================
+   MOBILE & RESPONSIVE FIXES
+   ========================================== */
+
+/* Tablets & Smaller Desktops */
+@media (max-width: 992px) {
+  .steps-row {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .section-title {
+    font-size: 32px;
+  }
+}
+
+/* Mobile Devices */
+@media (max-width: 600px) {
+  .how-it-works-section {
+    padding: 48px 16px;
+  }
+
+  .how-it-works-header {
+    margin-bottom: 32px;
+  }
+
+  .section-title {
+    font-size: 26px;
+    letter-spacing: -0.5px;
+  }
+
+  .section-subtitle {
+    font-size: 14px;
+  }
+
+  .step-card {
+    padding: 20px 18px;
+  }
+
+  .step-card-top {
+    margin-bottom: 16px;
+  }
+
+  .step-icon-wrapper {
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+  }
+
+  .step-number {
+    font-size: 20px;
+  }
+
+  .step-title {
+    font-size: 16px;
+    margin-bottom: 8px;
+  }
+
+  .step-description {
+    font-size: 13px;
+  }
+}

@@ -1,0 +1,565 @@
+/* -----------------------------------------------------------------------------
+   Panda Numbers - Dashboard dark theme
+   -----------------------------------------------------------------------------
+   ThemeContext writes <html data-theme="dark"> whenever the user toggles the
+   moon/sun button in the dashboard header, so every rule below is scoped to
+   that attribute. Each selector is also prefixed with .dashboard-app (the
+   wrapper rendered by DashboardLayout) because:
+     1) the overrides outrank the per-page stylesheets no matter in which order
+        Vite injects them (more classes => higher specificity);
+     2) the marketing / auth screens are never affected by the dark theme.
+   -------------------------------------------------------------------------- */
+
+/* Native dark form controls + scrollbars, scoped to the dashboard subtree. */
+html[data-theme="dark"] .dashboard-app {
+  color-scheme: dark;
+  background: #0b1120;
+  color: #e6edfa;
+}
+
+/* -----------------------------------------------------------------------------
+   1. Page shells
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .dashboard-main-shell,
+html[data-theme="dark"] .dashboard-app .dashboard-content {
+  background-color: #0b1120;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-home,
+html[data-theme="dark"] .dashboard-app .dashboard-home-wrapper,
+html[data-theme="dark"] .dashboard-app .buy-flow-container,
+html[data-theme="dark"] .dashboard-app .mynumbers-page-wrapper,
+html[data-theme="dark"] .dashboard-app .security-page,
+html[data-theme="dark"] .dashboard-app .deposit-content,
+html[data-theme="dark"] .dashboard-app .active-sms-page,
+html[data-theme="dark"] .dashboard-app .help-center-page {
+  background-color: #0b1120;
+  color: #e6edfa;
+}
+
+/* -----------------------------------------------------------------------------
+   2. Dashboard header
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .dashboard-header {
+  border-bottom-color: #1f2a3f;
+  background: rgba(13, 19, 33, 0.9);
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-header-left strong {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-header-kicker {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-menu-button {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-icon-button {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-icon-button:hover {
+  border-color: #33415c;
+  background-color: #1b2438;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-avatar {
+  background-color: #1d355f;
+  color: #9dc0ff;
+}
+
+/* -----------------------------------------------------------------------------
+   3. Sidebar
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .dashboard-sidebar {
+  background-color: #0f1728;
+  border-right-color: #1f2a3f;
+  scrollbar-color: #2b3752 transparent;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-sidebar::-webkit-scrollbar-thumb {
+  background: #2b3752;
+}
+
+html[data-theme="dark"] .dashboard-app .brand-name-dark {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .sidebar-close {
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-nav-label {
+  color: #64748b;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-nav-item {
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-nav-item .nav-icon {
+  color: #7c8aa3;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-nav-item:hover {
+  background-color: #182136;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-nav-item:hover .nav-icon {
+  color: #ffffff;
+}
+
+/* Brand pill for the active route is kept as-is, it already reads well. */
+html[data-theme="dark"] .dashboard-app .dashboard-nav-item.active {
+  background-color: #0066ff;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-nav-item.active .nav-icon {
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-logout {
+  color: #a7b4c9 !important;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-logout .nav-icon {
+  color: #7c8aa3;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-logout:hover {
+  background-color: rgba(239, 68, 68, 0.14);
+  color: #f87171 !important;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-logout:hover .nav-icon {
+  color: #f87171;
+}
+
+html[data-theme="dark"] .dashboard-app .sidebar-overlay {
+  background: rgba(2, 6, 16, 0.65);
+}
+
+/* -----------------------------------------------------------------------------
+   4. Mobile bottom navigation
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .mobile-bottom-nav {
+  border-top-color: #1f2a3f;
+  background-color: #0f1728;
+}
+
+html[data-theme="dark"] .dashboard-app .mobile-nav-icon,
+html[data-theme="dark"] .dashboard-app .mobile-nav-label {
+  color: #7c8aa3;
+}
+
+html[data-theme="dark"] .dashboard-app .mobile-nav-item.active .icon-pill {
+  background-color: rgba(0, 102, 255, 0.22);
+}
+
+html[data-theme="dark"] .dashboard-app .mobile-nav-item.active .mobile-nav-icon,
+html[data-theme="dark"] .dashboard-app .mobile-nav-item.active .mobile-nav-label {
+  color: #5aa2ff;
+}
+
+/* -----------------------------------------------------------------------------
+   5. Text hierarchy
+   -------------------------------------------------------------------------- */
+/* Baseline: headings / strong copy render light. Explicit rules further down
+   use one more class than this :is() block, so they always win. */
+html[data-theme="dark"] .dashboard-app :is(h1, h2, h3, h4, h5, h6, strong, b, label) {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app :is(
+    .greeting-name,
+    .stat-card-value,
+    .stat-value,
+    .section-title,
+    .service-name,
+    .country-name,
+    .confirm-value,
+    .confirm-balance,
+    .card-title,
+    .deposit-header h1,
+    .success-title,
+    .success-amount,
+    .processing-title,
+    .transfer-value,
+    .new-bal-val,
+    .user-name,
+    .tx-title,
+    .tx-amount.purchase,
+    .transaction-amount .negative,
+    .notification-title,
+    .inbox-title,
+    .mynumbers-title,
+    .transactions-title,
+    .phone-number-display,
+    .security-header h1,
+    .profile-header h1,
+    .buy-main-title,
+    .detail-value,
+    .item-value,
+    .sms-message-text,
+    .digit-char,
+    .spaced-code-digits
+  ) {
+  color: #e9eefb;
+}
+
+/* Secondary / muted copy */
+html[data-theme="dark"] .dashboard-app :is(
+    .dashboard-greeting span,
+    .dashboard-greeting p,
+    .greeting-sub,
+    .greeting-meta,
+    .section-overline,
+    .stat-card span,
+    .stat-card-label,
+    .stat-label,
+    .service-subtext,
+    .service-card-copy small,
+    .service-countries-count,
+    .transaction-copy span,
+    .tx-date,
+    .section-empty-panel span,
+    .empty-state p,
+    .buy-step-indicator,
+    .step-subtitle,
+    .confirm-label,
+    .country-subtext,
+    .no-results,
+    .balance-verification-notice,
+    .transactions-subtitle,
+    .profile-header p,
+    .user-email,
+    .notifications-header p,
+    .notification-date,
+    .notification-description,
+    .security-header p,
+    .banner-info p,
+    .deposit-header p,
+    .min-deposit-note,
+    .disclaimer-text,
+    .card-sub,
+    .card-sub-info,
+    .detail-label,
+    .ref-text,
+    .processing-desc,
+    .success-desc,
+    .sms-timestamp,
+    .no-codes-desc,
+    .no-codes-title,
+    .mynumbers-subtitle,
+    .demo-text p,
+    .active-sms-page > p,
+    .help-center-page > p,
+    .dashboard-section-page > p
+  ) {
+  color: #93a3bd;
+}
+
+/* Brand blue accents get a lighter tint so they stay legible on dark. */
+html[data-theme="dark"] .dashboard-app :is(
+    .dashboard-outline-link,
+    .dashboard-primary-link,
+    .dashboard-section-heading a,
+    .buy-link-btn,
+    .link-btn,
+    .service-price,
+    .country-price,
+    .confirm-price,
+    .tx-amount.deposit,
+    .section-empty-panel a,
+    .support-card .action-icon,
+    .badge-icon,
+    .check-green-icon,
+    .copy-code-pill-btn,
+    .chat-bubble-icon
+  ) {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .section-empty-panel > svg,
+html[data-theme="dark"] .dashboard-app .empty-icon-circle {
+  color: #6aa5ff;
+}
+
+/* -----------------------------------------------------------------------------
+   6. Surfaces - cards, rows, popovers, inputs
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app :is(
+    .stat-card,
+    .service-card,
+    .transaction-row,
+    .empty-state,
+    .section-empty-panel,
+    .tx-card-row,
+    .tx-empty-state-card,
+    .tx-tab-btn,
+    .notification-card,
+    .notification-empty-card,
+    .profile-card,
+    .security-card,
+    .security-banner,
+    .country-card,
+    .confirm-card,
+    .deposit-card,
+    .processing-card,
+    .success-card,
+    .new-balance-card,
+    .transfer-amount-box,
+    .code-received-panel,
+    .no-codes-panel,
+    .received-card-header,
+    .buy-back-btn,
+    .back-btn,
+    .back-circle-btn,
+    .preset-btn,
+    .secondary-btn,
+    .copy-btn,
+    .copy-card-btn,
+    .test-chip,
+    .country-search-bar,
+    .country-search-bar input,
+    .amount-input,
+    .form-group input
+  ) {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .confirm-divider {
+  border-top-color: #263149;
+}
+
+html[data-theme="dark"] .dashboard-app .progress-segment {
+  background-color: #26334d;
+}
+
+html[data-theme="dark"] .dashboard-app .progress-bar {
+  background-color: #243149;
+}
+
+/* Hover feedback on the neutral surfaces */
+html[data-theme="dark"] .dashboard-app :is(
+    .buy-back-btn,
+    .back-btn,
+    .back-circle-btn,
+    .copy-btn,
+    .copy-card-btn,
+    .refresh-btn,
+    .country-card
+  ):hover {
+  border-color: #33415c;
+  background-color: #1b2438;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-outline-link {
+  border-color: #33415c;
+  background-color: #151d2e;
+  color: #dbe4f7;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-outline-link:hover {
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .dashboard-app .support-card:hover {
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .dashboard-app .tx-tab-btn:hover {
+  border-color: #0066ff;
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .preset-btn:hover {
+  border-color: #33415c;
+}
+
+html[data-theme="dark"] .dashboard-app .preset-btn.selected {
+  border-color: #3b82f6;
+  background-color: rgba(0, 92, 230, 0.22);
+  color: #7fb0ff;
+}
+
+html[data-theme="dark"] .dashboard-app .country-search-bar input {
+  background-color: transparent;
+}
+
+/* -----------------------------------------------------------------------------
+   7. Form controls
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app :is(input, textarea, select) {
+  border-color: #2a3650;
+  background-color: #101827;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app :is(input, textarea)::placeholder {
+  color: #64748b;
+}
+
+html[data-theme="dark"] .dashboard-app :is(input, textarea, select):focus {
+  border-color: #3b82f6;
+}
+
+html[data-theme="dark"] .dashboard-app :is(input, textarea) {
+  caret-color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .toggle-password-btn,
+html[data-theme="dark"] .dashboard-app .search-icon {
+  color: #93a3bd;
+}
+
+/* -----------------------------------------------------------------------------
+   8. Tinted icon chips + status badges
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app :is(
+    .stat-icon,
+    .empty-state-icon,
+    .stat-icon-circle,
+    .stat-card-icon,
+    .service-icon,
+    .service-icon-wrapper,
+    .tx-icon-circle,
+    .empty-icon-circle,
+    .transaction-icon,
+    .badge-icon,
+    .banner-icon-wrapper,
+    .copy-code-pill-btn
+  ) {
+  background-color: rgba(59, 130, 246, 0.16);
+}
+
+html[data-theme="dark"] .dashboard-app :is(
+    .stat-icon.green,
+    .transaction-icon.deposit,
+    .tx-icon-circle.deposit
+  ) {
+  background-color: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .dashboard-app .stat-icon.purple {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #b794ff;
+}
+
+html[data-theme="dark"] .dashboard-app .stat-icon.orange {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .dashboard-app :is(.tx-icon-circle.purchase, .banner-icon-wrapper) {
+  background-color: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+}
+
+html[data-theme="dark"] .dashboard-app :is(.service-icon.whatsapp, .service-icon-wrapper.whatsapp) {
+  background-color: rgba(37, 211, 102, 0.16);
+}
+
+html[data-theme="dark"] .dashboard-app :is(.service-icon.telegram, .service-icon-wrapper.telegram) {
+  background-color: rgba(34, 158, 217, 0.18);
+}
+
+html[data-theme="dark"] .dashboard-app :is(.service-icon.instagram, .service-icon-wrapper.instagram) {
+  background-color: rgba(225, 48, 108, 0.18);
+}
+
+html[data-theme="dark"] .dashboard-app :is(.service-icon.facebook, .service-icon-wrapper.facebook) {
+  background-color: rgba(24, 119, 242, 0.2);
+}
+
+html[data-theme="dark"] .dashboard-app :is(.tx-status-badge, .transaction-amount span) {
+  background-color: rgba(22, 163, 74, 0.16);
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .dashboard-app .transaction-amount .positive {
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .dashboard-app .wallet-updated-chip {
+  border-color: rgba(16, 185, 129, 0.35);
+  background-color: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+}
+
+html[data-theme="dark"] .dashboard-app .success-badge {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+html[data-theme="dark"] .dashboard-app .service-tag {
+  background-color: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .dashboard-app :is(
+    .stat-icon,
+    .empty-state-icon,
+    .stat-icon-circle,
+    .stat-card-icon,
+    .service-icon,
+    .service-icon-wrapper,
+    .tx-icon-circle,
+    .transaction-icon,
+    .empty-icon-circle
+  ) {
+  color: #6aa5ff;
+}
+
+/* -----------------------------------------------------------------------------
+   9. Semantic panels (demo warning, logout, success)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .demo-banner {
+  border-color: rgba(245, 158, 11, 0.3);
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+html[data-theme="dark"] .dashboard-app .demo-icon {
+  background-color: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .dashboard-app .demo-text strong {
+  color: #fcd34d;
+}
+
+html[data-theme="dark"] .dashboard-app .demo-text p {
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .dashboard-app .logout-card {
+  border-color: rgba(220, 38, 38, 0.35);
+  background-color: rgba(220, 38, 38, 0.12);
+  color: #f87171;
+}
+
+html[data-theme="dark"] .dashboard-app .logout-card:hover {
+  border-color: rgba(248, 113, 113, 0.5);
+  background-color: rgba(220, 38, 38, 0.2);
+}
+
+html[data-theme="dark"] .dashboard-app .logout-card .red-icon,
+html[data-theme="dark"] .dashboard-app .logout-card .action-icon {
+  color: #f87171;
+}
+
+/* Blue CTAs (submit / buy / deposit / save / fund / active pills) and the blue
+   balance banners already have enough contrast on dark, so they are left as-is. */

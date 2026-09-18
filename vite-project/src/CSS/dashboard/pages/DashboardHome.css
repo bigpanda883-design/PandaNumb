@@ -1,0 +1,692 @@
+/* Dashboard Outer Wrapper */
+.dashboard-home {
+  width: 100%;
+  background-color: #f6f8fc;
+  min-height: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+/* Greeting Section */
+.dashboard-home-wrapper .dashboard-greeting {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.dashboard-home-wrapper .dashboard-greeting span {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.dashboard-home-wrapper .dashboard-greeting h1 {
+  font-size: 28px;
+  font-weight: 800;
+  color: #000000;
+  margin: 4px 0;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-home-wrapper .dashboard-greeting p {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.dashboard-outline-link {
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-outline-link:hover {
+  background-color: #f1f5f9;
+}
+
+/* Section Headings */
+.dashboard-home-wrapper .dashboard-section {
+  width: 100%;
+  margin-bottom: 32px;
+}
+
+.dashboard-home-wrapper .dashboard-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.dashboard-home-wrapper .dashboard-section-heading h2 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #000000;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-home-wrapper .dashboard-section-heading a {
+  color: #0062e0;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-home-wrapper .dashboard-section-heading a:hover {
+  text-decoration: underline;
+}
+
+/* Hidden overline tag from outdated version */
+.dashboard-home-wrapper .section-overline {
+  display: none;
+}
+
+/* Popular Services Grid */
+.dashboard-home-wrapper .services-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: 100%;
+}
+
+/* Service Card (Modern 2nd Image Style) */
+.dashboard-home-wrapper .services-grid > * {
+  flex: 1 1 calc(25% - 12px);
+  min-width: 170px;
+}
+
+.dashboard-home-wrapper .service-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 24px 20px;
+  border: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  box-sizing: border-box;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.dashboard-home-wrapper .service-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+}
+
+/* Round Brand Icon Circles */
+.dashboard-home-wrapper .service-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: 24px;
+}
+
+/* Brand Color Accents */
+.dashboard-home-wrapper .service-icon.whatsapp {
+  background-color: #e8fdf0;
+  color: #25d366;
+}
+
+.dashboard-home-wrapper .service-icon.telegram {
+  background-color: #e0f2fe;
+  color: #229ed9;
+}
+
+.dashboard-home-wrapper .service-icon.instagram {
+  background-color: #ffe4e6;
+  color: #e1306c;
+}
+
+.dashboard-home-wrapper .service-icon.facebook {
+  background-color: #e0edff;
+  color: #1877f2;
+}
+
+.dashboard-home-wrapper .service-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: #000000;
+  margin: 0 0 2px 0;
+  letter-spacing: -0.01em;
+}
+
+.service-subtext {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 400;
+}
+
+/* Stats Cards Grid */
+.dashboard-home-wrapper .stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: 100%;
+  margin-bottom: 32px;
+}
+
+.dashboard-home-wrapper .stats-grid > * {
+  flex: 1 1 calc(25% - 12px);
+  min-width: 160px;
+}
+
+.dashboard-home-wrapper .stat-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 20px;
+  border: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.stat-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: #e0edff;
+  color: #0062e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  margin-bottom: 16px;
+}
+
+.stat-card-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #000000;
+  margin-bottom: 4px;
+}
+
+.stat-card-label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* Recent Transactions Section */
+.dashboard-home-wrapper .transactions-section {
+  padding-bottom: 0;
+}
+
+.transaction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.transaction-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  border: none;
+  border-radius: 20px;
+  background: #ffffff;
+  padding: 12px 18px;
+  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.transaction-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 18px;
+}
+
+.transaction-icon.deposit {
+  color: #16a34a;
+  background: #e6f4ea;
+}
+
+.transaction-icon.purchase {
+  color: #0062e0;
+  background: #e0edff;
+}
+
+.transaction-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.transaction-copy strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-copy span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.transaction-amount {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.transaction-amount strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.transaction-amount .positive {
+  color: #16a34a;
+}
+
+.transaction-amount .negative {
+  color: #0f172a;
+}
+
+.transaction-amount span {
+  border-radius: 8px;
+  background: #e6f4ea;
+  color: #16a34a;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Mobile & Tablet Responsive Layout */
+@media (max-width: 768px) {
+  .dashboard-home {
+    padding: 20px 16px 60px;
+  }
+
+  .dashboard-home-wrapper .services-grid > *,
+  .dashboard-home-wrapper .stats-grid > * {
+    flex: 1 1 calc(50% - 8px);
+    min-width: calc(50% - 8px);
+  }
+
+  .dashboard-home-wrapper .service-card {
+    padding: 18px 16px;
+    border-radius: 20px;
+  }
+
+  .dashboard-home-wrapper .service-icon {
+    width: 42px;
+    height: 42px;
+    font-size: 20px;
+    margin-bottom: 16px;
+  }
+
+  .dashboard-home-wrapper .service-name {
+    font-size: 15px;
+  }
+
+  .service-subtext {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .transaction-row {
+    padding: 10px 14px;
+    border-radius: 16px;
+  }
+
+  .transaction-icon {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
+
+  .transaction-copy strong,
+  .transaction-amount strong {
+    font-size: 12px;
+  }
+}
+
+/* Current dashboard overview layout */
+.dashboard-home-wrapper {
+  min-height: 0;
+  background: #f6f8fc;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.dashboard-home-container {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.dashboard-home-wrapper .dashboard-greeting {
+  display: block;
+  margin-bottom: 24px;
+}
+
+.dashboard-home-wrapper .greeting-sub,
+.dashboard-home-wrapper .greeting-meta {
+  display: block;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.dashboard-home-wrapper .greeting-name {
+  margin: 3px 0 6px;
+  color: #000000;
+  font-size: 29px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.dashboard-home-wrapper .greeting-meta {
+  margin: 0;
+}
+
+.balance-card-banner {
+  margin-bottom: 24px;
+  border-radius: 27px;
+  background: linear-gradient(115deg, #075be5, #0873ed);
+  padding: 28px;
+  color: #ffffff;
+  box-shadow: 0 14px 26px rgba(11, 107, 255, 0.18);
+}
+
+.balance-top-row,
+.balance-actions-row,
+.currency-toggle-pill {
+  display: flex;
+  align-items: center;
+}
+
+.balance-top-row {
+  justify-content: space-between;
+}
+
+.toggle-balance-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toggle-balance-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.currency-toggle-pill {
+  gap: 3px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.18);
+  padding: 4px;
+}
+
+.currency-toggle-pill button {
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.currency-toggle-pill button.active {
+  background: #ffffff;
+  color: #0066ff;
+}
+
+.balance-amount-display {
+  min-height: 61px;
+  margin: 10px 0 18px;
+}
+
+.balance-text {
+  font-size: 44px;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.masked-dots {
+  display: flex;
+  gap: 8px;
+  padding-top: 17px;
+}
+
+.masked-dots span {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.balance-actions-row {
+  gap: 12px;
+}
+
+.deposit-action-btn,
+.buy-number-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 8px;
+  border: 0;
+  border-radius: 24px;
+  padding: 13px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.deposit-action-btn {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.buy-number-action-btn {
+  background: #ffffff;
+  color: #0066ff;
+}
+
+.stats-cards-grid,
+.popular-services-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.stats-cards-grid {
+  margin-bottom: 26px;
+}
+
+.dashboard-home-wrapper .stat-card {
+  min-height: 124px;
+  border: 1px solid #dce3eb;
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.stat-icon-circle {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 14px;
+  place-items: center;
+  border-radius: 50%;
+  color: #0066ff;
+  background: #e4f1ff;
+}
+
+.stat-value {
+  color: #000000;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.stat-label {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.popular-services-section,
+.recent-transactions-section {
+  margin-top: 25px;
+}
+
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.section-title {
+  margin: 0;
+  color: #000000;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.buy-link-btn {
+  border: 0;
+  background: transparent;
+  color: #0066ff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dashboard-home-wrapper .popular-services-grid .service-card {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 122px;
+  border: 1px solid #dce3eb;
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: none;
+}
+
+.dashboard-home-wrapper .service-icon-wrapper {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 13px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 20px;
+}
+
+.dashboard-home-wrapper .service-icon-wrapper.whatsapp {
+  background: #e2f7ef;
+  color: #00a86b;
+}
+.dashboard-home-wrapper .service-icon-wrapper.telegram {
+  background: #e4f1ff;
+  color: #1d9bf0;
+}
+.dashboard-home-wrapper .service-icon-wrapper.instagram {
+  background: #ffe5ed;
+  color: #ff2e63;
+}
+.dashboard-home-wrapper .service-icon-wrapper.facebook {
+  background: #e0edff;
+  color: #1877f2;
+}
+.service-card-info {
+  min-width: 0;
+}
+.dashboard-home-wrapper .service-card-info .service-name {
+  margin: 0;
+  font-size: 13px;
+}
+.service-card-info .service-subtext {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.recent-transactions-section .transaction-list {
+  display: grid;
+  gap: 8px;
+}
+
+.recent-transactions-section .transaction-row {
+  min-height: 68px;
+  border: 1px solid #dce3eb;
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+@media (max-width: 680px) {
+  .dashboard-home-wrapper {
+    padding: 0;
+  }
+
+  .balance-card-banner {
+    padding: 20px;
+    border-radius: 22px;
+  }
+
+  .balance-text {
+    font-size: 34px;
+  }
+
+  .stats-cards-grid,
+  .popular-services-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .balance-actions-row {
+    flex-direction: column;
+  }
+
+  .deposit-action-btn,
+  .buy-number-action-btn {
+    width: 100%;
+  }
+}

@@ -1,0 +1,7 @@
+.active-sms-page {
+  max-width: 760px;
+}
+
+.active-sms-page .section-empty-panel {
+  border-top: 3px solid #16a56a;
+}

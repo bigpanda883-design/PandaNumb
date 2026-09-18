@@ -1,0 +1,512 @@
+/* Container Layout */
+.deposit-content {
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  color: #0f172a;
+}
+
+.deposit-header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.5px;
+}
+
+.deposit-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Demo Banner */
+.demo-banner {
+  background: #fefce8;
+  border: 1px solid #fef08a;
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.demo-icon {
+  width: 32px;
+  height: 32px;
+  background: #fef3c7;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b45309;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.demo-text strong {
+  display: block;
+  font-size: 13px;
+  color: #92400e;
+  margin-bottom: 2px;
+  letter-spacing: 0.3px;
+}
+
+.demo-text p {
+  margin: 0;
+  font-size: 12px;
+  color: #b45309;
+  line-height: 1.4;
+}
+
+/* Balance Card */
+.deposit-content .balance-card {
+  background: #005ce6;
+  border-radius: 16px;
+  padding: 24px 28px;
+  color: #ffffff;
+}
+
+.balance-label {
+  font-size: 13px;
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+.deposit-content .balance-amount {
+  font-size: 32px;
+  font-weight: 800;
+  margin: 6px 0 0 0;
+  letter-spacing: -0.5px;
+}
+
+/* Deposit Card */
+.deposit-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  color: #0f172a;
+}
+
+/* Input Row */
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.currency-symbol {
+  position: absolute;
+  left: 18px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.amount-input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px 16px 16px 44px;
+  font-size: 20px;
+  font-weight: 800;
+  outline: none;
+  color: #0f172a;
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.amount-input:focus {
+  border-color: #005ce6;
+}
+
+.min-deposit-note {
+  font-size: 12px;
+  color: #64748b;
+  margin: 8px 0 20px 0;
+}
+
+/* Presets Container (Pure Flexbox Layout) */
+.presets-flex-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.presets-row {
+  display: flex;
+  gap: 10px;
+}
+
+.preset-btn {
+  flex: 1;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  padding: 12px 0;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  color: #1e293b;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease-in-out;
+}
+
+.preset-btn:hover {
+  border-color: #cbd5e1;
+}
+
+.preset-btn.selected {
+  background: #eff6ff;
+  border: 1px solid #005ce6;
+  color: #005ce6;
+}
+
+/* Primary Button */
+.primary-btn {
+  background: #005ce6;
+  color: #ffffff;
+  border: none;
+  padding: 14px 20px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  transition: background 0.2s;
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: #0046b8;
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Step 2 Details */
+.card-top-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.back-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #0f172a;
+}
+
+.card-sub {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.transfer-amount-box {
+  background: #f0f7ff;
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.transfer-label {
+  font-size: 13px;
+  color: #005ce6;
+  font-weight: 600;
+}
+
+.transfer-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #005ce6;
+  margin: 4px 0 0 0;
+}
+
+.details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.detail-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.detail-label {
+  font-size: 12px;
+  color: #64748b;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.detail-val-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-val-row.space-between {
+  justify-content: space-between;
+}
+
+.bank-icon-badge {
+  font-size: 16px;
+}
+
+.detail-value {
+  font-size: 15px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.detail-value.bold {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.copy-btn {
+  background: #f1f5f9;
+  border: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  background: #e2e8f0;
+}
+
+.copied-icon {
+  color: #10b981;
+}
+
+.disclaimer-text {
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+  margin: 16px 0 0 0;
+  line-height: 1.4;
+}
+
+/* Spinner View */
+.processing-card {
+  align-items: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.spinner-wrap {
+  margin-bottom: 16px;
+}
+
+.deposit-content .spin-icon {
+  font-size: 38px;
+  color: #005ce6;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.processing-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+}
+
+.processing-desc {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Success View */
+.success-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.success-card {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 20px;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.success-badge {
+  width: 48px;
+  height: 48px;
+  background: #d1fae5;
+  border-radius: 50%;
+  color: #10b981;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.success-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+}
+
+.success-amount {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 8px 0;
+}
+
+.wallet-updated-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #059669;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.ref-text {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.test-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  margin-top: 4px;
+}
+
+.new-balance-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+}
+
+.new-bal-label {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.new-bal-val {
+  font-size: 24px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 4px 0 0 0;
+}
+
+.action-row {
+  display: flex;
+  gap: 12px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.secondary-btn {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  padding: 14px 20px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondary-btn:hover {
+  background: #f8fafc;
+}
+
+.reset-wrap {
+  text-align: center;
+  margin-top: 8px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #005ce6;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+  .deposit-content {
+    padding: 20px 16px;
+  }
+
+  .presets-row {
+    flex-wrap: wrap;
+  }
+
+  .preset-btn {
+    min-width: 45%;
+  }
+}

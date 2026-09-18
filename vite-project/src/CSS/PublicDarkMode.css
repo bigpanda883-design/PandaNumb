@@ -1,0 +1,617 @@
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  background-color: #0b1120;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] body {
+  color-scheme: dark;
+}
+                                                                                                                         
+html[data-theme="dark"] .panda-header {
+  background-color: rgba(13, 19, 33, 0.92);
+  border-bottom-color: #1f2a3f;
+}
+
+html[data-theme="dark"] .logo-text .text-black {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .nav-item {
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .nav-item:hover {
+  background-color: #182136;
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .nav-item.active {
+  background-color: rgba(0, 102, 255, 0.2);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .theme-toggle-btn {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .theme-toggle-btn:hover {
+  border-color: #33415c;
+  background-color: #1b2438;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .sign-in-btn {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .mobile-toggle-icon {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .panda-nav {
+  background-color: #0f1728;
+  border-bottom-color: #1f2a3f;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="dark"] .mobile-actions {
+  border-top-color: #263149;
+}
+
+/* -----------------------------------------------------------------------------
+   3. Hero (Hero.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .hero-wrapper {
+  background-color: #0b1120;
+}
+
+/* Scoped to the hero: the dashboard overview owns its own .badge-pill */
+html[data-theme="dark"] .hero-left .badge-pill {
+  border-color: #263149;
+  background-color: #151d2e;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .hero-left .badge-pill .badge-text {
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .hero-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .hero-subtitle {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .btn-secondary {
+  border-color: #33415c;
+  background-color: #151d2e;
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .btn-secondary:hover {
+  border-color: #46557a;
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .stat-value {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .stat-label {
+  color: #93a3bd;
+}
+
+/* Floating preview card inside the hero */
+html[data-theme="dark"] .dashboard-card {
+  border-color: #263149;
+  background-color: #151d2e;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .greeting,
+html[data-theme="dark"] .box-title,
+html[data-theme="dark"] .phone-sub,
+html[data-theme="dark"] .tx-time {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .user-name,
+html[data-theme="dark"] .recent-header,
+html[data-theme="dark"] .tx-title,
+html[data-theme="dark"] .phone-num,
+html[data-theme="dark"] .tx-amount.negative {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .verified-badge {
+  background-color: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+}
+
+html[data-theme="dark"] .view-all {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .tx-icon.green {
+  background-color: rgba(19, 206, 102, 0.16);
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .tx-icon.blue {
+  background-color: rgba(0, 102, 255, 0.2);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .tx-amount.positive {
+  color: #34d399;
+}
+
+html[data-theme="dark"] .my-numbers-box {
+  background-color: #101827;
+}
+
+html[data-theme="dark"] .avatar-square {
+  background-color: #263149;
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .otp-badge {
+  background-color: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+/* -----------------------------------------------------------------------------
+   4. Step cards section (About.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .how-it-works-section {
+  background-color: #0b1120;
+}
+
+html[data-theme="dark"] .section-pill-badge {
+  background-color: rgba(0, 102, 255, 0.18);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .section-title,
+html[data-theme="dark"] .step-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .section-subtitle,
+html[data-theme="dark"] .step-description {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .step-card {
+  border-color: #263149;
+  background-color: #151d2e;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .step-card:hover {
+  border-color: #33415c;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="dark"] .step-card.active-card {
+  border-color: #3b82f6;
+  box-shadow: 0 16px 32px rgba(0, 102, 255, 0.25);
+}
+
+html[data-theme="dark"] .step-icon-wrapper {
+  background-color: rgba(0, 102, 255, 0.18);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .step-icon-wrapper.active-icon {
+  background-color: #0066ff;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .step-number {
+  color: #46557a;
+}
+
+/* -----------------------------------------------------------------------------
+   5. Feature intro section (Features.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .services-section {
+  background-color: #0b1120;
+}
+
+html[data-theme="dark"] .services-badge {
+  background-color: rgba(0, 102, 255, 0.18);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .services-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .services-subtitle {
+  color: #93a3bd;
+}
+
+/* -----------------------------------------------------------------------------
+   6. Pricing cards (HowItWorks.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .pricing-section {
+  background-color: #0b1120;
+}
+
+html[data-theme="dark"] .pricing-pill {
+  background-color: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+}
+
+html[data-theme="dark"] .pricing-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .pricing-subtitle {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .pricing-card {
+  background-color: #151d2e;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .pricing-card.active-card {
+  border-color: #0066ff;
+  box-shadow:
+    0 20px 40px rgba(0, 102, 255, 0.22),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .card-title,
+html[data-theme="dark"] .card-price,
+html[data-theme="dark"] .detail-label {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .most-bought-badge {
+  background-color: rgba(0, 102, 255, 0.18);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .card-price-sub,
+html[data-theme="dark"] .feature-item,
+html[data-theme="dark"] .detail-desc {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .check-icon {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .card-btn {
+  border-color: #33415c;
+  background-color: #151d2e;
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .card-btn:not(.active-btn):hover {
+  border-color: #46557a;
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .card-btn.active-btn {
+  border-color: #0066ff;
+  background-color: #0066ff;
+  color: #ffffff;
+}
+
+/* -----------------------------------------------------------------------------
+   7. Why-us feature cards (Services.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .why-us-section {
+  background-color: #0b1120;
+}
+
+html[data-theme="dark"] .why-us-pill {
+  background-color: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+}
+
+html[data-theme="dark"] .why-us-title,
+html[data-theme="dark"] .feature-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .why-us-subtitle,
+html[data-theme="dark"] .feature-description {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .feature-card {
+  border-color: #263149;
+  background-color: #151d2e;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .feature-card:hover {
+  border-color: #33415c;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="dark"] .feature-icon-wrapper {
+  background-color: rgba(0, 102, 255, 0.18);
+  color: #6aa5ff;
+}
+
+/* -----------------------------------------------------------------------------
+   8. Product preview section (CTA.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .preview-section {
+  background-color: #0b1120;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .pill-badge {
+  background-color: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+}
+
+html[data-theme="dark"] .preview-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .preview-subtitle,
+html[data-theme="dark"] .info-desc,
+html[data-theme="dark"] .sub-text,
+html[data-theme="dark"] .browser-url-bar {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .tab-btn {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .tab-btn:hover {
+  border-color: #33415c;
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .tab-btn.active {
+  border-color: #0066ff;
+  background-color: #0066ff;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .desktop-frame {
+  border-color: #263149;
+  background-color: #151d2e;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="dark"] .browser-header {
+  border-bottom-color: #263149;
+  background-color: #151d2e;
+}
+
+html[data-theme="dark"] .browser-dots span {
+  background-color: #46557a;
+}
+
+html[data-theme="dark"] .browser-url-bar {
+  background-color: #101827;
+}
+
+html[data-theme="dark"] .browser-body,
+html[data-theme="dark"] .phone-screen {
+  background-color: #101827;
+}
+
+html[data-theme="dark"] .phone-frame {
+  background-color: #060b16;
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5);
+}
+
+html[data-theme="dark"] .btn-outline,
+html[data-theme="dark"] .history-item,
+html[data-theme="dark"] .amount-chip,
+html[data-theme="dark"] .country-item,
+html[data-theme="dark"] .number-card {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .history-item {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .amount-chip.active,
+html[data-theme="dark"] .country-item.active {
+  border-color: #3b82f6;
+  background-color: rgba(0, 102, 255, 0.22);
+  color: #7fb0ff;
+}
+
+html[data-theme="dark"] .step-bar {
+  background-color: #263149;
+}
+
+html[data-theme="dark"] .badge-active {
+  background-color: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+/* -----------------------------------------------------------------------------
+   9. FAQ + CTA banner (FaqCtaSection.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .faq-cta-wrapper {
+  background-color: #0b1120;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .faq-pill {
+  background-color: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+}
+
+html[data-theme="dark"] .faq-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .faq-item {
+  border-color: #263149;
+  background-color: #151d2e;
+}
+
+html[data-theme="dark"] .faq-item:hover {
+  border-color: #33415c;
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .faq-question {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .faq-icon,
+html[data-theme="dark"] .faq-answer {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .faq-answer-row {
+  border-top-color: #263149;
+}
+
+/* The blue CTA banner keeps its brand colour. */
+
+/* -----------------------------------------------------------------------------
+   10. Footer (Footer.css)
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .footer-section {
+  border-top-color: #1f2a3f;
+  background-color: #0b1120;
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .footer-section .logo-text,
+html[data-theme="dark"] .footer-heading {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .brand-description,
+html[data-theme="dark"] .footer-links a,
+html[data-theme="dark"] .footer-bottom {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .footer-links a:hover {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .footer-bottom {
+  border-top-color: #263149;
+}
+
+/* -----------------------------------------------------------------------------
+   11. Auth pages - Login.css / SignUp.css
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .auth-page {
+  background-color: #0b1120;
+  color: #e6edfa;
+}
+
+/* The blue branding panel keeps its brand colour on purpose. */
+
+html[data-theme="dark"] .auth-right-panel {
+  background-color: #0b1120;
+}
+
+html[data-theme="dark"] .auth-back-link {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .auth-back-link:hover {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .auth-theme-toggle {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .auth-theme-toggle:hover {
+  border-color: #33415c;
+  background-color: #1b2438;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .auth-tabs {
+  background-color: #101827;
+}
+
+html[data-theme="dark"] .auth-tab {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .auth-tab.active {
+  background-color: rgba(0, 102, 255, 0.22);
+  color: #7fb0ff;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .auth-heading h1 {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .auth-heading p {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .field-group label {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .field-group input {
+  border-color: #2a3650;
+  background-color: #101827;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .field-group input::placeholder {
+  color: #64748b;
+}
+
+html[data-theme="dark"] .field-group input[aria-invalid="true"] {
+  border-color: #ef4444;
+}
+
+html[data-theme="dark"] .password-toggle {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .password-toggle:hover {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .field-error {
+  color: #f87171;
+}
+
+html[data-theme="dark"] .checkbox-label {
+  color: #a7b4c9;
+}
+
+html[data-theme="dark"] .auth-inline-link,
+html[data-theme="dark"] .auth-switch a {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .auth-switch {
+  color: #93a3bd;
+}

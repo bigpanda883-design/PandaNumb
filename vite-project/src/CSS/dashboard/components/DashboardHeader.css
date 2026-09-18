@@ -1,0 +1,11 @@
+.dashboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+}
+
+.dashboard-icon-button:focus-visible {
+  outline: 3px solid rgba(11, 107, 255, 0.2);
+  outline-offset: 2px;
+}

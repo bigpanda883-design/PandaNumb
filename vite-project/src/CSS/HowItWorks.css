@@ -1,0 +1,214 @@
+.pricing-section {
+  width: 100%;
+  background-color: #f8fafc;
+  padding: 90px 24px 100px 24px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pricing-header {
+  max-width: 760px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 56px;
+}
+
+.pricing-pill {
+  background-color: #e0f2fe;
+  color: #0284c7;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+  text-transform: uppercase;
+}
+
+.pricing-title {
+  font-size: 42px;
+  line-height: 1.15;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -1.2px;
+  margin: 0 0 16px 0;
+}
+
+.pricing-subtitle {
+  font-size: 16px;
+  line-height: 1.6;
+  color: #64748b;
+  margin: 0;
+  font-weight: 400;
+}
+
+.pricing-cards-container {
+  max-width: 1200px;
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 24px;
+}
+
+.pricing-card {
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 24px;
+  border: 2px solid transparent;
+  padding: 36px 30px 32px 30px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.pricing-card.active-card {
+  border-color: #0066ff;
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 40px rgba(0, 102, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  z-index: 2;
+}
+
+.card-top-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  min-height: 28px;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.most-bought-badge {
+  background-color: #e8f3ff;
+  color: #0066ff;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 5px 12px;
+  border-radius: 14px;
+  letter-spacing: 0.5px;
+}
+
+.card-price-wrapper {
+  margin-bottom: 28px;
+}
+
+.card-price {
+  font-size: 40px;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -1px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.card-price-sub {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.card-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 32px;
+  flex: 1;
+}
+
+.feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #475569;
+  font-weight: 500;
+}
+
+.check-icon {
+  color: #0066ff;
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.card-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 32px;
+  flex: 1;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.detail-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #64748b;
+  margin: 0;
+}
+
+.card-action-container {
+  margin-top: auto;
+  width: 100%;
+}
+
+.card-btn {
+  width: 100%;
+  padding: 14px 20px;
+  border-radius: 30px;
+  font-size: 15px;
+  font-weight: 700;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.card-btn.active-btn {
+  background-color: #0066ff;
+  color: #ffffff;
+  border-color: #0066ff;
+  box-shadow: 0 6px 20px rgba(0, 102, 255, 0.3);
+}
+
+@media (max-width: 900px) {
+  .pricing-cards-container {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .pricing-title {
+    font-size: 28px;
+  }
+
+  .pricing-card.active-card {
+    transform: translateY(-4px) scale(1.01);
+  }
+}
