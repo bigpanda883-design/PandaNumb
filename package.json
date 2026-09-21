@@ -1,6 +1,8 @@
 {
   "scripts": {
-    "dev": "npm --prefix vite-project run dev"
+    "dev": "npm --prefix vite-project run dev",
+    "build": "npm --prefix vite-project run build",
+    "preview": "npm --prefix vite-project run preview"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
