@@ -1,87 +1,98 @@
 import { useState } from "react";
 import {
   FiChevronLeft,
+  FiChevronRight,
   FiCopy,
   FiRefreshCw,
   FiMessageSquare,
   FiCheckCircle,
   FiLoader,
+  FiZap,
 } from "react-icons/fi";
-import { useNavigate } from "react-router-dom";
 import "../CSS/dashboard/pages/MyNumbers.css";
 
-// Helper function to generate random formatted US number (+1 XXX XXX XXXX)
-const generateRandomPhoneNumber = () => {
-  const areaCode = Math.floor(100 + Math.random() * 900);
-  const prefix = Math.floor(100 + Math.random() * 900);
-  const lineNum = Math.floor(1000 + Math.random() * 9000);
-  return `+1 ${areaCode} ${prefix} ${lineNum}`;
-};
-
-// Helper function to generate random 6-digit OTP code
-const generateRandomCode = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Helper function to generate random Order ID
-const generateRandomOrderId = () => {
-  const hex = Math.random().toString(16).substring(2, 8).toUpperCase();
-  return `PN-D000${hex}`;
-};
-
-const createPhoneNumberDetails = () => {
-  const now = new Date();
-  const formattedDate = now.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-  const formattedTime = now.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
-  return {
-    number: generateRandomPhoneNumber(),
-    service: "WhatsApp",
+// Initial mock data list based on image 1
+const initialNumbersList = [
+  {
+    id: "1",
+    number: "+1 632 923 4808",
     countryCode: "us",
+    countryName: "United States",
+    service: "WhatsApp",
     price: "₦3,200.00",
-    dateStr: `${formattedDate}, ${formattedTime}`,
-    orderId: generateRandomOrderId(),
-  };
-};
+    dateStr: "18 Sept 2026, 02:00",
+    orderId: "PN-D00042FD",
+    status: "COMPLETED",
+    codeReceived: true,
+    verificationCode: "750529",
+    codeReceivedTime: "18 Sept 2026, 02:09",
+  },
+  {
+    id: "2",
+    number: "+1 229 838 3490",
+    countryCode: "us",
+    countryName: "United States",
+    service: "Telegram",
+    price: "₦2,800.00",
+    dateStr: "07 Sept 2026, 07:52",
+    orderId: "PN-D00089BC",
+    status: "COMPLETED",
+    codeReceived: true,
+    verificationCode: "482910",
+    codeReceivedTime: "07 Sept 2026, 07:55",
+  },
+];
 
 function MyNumbers() {
-  const navigate = useNavigate();
+  // Navigation view state: null = List View, object = Detail View
+  const [selectedNumber, setSelectedNumber] = useState(null);
 
-  // Generated phone number details (State)
-  const [phoneNumberDetails] = useState(createPhoneNumberDetails);
-
-  // Verification code state
+  // Verification state for selected item
   const [verificationCode, setVerificationCode] = useState(null);
   const [isFetchingCode, setIsFetchingCode] = useState(false);
   const [copiedType, setCopiedType] = useState(null);
+
+  // When opening a specific number card
+  const handleSelectNumber = (item) => {
+    setSelectedNumber(item);
+    if (item.codeReceived) {
+      setVerificationCode({
+        code: item.verificationCode,
+        receivedTime: item.codeReceivedTime,
+      });
+    } else {
+      setVerificationCode(null);
+    }
+  };
+
+  // Back to numbers list
+  const handleBackToList = () => {
+    setSelectedNumber(null);
+    setVerificationCode(null);
+    setCopiedType(null);
+  };
 
   // Handle "Get Code" Click
   const handleGetCode = () => {
     setIsFetchingCode(true);
     setTimeout(() => {
-      const newCode = generateRandomCode();
+      const generatedCode = Math.floor(
+        100000 + Math.random() * 900000,
+      ).toString();
       const now = new Date();
-      const timeStr = now.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
       const dateStr = now.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
       });
+      const timeStr = now.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
 
       setVerificationCode({
-        code: newCode,
+        code: generatedCode,
         receivedTime: `${dateStr}, ${timeStr}`,
       });
       setIsFetchingCode(false);
@@ -95,142 +106,206 @@ function MyNumbers() {
     setTimeout(() => setCopiedType(null), 2000);
   };
 
-  if (!phoneNumberDetails) return null;
-
   return (
-    <section className="mynumbers-container">
-      {/* HEADER TITLE */}
-      <div className="mynumbers-header">
-        <button
-          type="button"
-          className="back-circle-btn"
-          onClick={() => navigate("/dashboard")}
-          aria-label="Go back"
-        >
-          <FiChevronLeft />
-        </button>
-        <h1 className="mynumbers-title">Verification codes</h1>
-      </div>
-
-      {/* BLUE PURCHASED NUMBER CARD */}
-      <div className="number-card-banner">
-        <div className="card-top-row">
-          <div className="card-service-meta">
-            <span className="country-tag">
-              {phoneNumberDetails.countryCode}
-            </span>
-            <span className="service-tag">
-              {phoneNumberDetails.service} number
-            </span>
-          </div>
-          <button
-            type="button"
-            className="copy-card-btn"
-            onClick={() => handleCopy(phoneNumberDetails.number, "phone")}
-          >
-            <FiCopy />
-            <span>{copiedType === "phone" ? "Copied!" : "Copy"}</span>
-          </button>
-        </div>
-
-        <div className="phone-number-display">{phoneNumberDetails.number}</div>
-
-        <div className="card-sub-info">
-          {phoneNumberDetails.price} · {phoneNumberDetails.dateStr} ·{" "}
-          {phoneNumberDetails.orderId}
-        </div>
-
-        <div className="card-status-badge">
-          {verificationCode ? (
-            <span className="badge-code-received">
-              <FiCheckCircle /> CODE RECEIVED
-            </span>
-          ) : (
-            <span className="badge-ready">⚡ READY · DEMO</span>
-          )}
-        </div>
-      </div>
-
-      {/* INBOX SECTION */}
-      <div className="inbox-section-header">
-        <h2 className="inbox-title">Inbox</h2>
-        <button
-          type="button"
-          className="refresh-btn"
-          onClick={() => {
-            if (verificationCode) {
-              setVerificationCode(null);
-            }
-          }}
-        >
-          <FiRefreshCw />
-          <span>Refresh</span>
-        </button>
-      </div>
-
-      {/* STATE 1: NO CODE YET */}
-      {!verificationCode ? (
-        <div className="no-codes-panel">
-          <div className="chat-bubble-icon">
-            <FiMessageSquare />
-          </div>
-          <h3 className="no-codes-title">No codes yet</h3>
-          <p className="no-codes-desc">
-            Use this number on the service you selected, then tap Get code to
-            receive your simulated verification SMS.
-          </p>
-          <button
-            type="button"
-            className="get-code-btn"
-            disabled={isFetchingCode}
-            onClick={handleGetCode}
-          >
-            {isFetchingCode ? (
-              <>
-                <FiLoader className="spin-icon" />
-                <span>Fetching code...</span>
-              </>
-            ) : (
-              "Get code"
-            )}
-          </button>
-        </div>
-      ) : (
-        /* STATE 2: CODE RECEIVED */
-        <div className="code-received-panel">
-          <div className="received-header font-bold flex-align-center">
-            <FiCheckCircle className="check-green-icon" />
-            <span>Code received</span>
-          </div>
-
-          <div className="code-display-row">
-            <div className="spaced-code-digits">
-              {verificationCode.code.split("").map((digit, i) => (
-                <span key={i} className="digit-char">
-                  {digit}
-                </span>
-              ))}
+    <div className="mynumbers-page-wrapper">
+      <div className="mynumbers-container">
+        {/* VIEW 1: NUMBERS LIST */}
+        {!selectedNumber ? (
+          <div className="numbers-list-view">
+            <div className="list-header">
+              <h1 className="main-title">My numbers</h1>
+              <p className="main-subtitle">
+                Open a number to read its verification codes.
+              </p>
             </div>
 
-            <button
-              type="button"
-              className="copy-code-pill-btn"
-              onClick={() => handleCopy(verificationCode.code, "code")}
-            >
-              <FiCopy />
-              <span>{copiedType === "code" ? "Copied!" : "Copy"}</span>
-            </button>
+            <div className="numbers-cards-flex">
+              {initialNumbersList.map((item) => (
+                <div
+                  key={item.id}
+                  className="number-item-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleSelectNumber(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleSelectNumber(item);
+                    }
+                  }}
+                >
+                  <div className="item-card-left">
+                    <div className="country-circle-badge">
+                      {item.countryCode.toUpperCase()}
+                    </div>
+                    <div className="item-info">
+                      <div className="phone-number-title">{item.number}</div>
+                      <div className="phone-details-sub">
+                        {item.countryName} · {item.service} · {item.dateStr}
+                      </div>
+                      <div className="status-tag-row">
+                        <span className="badge-code-received-light">
+                          CODE RECEIVED
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="item-card-right">
+                    <div className="item-price">{item.price}</div>
+                    <div className="status-pill-completed">{item.status}</div>
+                    <FiChevronRight className="chevron-icon" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
+        ) : (
+          /* VIEW 2: VERIFICATION CODES DETAIL VIEW */
+          <div className="number-details-view">
+            {/* HEADER TITLE */}
+            <div className="mynumbers-header">
+              <button
+                type="button"
+                className="back-circle-btn"
+                onClick={handleBackToList}
+                aria-label="Go back"
+              >
+                <FiChevronLeft />
+              </button>
+              <h1 className="mynumbers-title">Verification codes</h1>
+            </div>
 
-          <p className="sms-message-text">
-            {phoneNumberDetails.service}: {verificationCode.code} is your
-            verification code. Do not share it with anyone.
-          </p>
+            {/* BLUE PURCHASED NUMBER CARD */}
+            <div className="number-card-banner">
+              <div className="card-top-flex">
+                <div className="card-left-meta">
+                  <div className="card-service-meta">
+                    <span className="country-tag">
+                      {selectedNumber.countryCode}
+                    </span>{" "}
+                    <span className="service-tag">
+                      {selectedNumber.service} number
+                    </span>
+                  </div>
+                  <div className="phone-number-display">
+                    {selectedNumber.number}
+                  </div>
+                  <div className="card-sub-info">
+                    {selectedNumber.price} · {selectedNumber.dateStr} ·{" "}
+                    {selectedNumber.orderId}
+                  </div>
+                </div>
 
-          <span className="sms-timestamp">{verificationCode.receivedTime}</span>
-        </div>
-      )}
-    </section>
+                <button
+                  type="button"
+                  className="copy-card-btn"
+                  onClick={() => handleCopy(selectedNumber.number, "phone")}
+                >
+                  <FiCopy />
+                  <span>{copiedType === "phone" ? "Copied!" : "Copy"}</span>
+                </button>
+              </div>
+
+              <div className="card-status-badge">
+                {verificationCode ? (
+                  <span className="badge-code-received-dark">
+                    <FiCheckCircle /> CODE RECEIVED
+                  </span>
+                ) : (
+                  <span className="badge-ready">
+                    <FiZap aria-hidden="true" />
+                    <span>READY · DEMO</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* INBOX SECTION */}
+            <div className="inbox-section-header">
+              <h2 className="inbox-title">Inbox</h2>
+              <button
+                type="button"
+                className="refresh-btn"
+                onClick={() => {
+                  if (verificationCode) {
+                    setVerificationCode(null);
+                  }
+                }}
+              >
+                <FiRefreshCw />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {/* STATE 1: NO CODE YET */}
+            {!verificationCode ? (
+              <div className="no-codes-panel">
+                <div className="chat-bubble-icon">
+                  <FiMessageSquare />
+                </div>
+                <h3 className="no-codes-title">No codes yet</h3>
+                <p className="no-codes-desc">
+                  Use this number on the service you selected, then tap Get code
+                  to receive your simulated verification SMS.
+                </p>
+                <button
+                  type="button"
+                  className="get-code-btn"
+                  disabled={isFetchingCode}
+                  onClick={handleGetCode}
+                >
+                  {isFetchingCode ? (
+                    <>
+                      <FiLoader className="spin-icon" />
+                      <span>Fetching code...</span>
+                    </>
+                  ) : (
+                    "Get code"
+                  )}
+                </button>
+              </div>
+            ) : (
+              /* STATE 2: CODE RECEIVED */
+              <div className="code-received-panel">
+                <div className="received-card-header">
+                  <FiCheckCircle className="check-green-icon" />
+                  <span>Code received</span>
+                </div>
+
+                <div className="code-display-row">
+                  <div className="spaced-code-digits">
+                    {verificationCode.code.split("").map((digit, i) => (
+                      <span key={i} className="digit-char">
+                        {digit}
+                      </span>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="copy-code-pill-btn"
+                    onClick={() => handleCopy(verificationCode.code, "code")}
+                  >
+                    <FiCopy />
+                    <span>{copiedType === "code" ? "Copied!" : "Copy"}</span>
+                  </button>
+                </div>
+
+                <p className="sms-message-text">
+                  {selectedNumber.service}: {verificationCode.code} is your
+                  verification code. Do not share it with anyone.
+                </p>
+
+                <span className="sms-timestamp">
+                  {verificationCode.receivedTime}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

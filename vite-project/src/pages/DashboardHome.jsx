@@ -15,6 +15,7 @@ import {
   FaTelegramPlane,
   FaInstagram,
   FaFacebookF,
+  FaHandPaper,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { getAuthUser } from "../auth/authStorage";
@@ -33,17 +34,6 @@ function DashboardHome() {
   return (
     <div className="dashboard-home-wrapper">
       <div className="dashboard-home-container">
-        {/* GREETING SECTION */}
-        <section className="dashboard-greeting">
-          <span className="greeting-sub">Good morning,</span>
-          <h1 className="greeting-name">
-            {firstName} <span className="wave-hand">👋</span>
-          </h1>
-          <p className="greeting-meta">
-            {email} · {phone}
-          </p>
-        </section>
-
         {/* BLUE BALANCE CARD */}
         <div className="balance-card-banner">
           <div className="balance-top-row">
@@ -242,7 +232,18 @@ function DashboardHome() {
 
 function ServiceCard({ name, subtext, brandClass, Icon, onClick }) {
   return (
-    <div className="service-card" onClick={onClick} role="button" tabIndex={0}>
+    <div
+      className="service-card"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <div className={`service-icon-wrapper ${brandClass}`}>
         <Icon />
       </div>

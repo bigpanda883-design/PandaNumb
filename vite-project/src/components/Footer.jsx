@@ -3,7 +3,7 @@ import "../CSS/Footer.css";
 
 const Footer = () => {
   return (
-    <footer className="footer-section">
+    <footer id="help" className="footer-section">
       <div className="footer-container">
         <div className="footer-top">
           {/* BRAND COLUMN */}

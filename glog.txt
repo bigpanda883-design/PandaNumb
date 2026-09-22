@@ -1,0 +1,2 @@
+e4cb79c6 fix(deploy): pin Vercel build/output/root-dir config and declare react-icons
+ecf2508f first commit

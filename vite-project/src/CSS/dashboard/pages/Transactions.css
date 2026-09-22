@@ -29,7 +29,7 @@
   font-weight: 400;
 }
 
-/* Tabs Styling */
+/* Tabs Styling (Scrollable on Mobile) */
 .tx-tabs-container {
   display: flex;
   align-items: center;
@@ -37,6 +37,12 @@
   margin-bottom: 28px;
   overflow-x: auto;
   padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Hide scrollbar Firefox */
+}
+
+.tx-tabs-container::-webkit-scrollbar {
+  display: none; /* Hide scrollbar Chrome/Safari */
 }
 
 .tx-tab-btn {
@@ -50,6 +56,7 @@
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tx-tab-btn:hover {
@@ -68,13 +75,14 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
 }
 
 /* Single Card Row Layout */
 .tx-card-row {
   background: #ffffff;
   border: 1px solid #f1f5f9;
-  border-radius: 40px;
+  border-radius: 20px;
   padding: 16px 24px;
   display: flex;
   align-items: center;
@@ -82,6 +90,8 @@
   cursor: pointer;
   transition: all 0.2s ease;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.01);
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .tx-card-row:hover {
@@ -94,6 +104,8 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  min-width: 0; /* Prevents overflow inside flex child */
+  flex: 1;
 }
 
 .tx-icon-circle {
@@ -121,12 +133,16 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0; /* Ensures inner text truncates properly */
 }
 
 .tx-title {
   font-size: 15px;
   font-weight: 700;
   color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tx-date {
@@ -141,11 +157,14 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+  flex-shrink: 0;
+  margin-left: 12px;
 }
 
 .tx-amount {
   font-size: 16px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .tx-amount.purchase {
@@ -164,6 +183,7 @@
   padding: 3px 8px;
   border-radius: 12px;
   letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 /* Empty State Card Design */
@@ -178,6 +198,8 @@
   align-items: center;
   justify-content: center;
   margin-top: 10px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .empty-icon-circle {
@@ -229,32 +251,247 @@
   transform: scale(0.98);
 }
 
-/* Mobile Responsiveness */
+/* =========================================================
+   MOBILE RESPONSIVENESS
+   ========================================================= */
+
 @media (max-width: 600px) {
   .transactions-page {
-    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    padding: 0 12px;
+    margin: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .transactions-header {
+    margin-bottom: 18px;
   }
 
   .transactions-title {
-    font-size: 26px;
+    font-size: 24px;
+    line-height: 1.2;
+    margin-bottom: 6px;
   }
 
-  .tx-card-row {
-    padding: 14px 16px;
-    border-radius: 20px;
-  }
-
-  .tx-title {
+  .transactions-subtitle {
     font-size: 13px;
+    line-height: 1.5;
   }
 
-  .tx-amount {
-    font-size: 14px;
+  /* Tabs */
+  .tx-tabs-container {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 2px 0 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .tx-tabs-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tx-tab-btn {
+    flex: 0 0 auto;
+    padding: 9px 16px;
+    border-radius: 24px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  /* Transaction List */
+  .tx-list {
+    width: 100%;
+    gap: 10px;
+  }
+
+  /* Transaction Card */
+  .tx-card-row {
+    width: 100%;
+    min-width: 0;
+    padding: 14px;
+    border-radius: 16px;
+    gap: 12px;
+    box-sizing: border-box;
+  }
+
+  /* Left side */
+  .tx-left {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 10px;
   }
 
   .tx-icon-circle {
     width: 38px;
     height: 38px;
+    min-width: 38px;
     font-size: 16px;
+  }
+
+  .tx-details {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .tx-title {
+    max-width: 100%;
+    font-size: 13.5px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tx-date {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  /* Right side */
+  .tx-right {
+    min-width: fit-content;
+    margin-left: 4px;
+    gap: 4px;
+    align-items: flex-end;
+  }
+
+  .tx-amount {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .tx-status-badge {
+    font-size: 9px;
+    padding: 3px 7px;
+    border-radius: 10px;
+  }
+
+  /* Empty State */
+  .tx-empty-state-card {
+    width: 100%;
+    padding: 36px 18px;
+    border-radius: 18px;
+    box-sizing: border-box;
+  }
+
+  .empty-icon-circle {
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    font-size: 20px;
+    margin-bottom: 14px;
+  }
+
+  .tx-empty-state-card h2 {
+    font-size: 16px;
+    line-height: 1.3;
+  }
+
+  .tx-empty-state-card p {
+    width: 100%;
+    max-width: 320px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .tx-fund-btn {
+    width: 100%;
+    max-width: 220px;
+    text-align: center;
+    box-sizing: border-box;
+    padding: 11px 20px;
+  }
+}
+
+
+/* =========================================================
+   SMALL PHONES
+   ========================================================= */
+
+@media (max-width: 380px) {
+  .transactions-page {
+    padding: 0 10px;
+  }
+
+  .transactions-title {
+    font-size: 22px;
+  }
+
+  .tx-tab-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+
+  .tx-card-row {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .tx-left {
+    gap: 8px;
+  }
+
+  .tx-icon-circle {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    font-size: 14px;
+  }
+
+  .tx-title {
+    font-size: 12.5px;
+  }
+
+  .tx-date {
+    font-size: 10px;
+  }
+
+  .tx-amount {
+    font-size: 13px;
+  }
+
+  .tx-status-badge {
+    font-size: 8px;
+    padding: 2px 6px;
+  }
+}
+
+
+/* =========================================================
+   VERY SMALL PHONES
+   ========================================================= */
+
+@media (max-width: 330px) {
+  .transactions-page {
+    padding: 0 8px;
+  }
+
+  .tx-card-row {
+    padding: 10px;
+  }
+
+  .tx-icon-circle {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+
+  .tx-title {
+    font-size: 12px;
+  }
+
+  .tx-amount {
+    font-size: 12px;
+  }
+
+  .tx-status-badge {
+    font-size: 7px;
   }
 }

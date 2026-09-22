@@ -124,9 +124,9 @@ const HeroSection = () => {
             <div className="recent-section">
               <div className="recent-header">
                 <span>Recent transactions</span>
-                <a href="#viewall" className="view-all">
+                <Link className="view-all" to="/signup">
                   View all
-                </a>
+                </Link>
               </div>
 
               <div className="tx-list">

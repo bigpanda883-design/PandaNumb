@@ -1,8 +1,16 @@
 import { useState } from "react";
-import { FiArrowLeft, FiEye, FiEyeOff, FiLoader, FiMoon, FiSun } from "react-icons/fi";
+import {
+  FiArrowLeft,
+  FiCheckCircle,
+  FiEye,
+  FiEyeOff,
+  FiLoader,
+  FiMoon,
+  FiSun,
+} from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthUser } from "../../auth/authStorage";
-import { useTheme } from "../../context/ThemeContext";
+import { useTheme } from "../../context/themeStore";
 import "../../CSS/auth/SignUp.css";
 
 const initialValues = {
@@ -23,6 +31,7 @@ function SignUp() {
     confirmPassword: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -32,47 +41,90 @@ function SignUp() {
 
   const validate = () => {
     const nextErrors = {};
-    if (!values.fullName.trim()) nextErrors.fullName = "Enter your full name.";
-    else if (values.fullName.trim().length < 2)
-      nextErrors.fullName = "Enter at least 2 characters.";
-    if (!values.email.trim()) nextErrors.email = "Enter your email address.";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email))
+
+    // 1. Full Name Validation
+    const nameTrimmed = values.fullName.trim();
+    if (!nameTrimmed) {
+      nextErrors.fullName = "Enter your full name.";
+    } else if (nameTrimmed.length < 2) {
+      nextErrors.fullName = "Name must be at least 2 characters.";
+    } else if (!/^[a-zA-Z\s'-]+$/.test(nameTrimmed)) {
+      nextErrors.fullName = "Name contains invalid characters.";
+    }
+
+    // 2. Email Validation
+    const emailTrimmed = values.email.trim();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailTrimmed) {
+      nextErrors.email = "Enter your email address.";
+    } else if (!emailRegex.test(emailTrimmed)) {
       nextErrors.email = "Enter a valid email address.";
-    if (!values.phone.trim()) nextErrors.phone = "Enter your phone number.";
-    if (!values.password) nextErrors.password = "Create a password.";
-    else if (values.password.length < 8)
-      nextErrors.password = "Use at least 8 characters.";
-    if (!values.confirmPassword)
+    }
+
+    // 3. Phone Validation
+    const phoneTrimmed = values.phone.trim();
+    const phoneRegex = /^\+?[0-9\s-]{7,15}$/;
+    if (!phoneTrimmed) {
+      nextErrors.phone = "Enter your phone number.";
+    } else if (!phoneRegex.test(phoneTrimmed)) {
+      nextErrors.phone = "Enter a valid phone number.";
+    }
+
+    // 4. Strong Password Validation
+    // Requires: Min 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special character
+    const passwordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!values.password) {
+      nextErrors.password = "Create a password.";
+    } else if (values.password.length < 8) {
+      nextErrors.password = "Password must be at least 8 characters.";
+    } else if (!passwordRegex.test(values.password)) {
+      nextErrors.password =
+        "Password must contain uppercase, lowercase, number, and special character (@$!%*?&).";
+    }
+
+    // 5. Confirm Password Validation
+    if (!values.confirmPassword) {
       nextErrors.confirmPassword = "Confirm your password.";
-    else if (values.confirmPassword !== values.password)
+    } else if (values.confirmPassword !== values.password) {
       nextErrors.confirmPassword = "Passwords do not match.";
+    }
+
     return nextErrors;
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
     const nextErrors = validate();
+
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
     }
 
     setIsSubmitting(true);
+
+    // Save auth state
+    setAuthUser({
+      fullName: values.fullName.trim(),
+      email: values.email.trim(),
+      phone: values.phone.trim(),
+      initials: values.fullName
+        .trim()
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase(),
+    });
+
+    // Show Success Modal
+    setShowSuccessModal(true);
+
+    // Redirect after exactly 1 second
     window.setTimeout(() => {
-      setAuthUser({
-        fullName: values.fullName.trim(),
-        email: values.email.trim(),
-        phone: values.phone.trim(),
-        initials: values.fullName
-          .trim()
-          .split(/\s+/)
-          .map((part) => part[0])
-          .join("")
-          .slice(0, 2)
-          .toUpperCase(),
-      });
       navigate("/dashboard", { replace: true });
-    }, 350);
+    }, 1000);
   };
 
   const toggleVisibility = (field) => {
@@ -81,6 +133,17 @@ function SignUp() {
 
   return (
     <main className="auth-page">
+      {/* Success Modal Popup */}
+      {showSuccessModal && (
+        <div className="auth-modal-overlay">
+          <div className="auth-modal">
+            <FiCheckCircle className="modal-icon" />
+            <h2>Account Created!</h2>
+            <p>Welcome aboard, redirecting to your dashboard...</p>
+          </div>
+        </div>
+      )}
+
       {/* Left Blue Panel */}
       <div className="auth-left-panel">
         <div className="auth-left-content">

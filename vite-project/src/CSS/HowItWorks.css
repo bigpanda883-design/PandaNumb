@@ -1,142 +1,155 @@
+/* HowItWorks.css */
+
 .pricing-section {
-  width: 100%;
   background-color: #f8fafc;
-  padding: 90px 24px 100px 24px;
-  box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  padding: 80px 20px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  color: #1e293b;
 }
 
+/* Header Styling */
 .pricing-header {
-  max-width: 760px;
   text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-bottom: 56px;
+  max-width: 640px;
+  margin: 0 auto 48px auto;
 }
 
 .pricing-pill {
+  display: inline-block;
   background-color: #e0f2fe;
   color: #0284c7;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   padding: 6px 16px;
-  border-radius: 20px;
-  margin-bottom: 20px;
+  border-radius: 9999px;
+  margin-bottom: 16px;
   text-transform: uppercase;
 }
 
 .pricing-title {
-  font-size: 42px;
-  line-height: 1.15;
+  font-size: 36px;
   font-weight: 800;
   color: #0f172a;
-  letter-spacing: -1.2px;
-  margin: 0 0 16px 0;
+  line-height: 1.25;
+  margin-bottom: 12px;
 }
 
 .pricing-subtitle {
   font-size: 16px;
-  line-height: 1.6;
   color: #64748b;
+  line-height: 1.5;
   margin: 0;
-  font-weight: 400;
 }
 
+/* Cards Layout Container */
 .pricing-cards-container {
-  max-width: 1200px;
-  width: 100%;
+  height: 50%;
   display: flex;
-  align-items: stretch;
   justify-content: center;
+  align-items: stretch;
   gap: 24px;
+  max-width: 1140px;
+  margin: 0 auto;
 }
 
+/* Base Pricing Card */
 .pricing-card {
-  flex: 1;
-  background-color: #ffffff;
+  background-color: #f8f7f7;
+  border: 1px solid #fcfcfc;
   border-radius: 24px;
-  border: 2px solid transparent;
-  padding: 36px 30px 32px 30px;
+  padding: 32px;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  cursor: pointer;
-  box-sizing: border-box;
-  position: relative;
+  box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
+.pricing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+}
+
+/* Middle Active Card */
 .pricing-card.active-card {
-  border-color: #0066ff;
-  transform: translateY(-8px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(0, 102, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
-  z-index: 2;
+  border: 2px solid #0066ff;
+  position: relative;
+  box-shadow: 0 10px 30px rgba(0, 102, 255, 0.08);
 }
 
+/* Card Top Header */
 .card-top-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  align-items: center;
   min-height: 28px;
+  margin-bottom: 20px;
 }
 
 .card-title {
   font-size: 15px;
-  font-weight: 700;
-  color: #334155;
+  font-weight: 600;
+  color: #475569;
 }
 
 .most-bought-badge {
-  background-color: #e8f3ff;
-  color: #0066ff;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 5px 12px;
-  border-radius: 14px;
-  letter-spacing: 0.5px;
+  background-color: #e0f2fe;
+  color: #0284c7;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  text-transform: uppercase;
 }
 
+/* Pricing Wrapper */
 .card-price-wrapper {
   margin-bottom: 28px;
 }
 
 .card-price {
   font-size: 40px;
-  font-weight: 900;
+  font-weight: 800;
   color: #0f172a;
-  letter-spacing: -1px;
   line-height: 1;
-  margin-bottom: 6px;
+  display: flex;
+  align-items: baseline;
+}
+
+.price-plus {
+  font-size: 24px;
+  font-weight: 600;
+  margin-left: 2px;
 }
 
 .card-price-sub {
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
-  font-weight: 500;
+  margin-top: 8px;
 }
 
+/* Features List (Left & Middle Cards) */
 .card-features-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin-bottom: 32px;
-  flex: 1;
+  flex-grow: 1;
 }
 
 .feature-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  font-size: 13.5px;
-  line-height: 1.45;
+  font-size: 14px;
   color: #475569;
-  font-weight: 500;
+  line-height: 1.4;
 }
 
 .check-icon {
@@ -146,12 +159,12 @@
   margin-top: 1px;
 }
 
+/* Details List (Right Card) */
 .card-details-list {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin-bottom: 32px;
-  flex: 1;
+  gap: 20px;
+  flex-grow: 1;
 }
 
 .detail-item {
@@ -168,47 +181,61 @@
 
 .detail-desc {
   font-size: 13px;
-  line-height: 1.45;
   color: #64748b;
+  line-height: 1.4;
   margin: 0;
 }
 
+/* Action Button Container */
 .card-action-container {
   margin-top: auto;
-  width: 100%;
+  padding-top: 12px;
 }
 
 .card-btn {
+  display: block;
   width: 100%;
-  padding: 14px 20px;
-  border-radius: 30px;
-  font-size: 15px;
-  font-weight: 700;
-  border: 1px solid #cbd5e1;
-  background-color: #ffffff;
-  color: #0f172a;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.card-btn.active-btn {
   background-color: #0066ff;
   color: #ffffff;
-  border-color: #0066ff;
-  box-shadow: 0 6px 20px rgba(0, 102, 255, 0.3);
+  text-align: center;
+  padding: 14px 20px;
+  border-radius: 9999px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    transform 0.1s ease;
+  box-sizing: border-box;
 }
 
-@media (max-width: 900px) {
+.card-btn:hover {
+  background-color: #0052cc;
+}
+
+.card-btn:active {
+  transform: scale(0.99);
+}
+
+/* Responsive Styles */
+@media (max-width: 992px) {
   .pricing-cards-container {
     flex-direction: column;
-    gap: 20px;
+    align-items: center;
   }
 
+  .pricing-card {
+    width: 100%;
+    max-width: 480px;
+  }
+}
+
+@media (max-width: 576px) {
   .pricing-title {
     font-size: 28px;
   }
 
-  .pricing-card.active-card {
-    transform: translateY(-4px) scale(1.01);
+  .pricing-card {
+    padding: 24px;
   }
 }

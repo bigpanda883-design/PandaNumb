@@ -1,10 +1,10 @@
-import { FiBell, FiMoon, FiSun } from "react-icons/fi";
+import { FiBell, FiMenu, FiMoon, FiSun } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { getAuthUser } from "../auth/authStorage";
-import { useTheme } from "../context/ThemeContext";
+import { useTheme } from "../context/themeStore";
 import "../CSS/dashboard/components/DashboardHeader.css";
 
-function DashboardHeader() {
+function DashboardHeader({ onMenuToggle }) {
   const navigate = useNavigate();
   const { isDarkMode, toggleTheme } = useTheme();
   const user = getAuthUser();
@@ -13,6 +13,14 @@ function DashboardHeader() {
   return (
     <header className="dashboard-header">
       <div className="dashboard-header-left">
+        <button
+          type="button"
+          className="dashboard-menu-button"
+          aria-label="Open navigation"
+          onClick={onMenuToggle}
+        >
+          <FiMenu size={22} aria-hidden="true" />
+        </button>
         <div>
           <span className="dashboard-header-kicker">Good morning,</span>
           <strong>Hi, {firstName}</strong>

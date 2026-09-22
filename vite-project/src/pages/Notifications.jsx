@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FiBell, FiArrowRight } from "react-icons/fi";
 import "../CSS/dashboard/pages/Notifications.css";
@@ -93,7 +93,15 @@ function Notifications() {
             <div
               key={item.id}
               className="notification-card"
+              role="button"
+              tabIndex={0}
               onClick={() => handleCardClick(item.path)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleCardClick(item.path);
+                }
+              }}
             >
               <h2 className="notification-title">{item.title}</h2>
               <p className="notification-description">{item.description}</p>

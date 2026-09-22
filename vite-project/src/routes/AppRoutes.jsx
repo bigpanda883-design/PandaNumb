@@ -13,11 +13,13 @@ import Security from "../pages/Security";
 import Transactions from "../pages/Transactions";
 import Login from "../pages/auth/Login";
 import SignUp from "../pages/auth/SignUp";
+import ScrollToTop from "../components/ScrollToTop";
 import ProtectedRoute from "./ProtectedRoute";
 
 function AppRoutes() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/login" element={<Login />} />

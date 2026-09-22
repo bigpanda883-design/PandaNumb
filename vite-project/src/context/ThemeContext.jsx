@@ -1,7 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-
-const THEME_STORAGE_KEY = "panda-numbers-theme";
-const ThemeContext = createContext(null);
+import { useEffect, useMemo, useState } from "react";
+import { THEME_STORAGE_KEY, ThemeContext } from "./themeStore";
 
 function getInitialTheme() {
   if (typeof window === "undefined") return "light";
@@ -31,8 +29,4 @@ export function ThemeProvider({ children }) {
   );
 }
 
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (!context) throw new Error("useTheme must be used inside ThemeProvider");
-  return context;
-}
+export default ThemeProvider;
