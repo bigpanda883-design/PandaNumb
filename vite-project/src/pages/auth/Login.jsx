@@ -1,8 +1,18 @@
 import { useState } from "react";
-import { FiArrowLeft, FiEye, FiEyeOff, FiLoader, FiMoon, FiSun } from "react-icons/fi";
+import {
+  FiAlertCircle,
+  FiArrowLeft,
+  FiCheckCircle,
+  FiEye,
+  FiEyeOff,
+  FiLoader,
+  FiMoon,
+  FiSun,
+  FiX,
+} from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthUser } from "../../auth/authStorage";
-import { useTheme } from "../../context/ThemeContext";
+import { useTheme } from "../../context/themeStore";
 import "../../CSS/auth/Login.css";
 
 const initialValues = {
@@ -19,6 +29,20 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Mobile Popup / Toast notification state
+  const [toast, setToast] = useState({
+    show: false,
+    message: "",
+    type: "error",
+  });
+
+  const triggerToast = (message, type = "error") => {
+    setToast({ show: true, message, type });
+    window.setTimeout(() => {
+      setToast({ show: false, message: "", type: "error" });
+    }, 4500);
+  };
+
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
     setValues((current) => ({
@@ -28,42 +52,103 @@ function Login() {
     setErrors((current) => ({ ...current, [name]: "" }));
   };
 
+  // Strong Validation Routine
   const validate = () => {
     const nextErrors = {};
-    if (!values.email.trim()) nextErrors.email = "Enter your email address.";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
-      nextErrors.email = "Enter a valid email address.";
+    const trimmedEmail = values.email.trim();
+
+    // Email Validation
+    if (!trimmedEmail) {
+      nextErrors.email = "Email address is required.";
+    } else if (
+      !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmedEmail)
+    ) {
+      nextErrors.email =
+        "Please enter a valid email address (e.g. name@domain.com).";
     }
-    if (!values.password) nextErrors.password = "Enter your password.";
-    else if (values.password.length < 8) {
-      nextErrors.password = "Your password must be at least 8 characters.";
+
+    // Password Validation
+    if (!values.password) {
+      nextErrors.password = "Password is required.";
+    } else {
+      if (values.password.length < 8) {
+        nextErrors.password = "Password must be at least 8 characters long.";
+      } else if (!/(?=.*[A-Z])/.test(values.password)) {
+        nextErrors.password =
+          "Password must contain at least one uppercase letter (A-Z).";
+      } else if (!/(?=.*\d)/.test(values.password)) {
+        nextErrors.password =
+          "Password must contain at least one number (0-9).";
+      } else if (!/(?=.*[@$!%*?&])/.test(values.password)) {
+        nextErrors.password =
+          "Password must contain at least one special character (@$!%*?&).";
+      }
     }
+
     return nextErrors;
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     const nextErrors = validate();
+
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+
+      // Trigger Mobile Pop-up / Toast Alert on first error found
+      const firstErrorMessage = Object.values(nextErrors)[0];
+      triggerToast(firstErrorMessage, "error");
       return;
     }
 
     setIsSubmitting(true);
-    window.setTimeout(() => {
+
+    try {
+      // Simulate API call processing safely
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
       const name = values.email.split("@")[0] || "Panda User";
       setAuthUser({
         fullName: name,
-        email: values.email,
+        email: values.email.trim(),
         phone: "09132490567",
         initials: name.slice(0, 2).toUpperCase(),
       });
-      navigate("/dashboard", { replace: true });
-    }, 350);
+
+      triggerToast("Sign in successful! Redirecting...", "success");
+
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 500);
+    } catch {
+      triggerToast("An unexpected error occurred. Please try again.", "error");
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <main className="auth-page">
+      {/* Mobile Pop-up Alert Banner */}
+      {toast.show && (
+        <div className={`auth-mobile-popup ${toast.type}`} role="alert">
+          <div className="popup-content">
+            {toast.type === "error" ? (
+              <FiAlertCircle className="popup-icon" />
+            ) : (
+              <FiCheckCircle className="popup-icon" />
+            )}
+            <span>{toast.message}</span>
+          </div>
+          <button
+            type="button"
+            className="popup-close-btn"
+            onClick={() => setToast({ ...toast, show: false })}
+          >
+            <FiX />
+          </button>
+        </div>
+      )}
+
       {/* Left Branding Panel */}
       <div className="auth-left-panel">
         <div className="auth-left-content">
@@ -131,6 +216,7 @@ function Login() {
                 autoComplete="email"
                 value={values.email}
                 onChange={handleChange}
+                className={errors.email ? "input-error" : ""}
                 aria-invalid={Boolean(errors.email)}
                 aria-describedby={
                   errors.email ? "login-email-error" : undefined
@@ -154,6 +240,7 @@ function Login() {
                   autoComplete="current-password"
                   value={values.password}
                   onChange={handleChange}
+                  className={errors.password ? "input-error" : ""}
                   aria-invalid={Boolean(errors.password)}
                   aria-describedby={
                     errors.password ? "login-password-error" : undefined
@@ -191,7 +278,12 @@ function Login() {
                 <span>Remember me</span>
               </label>
 
-              <a href="#forgot-password" className="auth-inline-link">
+              {/* There is no self-service reset flow yet, so this opens the
+                  support mailbox that the Footer and Help Center also use. */}
+              <a
+                href="mailto:Bigpanda883@gmail.com?subject=Panda%20Numbers%20password%20reset"
+                className="auth-inline-link"
+              >
                 Forgot password?
               </a>
             </div>

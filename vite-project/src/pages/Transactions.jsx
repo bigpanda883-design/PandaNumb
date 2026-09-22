@@ -120,7 +120,15 @@ function Transactions() {
               <div
                 key={tx.id}
                 className="tx-card-row"
+                role="button"
+                tabIndex={0}
                 onClick={() => handleRowClick(tx.path)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleRowClick(tx.path);
+                  }
+                }}
               >
                 <div className="tx-left">
                   <div className={`tx-icon-circle ${tx.type}`}>

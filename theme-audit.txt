@@ -1,0 +1,98 @@
+
+=== CSS\auth\Login.css (5) ===
+  [bg:.auth-left-panel] /* Semi-transparent decorative circle background */ .auth-left-panel::after
+  [bg:.auth-brand-mark] .auth-brand-mark
+  [color:.dark-mode+.dark-mode+.dark-mode] body.dark-mode .auth-heading p, body.dark-mode .auth-back-link, body.dark-mode .auth-switch
+  [color:.dark-mode] body.dark-mode .auth-tab
+  [color:.dark-mode] body.dark-mode .field-group input::placeholder
+
+=== CSS\auth\SignUp.css (5) ===
+  [bg:.auth-left-panel] /* Decorative circle background */ .auth-left-panel::after
+  [bg:.auth-brand-mark] .auth-brand-mark
+  [bg:.auth-modal] .auth-modal
+  [color:.auth-modal] .auth-modal h2
+  [color:.auth-modal] .auth-modal p
+
+=== CSS\dashboard\components\BalanceCard.css (5) ===
+  [bg:.currency-switcher] /* Top Right Currency Switcher */ .currency-switcher
+  [bg:.currency-pill] .currency-pill.active
+  [bg:.balance-btn] /* Deposit Button (Transparent Soft Blue) */ .balance-btn.secondary-btn
+  [bg:.balance-btn] .balance-btn.secondary-btn:hover
+  [bg:.balance-btn+.primary-btn] /* Buy Number Button (Solid White) */ .balance-btn.primary-btn
+
+=== CSS\dashboard\Dashboard.css (2) ===
+  [bg:.currency-switcher] .currency-switcher
+  [bg:.currency-option] .currency-option.active
+
+=== CSS\dashboard\pages\Buy.css (2) ===
+  [border:.buy-flow-container] .buy-flow-container .service-card
+  [color:.confirm-title] .confirm-title
+
+=== CSS\dashboard\pages\DashboardHome.css (6) ===
+  [bg:.currency-toggle-pill] .currency-toggle-pill
+  [bg:.currency-toggle-pill] .currency-toggle-pill button.active
+  [bg:.masked-dots] .masked-dots span
+  [bg:.deposit-action-btn] .deposit-action-btn
+  [bg:.buy-number-action-btn] .buy-number-action-btn
+  [bg:.recent-transactions-section] .transaction-row, .recent-transactions-section .transaction-row
+
+=== CSS\dashboard\pages\Deposit.css (3) ===
+  [color:.currency-symbol] .currency-symbol
+  [border:.detail-item] .detail-item
+  [color:.new-bal-label] .new-bal-label
+
+=== CSS\dashboard\pages\HelpCenter.css (14) ===
+  [color:.help-center-wrapper] /* ========================================== Base & Desktop Layout ========================================== */ .help-center-wrapper
+  [color:.help-center-header] .help-center-header h1
+  [color:.help-center-header] .help-center-header p
+  [bg:.help-card,border:.help-card] .help-card
+  [bg:.help-card-icon-wrap] .help-card-icon-wrap
+  [color:.help-card] .help-card h3
+  [color:.help-card-contact] .help-card-contact
+  [bg:.help-faq-card,border:.help-faq-card] /* FAQ Outer Card */ .help-faq-card
+  [color:.faq-search-icon] .faq-search-icon
+  [bg:.faq-search-wrap,color:.faq-search-wrap,border:.faq-search-wrap] .faq-search-wrap input
+  [color:.faq-search-wrap] .faq-search-wrap input::placeholder
+  [color:.faq-question-btn] .faq-question-btn
+  [color:.faq-arrow] .faq-arrow
+  [color:.faq-no-results] .faq-no-results
+
+=== CSS\dashboard\pages\MyNumbers.css (14) ===
+  [color:.mynumbers-container] .mynumbers-container
+  [color:.main-title] .main-title
+  [color:.main-subtitle] .main-subtitle
+  [bg:.number-item-card,border:.number-item-card] .number-item-card
+  [border:.number-item-card] .number-item-card:hover
+  [bg:.country-circle-badge] .country-circle-badge
+  [color:.phone-number-title] .phone-number-title
+  [color:.phone-details-sub] .phone-details-sub
+  [bg:.badge-code-received-light] .badge-code-received-light
+  [color:.item-price] .item-price
+  [bg:.status-pill-completed,color:.status-pill-completed] .status-pill-completed
+  [color:.chevron-icon] .chevron-icon
+  [bg:.refresh-btn,color:.refresh-btn,border:.refresh-btn] .refresh-btn
+  [bg:.chat-bubble-icon] .chat-bubble-icon
+
+=== CSS\dashboard\pages\Profile.css (2) ===
+  [bg:.profile-page-container,border:.profile-page-container] .profile-page-container .form-group input
+  [bg:.support-card] .support-card:hover
+
+=== CSS\dashboard\pages\Security.css (1) ===
+  [border:.security-page] .security-page .form-group input
+
+=== CSS\FaqCtaSection.css (3) ===
+  [bg:.cta-bg-circle] .cta-bg-circle
+  [bg:.cta-btn-primary] .cta-btn-primary
+  [bg:.cta-btn-secondary] .cta-btn-secondary:hover
+
+=== CSS\Header.css (1) ===
+  [bg:.logo-dot] .logo-dot
+
+=== CSS\Hero.css (2) ===
+  [bg:.wallet-btn] .wallet-btn.deposit
+  [bg:.wallet-btn+.buy] .wallet-btn.buy
+
+=== CSS\HowItWorks.css (1) ===
+  [color:.pricing-section] /* HowItWorks.css */ .pricing-section
+
+TOTAL uncovered light-surface rules: 66

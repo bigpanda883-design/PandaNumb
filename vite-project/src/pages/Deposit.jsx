@@ -8,6 +8,7 @@ import {
   FiLoader,
   FiCheck,
 } from "react-icons/fi";
+import { FaBuildingColumns } from "react-icons/fa6";
 import "../CSS/dashboard/pages/Deposit.css";
 
 const PRESET_AMOUNTS = [100, 500, 1000, 2000, 5000, 10000, 20000];
@@ -172,7 +173,9 @@ export default function Deposit() {
             <div className="detail-item">
               <span className="detail-label">Bank</span>
               <div className="detail-val-row">
-                <span className="bank-icon-badge">🏦</span>
+                <span className="bank-icon-badge">
+                  <FaBuildingColumns aria-hidden="true" />
+                </span>
                 <strong className="detail-value">{bankDetails.bankName}</strong>
               </div>
             </div>

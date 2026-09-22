@@ -400,6 +400,15 @@
   text-decoration: none;
 }
 @media (max-width: 900px) {
+  .dashboard-menu-button {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    padding: 0;
+    border-radius: 10px;
+  }
   .dashboard-main-shell {
     margin-left: 0;
   }

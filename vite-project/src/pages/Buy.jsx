@@ -24,7 +24,7 @@ import {
   FaRobot,
   FaShieldHalved,
 } from "react-icons/fa6";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import "../CSS/dashboard/pages/Buy.css";
 
 // 1. Service List with Official Attached Logos
@@ -357,12 +357,21 @@ const COUNTRIES = [
 
 function Buy() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Service cards on the dashboard open this page with router state
+  // ({ service: "WhatsApp" }), so honour that instead of ignoring it.
+  const requestedService = useMemo(() => {
+    const requested = location.state?.service;
+    if (!requested) return null;
+    return SERVICES.find((service) => service.name === requested) ?? null;
+  }, [location.state]);
 
   // Navigation step control (1: Service, 2: Country, 3: Confirm)
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(requestedService ? 2 : 1);
 
   // Selected state
-  const [selectedService, setSelectedService] = useState(null);
+  const [selectedService, setSelectedService] = useState(requestedService);
   const [selectedCountry, setSelectedCountry] = useState(null);
 
   // Search filter query

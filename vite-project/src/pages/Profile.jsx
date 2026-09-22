@@ -1,17 +1,22 @@
 import { useState } from "react";
 import { FiLifeBuoy, FiLogOut } from "react-icons/fi";
+import { useNavigate } from "react-router-dom";
+import { clearAuthUser, getAuthUser } from "../auth/authStorage";
 import "../CSS/dashboard/pages/Profile.css";
 
 function Profile() {
+  const navigate = useNavigate();
+  const user = getAuthUser();
+
   const [formData, setFormData] = useState({
-    fullName: "Big panda",
-    email: "fxpanda74@gmail.com",
-    phoneNumber: "09132490567",
+    fullName: user?.fullName || "",
+    email: user?.email || "",
+    phoneNumber: user?.phone || "",
   });
 
   // Calculate initials from Full Name
   const getInitials = (name) => {
-    if (!name) return "";
+    if (!name) return "PN";
     const parts = name.trim().split(" ");
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     return (
@@ -32,12 +37,15 @@ function Profile() {
     alert("Profile changes saved successfully!");
   };
 
+  // Support already has a home in the app — send people there instead of
+  // showing a dead end.
   const handleSupportClick = () => {
-    alert("Redirecting to support...");
+    navigate("/help-center");
   };
 
   const handleLogout = () => {
-    alert("Logging out...");
+    clearAuthUser();
+    navigate("/login", { replace: true });
   };
 
   return (

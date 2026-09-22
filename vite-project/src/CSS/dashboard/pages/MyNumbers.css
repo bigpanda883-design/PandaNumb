@@ -1,23 +1,172 @@
-/* Page Outer Wrapper */
+/* =========================================
+   PAGE WRAPPER
+========================================= */
+
 .mynumbers-page-wrapper {
+  width: 100%;
+  min-height: 100vh;
   background-color: #f6f8fc;
-  min-height: 0;
-  padding: 0;
+  padding: 40px 20px;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
-/* Container */
 .mynumbers-container {
   width: 100%;
-  max-width: 1000px;
+  max-width: 860px;
   margin: 0 auto;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
   color: #0f172a;
+  box-sizing: border-box;
 }
 
-/* Header */
+.mynumbers-container *,
+.mynumbers-container *::before,
+.mynumbers-container *::after {
+  box-sizing: border-box;
+}
+
+/* =========================================
+   LIST VIEW
+========================================= */
+
+.list-header {
+  margin-bottom: 28px;
+}
+
+.main-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0d1727;
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.main-subtitle {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.numbers-cards-flex {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.number-item-card {
+  width: 100%;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.number-item-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.item-card-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.country-circle-badge {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+  background-color: #e0f2fe;
+  color: #0284c7;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phone-number-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.phone-details-sub {
+  font-size: 13px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.status-tag-row {
+  margin-top: 2px;
+}
+
+.badge-code-received-light {
+  display: inline-block;
+  background-color: #ecfdf5;
+  color: #10b981;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.item-card-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.item-price {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.status-pill-completed {
+  background-color: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.chevron-icon {
+  font-size: 18px;
+  color: #94a3b8;
+}
+
+/* =========================================
+   DETAIL HEADER
+========================================= */
+
 .mynumbers-header {
   display: flex;
   align-items: center;
@@ -28,6 +177,7 @@
 .back-circle-btn {
   width: 38px;
   height: 38px;
+  min-width: 38px;
   border-radius: 50%;
   border: 1px solid #e2e8f0;
   background-color: #ffffff;
@@ -37,91 +187,65 @@
   font-size: 18px;
   color: #1e293b;
   cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.back-circle-btn:hover {
-  background-color: #f1f5f9;
 }
 
 .mynumbers-title {
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 800;
   margin: 0;
-  color: #000000;
-  letter-spacing: -0.01em;
+  color: #0f172a;
 }
 
-/* BLUE BANNER CARD */
+/* =========================================
+   BLUE NUMBER BANNER
+========================================= */
+
 .number-card-banner {
+  width: 100%;
   background-color: #0062e0;
   border-radius: 28px;
   padding: 28px 32px;
   color: #ffffff;
   margin-bottom: 32px;
-  box-sizing: border-box;
 }
 
-.card-inner-flex {
+.card-top-flex {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 24px;
 }
 
-.card-left-content {
+.card-left-meta {
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.service-tag {
+.card-service-meta {
   font-size: 13px;
-  font-weight: 500;
   color: rgba(255, 255, 255, 0.85);
   margin-bottom: 8px;
 }
 
-.country-code {
-  text-transform: lowercase;
-}
-
 .phone-number-display {
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 800;
   letter-spacing: -0.01em;
   margin-bottom: 10px;
   color: #ffffff;
   line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .card-sub-info {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.75);
-  margin-bottom: 18px;
-  font-weight: 400;
-}
-
-.card-status-badge {
-  display: flex;
-}
-
-.badge-pill {
-  background: rgba(255, 255, 255, 0.18);
-  padding: 5px 12px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.badge-icon {
-  font-size: 12px;
+  margin-bottom: 20px;
 }
 
 .copy-card-btn {
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.2);
   border: none;
   border-radius: 20px;
@@ -132,19 +256,24 @@
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  transition: background-color 0.15s ease;
+  white-space: nowrap;
 }
 
-.copy-card-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
+.card-status-badge {
+  display: flex;
 }
 
-/* INBOX SECTION HEADER */
+/* =========================================
+   INBOX
+========================================= */
+
 .inbox-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   margin-bottom: 14px;
 }
 
@@ -156,6 +285,7 @@
 }
 
 .refresh-btn {
+  flex-shrink: 0;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 20px;
@@ -169,15 +299,15 @@
   cursor: pointer;
 }
 
-.refresh-btn:hover {
-  background-color: #f8fafc;
-}
+/* =========================================
+   NO CODES
+========================================= */
 
-/* NO CODES STATE */
 .no-codes-panel {
+  width: 100%;
   border: 1px dashed #cbd5e1;
   border-radius: 24px;
-  padding: 48px 24px 44px;
+  padding: 48px 24px;
   text-align: center;
   background-color: #ffffff;
   display: flex;
@@ -201,7 +331,7 @@
 .no-codes-title {
   font-size: 16px;
   font-weight: 700;
-  margin: 0 0 8px 0;
+  margin: 0 0 8px;
   color: #0f172a;
 }
 
@@ -210,7 +340,7 @@
   color: #64748b;
   max-width: 380px;
   line-height: 1.45;
-  margin: 0 0 20px 0;
+  margin: 0 0 20px;
 }
 
 .get-code-btn {
@@ -225,14 +355,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background-color 0.15s ease;
 }
 
-.get-code-btn:hover {
-  background-color: #0052bd;
-}
-
-.mynumbers-container .spin-icon {
+.spin-icon {
   animation: spin 1s linear infinite;
 }
 
@@ -240,13 +365,18 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
 }
 
-/* CODE RECEIVED STATE */
+/* =========================================
+   CODE RECEIVED
+========================================= */
+
 .code-received-panel {
+  width: 100%;
   border: 1px solid #86efac;
   border-radius: 24px;
   padding: 24px;
@@ -263,29 +393,30 @@
   gap: 6px;
 }
 
-.check-green-icon {
-  font-size: 15px;
-}
-
 .code-display-row {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   margin-bottom: 14px;
 }
 
 .spaced-code-digits {
+  min-width: 0;
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .digit-char {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 800;
   color: #0062e0;
 }
 
 .copy-code-pill-btn {
+  flex-shrink: 0;
   background-color: #e0edff;
   border: none;
   border-radius: 20px;
@@ -297,17 +428,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: background-color 0.15s ease;
-}
-
-.copy-code-pill-btn:hover {
-  background-color: #d0e2ff;
+  white-space: nowrap;
 }
 
 .sms-message-text {
   font-size: 13px;
   color: #475569;
-  margin: 0 0 10px 0;
+  margin: 0 0 10px;
   line-height: 1.4;
 }
 
@@ -316,24 +443,258 @@
   color: #94a3b8;
 }
 
-/* RESPONSIVE */
-@media (max-width: 640px) {
+/* =========================================
+   TABLET
+========================================= */
+
+@media (max-width: 768px) {
   .mynumbers-page-wrapper {
-    padding: 20px 12px;
+    padding: 24px 16px;
+  }
+
+  .number-item-card {
+    padding: 18px;
   }
 
   .number-card-banner {
-    padding: 20px;
-    border-radius: 20px;
+    padding: 24px;
+    border-radius: 24px;
   }
 
   .phone-number-display {
+    font-size: 28px;
+  }
+}
+
+/* =========================================
+   MOBILE
+========================================= */
+
+@media (max-width: 640px) {
+  .mynumbers-page-wrapper {
+    width: 100%;
+    min-height: 100vh;
+    padding: 16px 12px;
+    overflow-x: hidden;
+  }
+
+  .mynumbers-container {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .list-header {
+    margin-bottom: 20px;
+  }
+
+  .main-title {
     font-size: 24px;
   }
 
-  .no-codes-panel,
-  .code-received-panel {
+  .main-subtitle {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* Number list */
+
+  .number-item-card {
+    width: 100%;
+    padding: 14px;
+    border-radius: 16px;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .item-card-left {
+    flex: 1;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .country-circle-badge {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    font-size: 10px;
+  }
+
+  .phone-number-title {
+    font-size: 14px;
+  }
+
+  .phone-details-sub {
+    font-size: 11px;
+  }
+
+  .item-card-right {
+    flex-shrink: 0;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+
+  .item-price {
+    font-size: 13px;
+  }
+
+  .status-pill-completed {
+    font-size: 10px;
+    padding: 3px 7px;
+  }
+
+  .chevron-icon {
+    display: none;
+  }
+
+  /* Detail header */
+
+  .mynumbers-header {
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .back-circle-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  .mynumbers-title {
+    font-size: 21px;
+  }
+
+  /* Blue card */
+
+  .number-card-banner {
+    width: 100%;
+    padding: 20px;
     border-radius: 20px;
+    margin-bottom: 24px;
+  }
+
+  .card-top-flex {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  .card-left-meta {
+    width: 100%;
+  }
+
+  .phone-number-display {
+    font-size: 23px;
+    word-break: break-word;
+  }
+
+  .card-sub-info {
+    font-size: 11px;
+  }
+
+  .copy-card-btn {
+    align-self: flex-start;
+    width: auto;
+  }
+
+  /* Inbox */
+
+  .inbox-section-header {
+    gap: 10px;
+  }
+
+  .inbox-title {
+    font-size: 15px;
+  }
+
+  .refresh-btn {
+    padding: 6px 11px;
+    font-size: 11px;
+  }
+
+  /* Empty state */
+
+  .no-codes-panel {
     padding: 32px 16px;
+    border-radius: 18px;
+  }
+
+  .no-codes-desc {
+    max-width: 100%;
+  }
+
+  .get-code-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Received code */
+
+  .code-received-panel {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .code-display-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .spaced-code-digits {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .digit-char {
+    font-size: 22px;
+  }
+
+  .copy-code-pill-btn {
+    align-self: flex-start;
+  }
+}
+
+/* =========================================
+   VERY SMALL PHONES
+========================================= */
+
+@media (max-width: 380px) {
+  .mynumbers-page-wrapper {
+    padding: 12px 10px;
+  }
+
+  .number-item-card {
+    padding: 12px;
+  }
+
+  .country-circle-badge {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
+  .phone-number-title {
+    font-size: 13px;
+  }
+
+  .phone-details-sub {
+    font-size: 10px;
+  }
+
+  .item-price {
+    font-size: 12px;
+  }
+
+  .number-card-banner {
+    padding: 16px;
+  }
+
+  .phone-number-display {
+    font-size: 20px;
+  }
+
+  .digit-char {
+    font-size: 20px;
   }
 }

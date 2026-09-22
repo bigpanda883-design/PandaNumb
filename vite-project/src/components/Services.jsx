@@ -34,7 +34,7 @@ const Services = () => {
   ];
 
   return (
-    <section id="services" className="why-us-section">
+    <section id="why-us" className="why-us-section">
       <div className="why-us-container">
         <div className="why-us-header">
           <span className="why-us-pill">WHY PANDA NUMBERS</span>
