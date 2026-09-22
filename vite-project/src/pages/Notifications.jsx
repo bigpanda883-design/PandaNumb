@@ -1,82 +1,76 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { FiBell, FiArrowRight } from "react-icons/fi";
+import { FiBell, FiArrowRight, FiCheck } from "react-icons/fi";
+import { useNotifications } from "../hooks/useNotifications";
+import {
+  markAllNotificationsRead,
+  markNotificationRead,
+  seedNotificationsOnce,
+} from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/Notifications.css";
 
-const initialNotifications = [
+// Sample history, seeded once into the store so a brand-new account still has
+// something to show. Real account actions append to the same store on top.
+const sampleNotifications = [
   {
-    id: 1,
     type: "code",
     title: "Verification code received",
     description: "WhatsApp code 750529 arrived.",
     date: "18 Sept 2026, 02:09",
-    path: "/my-numbers"
+    path: "/my-numbers",
   },
   {
-    id: 2,
     type: "purchase",
     title: "Number purchased",
     description: "WhatsApp number +1 632 923 4808 is ready.",
     date: "18 Sept 2026, 02:00",
-    path: "/my-numbers"
+    path: "/my-numbers",
   },
   {
-    id: 3,
     type: "deposit",
     title: "Deposit successful",
     description: "Your wallet has been credited.",
     date: "17 Sept 2026, 23:19",
-    path: "/transactions"
+    path: "/transactions",
   },
   {
-    id: 4,
     type: "deposit",
     title: "Deposit successful",
     description: "Your wallet has been credited.",
     date: "17 Sept 2026, 23:16",
-    path: "/transactions"
+    path: "/transactions",
   },
   {
-    id: 5,
-    type: "deposit",
-    title: "Deposit successful",
-    description: "Your wallet has been credited.",
-    date: "07 Sept 2026, 08:30",
-    path: "/transactions"
-  },
-  {
-    id: 6,
     type: "code",
     title: "Verification code received",
     description: "Telegram code 917414 arrived.",
     date: "07 Sept 2026, 07:55",
-    path: "/my-numbers"
+    path: "/my-numbers",
   },
   {
-    id: 7,
     type: "purchase",
     title: "Number purchased",
     description: "Telegram number +1 229 838 3490 is ready.",
     date: "07 Sept 2026, 07:52",
-    path: "/my-numbers"
+    path: "/my-numbers",
   },
-  {
-    id: 8,
-    type: "deposit",
-    title: "Deposit successful",
-    description: "Your wallet has been credited.",
-    date: "22 Aug 2026, 19:32",
-    path: "/transactions"
-  }
 ];
 
 function Notifications() {
-  const [notifications] = useState(initialNotifications);
+  const { notifications, unreadCount } = useNotifications();
   const navigate = useNavigate();
 
-  const handleCardClick = (path) => {
-    if (path) {
-      navigate(path);
+  // Make sure the sample history exists before the first render reads it.
+  useEffect(() => {
+    seedNotificationsOnce(sampleNotifications);
+  }, []);
+
+  // Opening an individual notification clears its unread flag, which updates
+  // the header badge immediately through the shared store.
+  const handleCardClick = (item) => {
+    markNotificationRead(item.id);
+    if (item.path) {
+      navigate(item.path);
     }
   };
 
@@ -84,7 +78,23 @@ function Notifications() {
     <section className="notifications-page-container">
       <div className="notifications-header">
         <h1>Notifications</h1>
-        <p>Everything happening on your account.</p>
+        <p>
+          {unreadCount > 0
+            ? `You have ${unreadCount} unread notification${
+                unreadCount === 1 ? "" : "s"
+              }.`
+            : "Everything happening on your account."}
+        </p>
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            className="notifications-mark-all-btn"
+            onClick={markAllNotificationsRead}
+          >
+            <FiCheck aria-hidden="true" />
+            Mark all as read
+          </button>
+        )}
       </div>
 
       <div className="notifications-list-wrapper">
@@ -92,20 +102,25 @@ function Notifications() {
           notifications.map((item) => (
             <div
               key={item.id}
-              className="notification-card"
+              className={`notification-card${
+                item.read ? "" : " notification-card-unread"
+              }`}
               role="button"
               tabIndex={0}
-              onClick={() => handleCardClick(item.path)}
+              onClick={() => handleCardClick(item)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  handleCardClick(item.path);
+                  handleCardClick(item);
                 }
               }}
             >
               <h2 className="notification-title">{item.title}</h2>
               <p className="notification-description">{item.description}</p>
               <span className="notification-date">{item.date}</span>
+              {!item.read && (
+                <span className="notification-unread-dot" aria-label="Unread" />
+              )}
             </div>
           ))
         ) : (

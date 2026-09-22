@@ -2,6 +2,7 @@ import { FiBell, FiMenu, FiMoon, FiSun } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { getAuthUser } from "../auth/authStorage";
 import { useTheme } from "../context/themeStore";
+import { useNotifications } from "../hooks/useNotifications";
 import "../CSS/dashboard/components/DashboardHeader.css";
 
 function DashboardHeader({ onMenuToggle }) {
@@ -9,6 +10,8 @@ function DashboardHeader({ onMenuToggle }) {
   const { isDarkMode, toggleTheme } = useTheme();
   const user = getAuthUser();
   const firstName = user?.fullName?.split(" ")[0] || "Big";
+  // Live unread count straight from the notification store - never hardcoded.
+  const { unreadCount } = useNotifications();
 
   return (
     <header className="dashboard-header">
@@ -36,10 +39,19 @@ function DashboardHeader({ onMenuToggle }) {
         </button>
         <button
           className="dashboard-icon-button"
-          aria-label="Notifications"
+          aria-label={
+            unreadCount > 0
+              ? `Notifications, ${unreadCount} unread`
+              : "Notifications"
+          }
           onClick={() => navigate("/notifications")}
         >
           <FiBell />
+          {unreadCount > 0 && (
+            <span className="dashboard-notification-badge" aria-hidden="true">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
         </button>
         <button
           className="dashboard-avatar"

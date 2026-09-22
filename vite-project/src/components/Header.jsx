@@ -4,13 +4,16 @@ import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "../context/themeStore";
 import "../CSS/Header.css";
 
+// Every item points at a section that already exists on the landing page, so
+// nothing here creates a duplicate section. `sectionId` is used both for the
+// scroll target and to decide which item is highlighted in the header.
 const navLinks = [
-  { label: "Home", to: "/" },
+  { label: "Home", to: "/#home", sectionId: "home" },
   { label: "How It Works", to: "/#how-it-works", sectionId: "how-it-works" },
   { label: "Services", to: "/#services", sectionId: "services" },
   { label: "Pricing", to: "/#pricing", sectionId: "pricing" },
   { label: "FAQ", to: "/#faq", sectionId: "faq" },
-  { label: "Help", to: "/#help", sectionId: "help" },
+  { label: "Help", to: "/#why-us", sectionId: "why-us", fallback: "help" },
 ];
 
 const Navbar = () => {
@@ -18,12 +21,12 @@ const Navbar = () => {
   const { pathname, hash } = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Highlight the item that matches the current URL. Section links own the
-  // hash, so "Home" is only active on the landing page with no hash.
+  // Highlight the item that matches the current URL. "Home" is also active on
+  // the landing page with no hash at all, since that is its scroll target.
   const activeLabel = navLinks.find((link) =>
-    link.sectionId
-      ? hash === `#${link.sectionId}`
-      : pathname === "/" && !hash,
+    hash
+      ? hash === `#${link.sectionId}` || hash === `#${link.fallback}`
+      : pathname === "/" && link.label === "Home",
   )?.label;
 
   const closeMobileMenu = () => setMobileMenuOpen(false);

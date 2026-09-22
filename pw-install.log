@@ -1,0 +1,15 @@
+Failed to install browsers
+Error: 
+╔═════════════════════════════════════════════════════════════════════════════╗
+║ An active lockfile is found at:                                             ║
+║                                                                             ║
+║   C:\Users\owner\AppData\Local\ms-playwright\__dirlock                      ║
+║                                                                             ║
+║ Either:                                                                     ║
+║ - wait a few minutes if other Playwright is installing browsers in parallel ║
+║ - remove lock manually with:                                                ║
+║                                                                             ║
+║     rm -R C:\Users\owner\AppData\Local\ms-playwright\__dirlock              ║
+║                                                                             ║
+║ <3 Playwright Team                                                          ║
+╚═════════════════════════════════════════════════════════════════════════════╝

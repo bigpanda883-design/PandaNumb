@@ -12,6 +12,7 @@ import {
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthUser } from "../../auth/authStorage";
+import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import "../../CSS/auth/Login.css";
 
@@ -113,6 +114,13 @@ function Login() {
         email: values.email.trim(),
         phone: "09132490567",
         initials: name.slice(0, 2).toUpperCase(),
+      });
+
+      pushNotification({
+        type: "security",
+        title: "New sign-in",
+        description: "Your account was accessed from a new session.",
+        path: "/security",
       });
 
       triggerToast("Sign in successful! Redirecting...", "success");

@@ -563,3 +563,177 @@ html[data-theme="dark"] .dashboard-app .logout-card .action-icon {
 
 /* Blue CTAs (submit / buy / deposit / save / fund / active pills) and the blue
    balance banners already have enough contrast on dark, so they are left as-is. */
+/* -----------------------------------------------------------------------------
+   10. My Numbers - list view + code panels
+   -----------------------------------------------------------------------------
+   The list view is the one surface the grouped rules above miss entirely, so in
+   dark mode it kept its white cards, near-black titles and pastel status
+   badges. Everything below only changes colours/borders - layout, spacing and
+   typography are untouched, so the page keeps its exact design.
+   -------------------------------------------------------------------------- */
+
+/* --- List view: page headings --------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .main-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .main-subtitle {
+  color: #93a3bd;
+}
+
+/* --- List view: number cards ---------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .number-item-card {
+  background-color: #151d2e;
+  border-color: #263149;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .dashboard-app .number-item-card:hover {
+  background-color: #1b2438;
+  border-color: #33415c;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* Card copy */
+html[data-theme="dark"] .dashboard-app .phone-number-title,
+html[data-theme="dark"] .dashboard-app .item-price {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .phone-details-sub {
+  color: #93a3bd;
+}
+
+/* Country chip - was pale blue with a saturated blue label */
+html[data-theme="dark"] .dashboard-app .country-circle-badge {
+  background-color: rgba(59, 130, 246, 0.16);
+  color: #6aa5ff;
+}
+
+/* Status badges on the light card */
+html[data-theme="dark"] .dashboard-app .badge-code-received-light {
+  background-color: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+}
+
+html[data-theme="dark"] .dashboard-app .status-pill-completed {
+  background-color: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .dashboard-app .chevron-icon {
+  color: #64748b;
+}
+
+/* --- Detail view: back button + title ------------------------------------- */
+html[data-theme="dark"] .dashboard-app .back-circle-btn {
+  background-color: #151d2e;
+  border-color: #263149;
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .mynumbers-title {
+  color: #e9eefb;
+}
+
+/* --- Detail view: blue number banner ---------------------------------------
+   The banner is a saturated blue in both themes (as intended), so only the
+   inner copy and translucent button need a contrast pass. */
+html[data-theme="dark"] .dashboard-app .number-card-banner {
+  background-color: #0b5ed7;
+  border: 1px solid #1d4ed8;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .card-service-meta {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+html[data-theme="dark"] .dashboard-app .country-tag {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .copy-card-btn {
+  background-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .dashboard-app .copy-card-btn:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+/* --- Inbox header: refresh button ----------------------------------------- */
+html[data-theme="dark"] .dashboard-app .refresh-btn {
+  background-color: #151d2e;
+  border-color: #263149;
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .dashboard-app .refresh-btn:hover {
+  background-color: #1b2438;
+  border-color: #33415c;
+  color: #ffffff;
+}
+
+/* --- Empty state: no codes yet -------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .no-codes-panel {
+  background-color: #101827;
+  border-color: #33415c;
+}
+
+html[data-theme="dark"] .dashboard-app .chat-bubble-icon {
+  background-color: rgba(59, 130, 246, 0.16);
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .no-codes-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .no-codes-desc {
+  color: #93a3bd;
+}
+
+/* --- Verification code received panel ------------------------------------- */
+html[data-theme="dark"] .dashboard-app .code-received-panel {
+  background-color: #101827;
+  border-color: rgba(52, 211, 153, 0.45);
+}
+
+html[data-theme="dark"] .dashboard-app .received-card-header {
+  color: #34d399;
+}
+
+html[data-theme="dark"] .dashboard-app .check-green-icon {
+  color: #34d399;
+}
+
+html[data-theme="dark"] .dashboard-app .digit-char {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .copy-code-pill-btn {
+  background-color: rgba(59, 130, 246, 0.18);
+  color: #7fb0ff;
+}
+
+html[data-theme="dark"] .dashboard-app .copy-code-pill-btn:hover {
+  background-color: rgba(59, 130, 246, 0.28);
+  color: #a3c6ff;
+}
+
+html[data-theme="dark"] .dashboard-app .sms-message-text {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .dashboard-app .sms-timestamp {
+  color: #64748b;
+}
+
+/* --- Loading skeletons (shared skeleton primitives) ----------------------- */
+html[data-theme="dark"] .dashboard-app .sk-block {
+  --sk-base: #1b2438;
+  --sk-sheen: #2a3651;
+}

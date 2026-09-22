@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FiLifeBuoy, FiLogOut } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { clearAuthUser, getAuthUser } from "../auth/authStorage";
+import { pushNotification } from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/Profile.css";
 
 function Profile() {
@@ -35,6 +36,13 @@ function Profile() {
   const handleSubmit = (e) => {
     e.preventDefault();
     alert("Profile changes saved successfully!");
+
+    pushNotification({
+      type: "security",
+      title: "Profile updated",
+      description: "Your account details were changed.",
+      path: "/profile",
+    });
   };
 
   // Support already has a home in the app — send people there instead of

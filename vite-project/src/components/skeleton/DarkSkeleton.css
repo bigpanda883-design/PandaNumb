@@ -1,0 +1,22 @@
+/* -----------------------------------------------------------------------------
+   Panda Numbers - Skeleton dark theme
+   -----------------------------------------------------------------------------
+   Mirrors the scoping used by CSS/dashboard/DarkMode.css: ThemeContext writes
+   <html data-theme="dark"> and every rule is prefixed with .dashboard-app so the
+   public marketing/auth screens keep their own light skeletons. Because the
+   palette lives in custom properties, the fix is just a variable swap.
+
+   The base is a touch lighter than the #0b1120 page shell so blocks read as
+   "loading" rather than as holes in the page.
+   -------------------------------------------------------------------------- */
+
+html[data-theme="dark"] .dashboard-app .sk-block {
+  --sk-base: #1b2438;
+  --sk-sheen: #2a3651;
+}
+
+/* Public (non-dashboard) dark surfaces, if the marketing pages ever toggle. */
+html[data-theme="dark"] .sk-block {
+  --sk-base: #1f2937;
+  --sk-sheen: #334155;
+}

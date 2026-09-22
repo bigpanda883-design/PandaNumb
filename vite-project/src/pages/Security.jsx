@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FiShield, FiEye, FiEyeOff, FiKey } from "react-icons/fi";
+import { pushNotification } from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/Security.css";
 
 const Security = () => {
@@ -23,6 +24,21 @@ const Security = () => {
     }
     // Handle change password logic
     console.log("Password change requested", formData);
+
+    // Security changes are important account activity - always notify.
+    pushNotification({
+      type: "security",
+      title: "Password changed",
+      description:
+        "Your account password was updated. If this was not you, contact support.",
+      path: "/security",
+    });
+
+    setFormData({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
   };
 
   return (

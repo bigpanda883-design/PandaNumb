@@ -9,3 +9,50 @@
   outline: 3px solid rgba(11, 107, 255, 0.2);
   outline-offset: 2px;
 }
+/* -----------------------------------------------------------------------------
+   Notification badge
+   -----------------------------------------------------------------------------
+   The unread count comes from the shared notification store. The header button
+   becomes the positioning context so the badge can sit on its top-right corner
+   without affecting the icon's size or the header layout.
+   -------------------------------------------------------------------------- */
+.dashboard-icon-button {
+  position: relative;
+}
+
+.dashboard-notification-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 2px solid #ffffff;
+  background-color: #e11d48;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+html[data-theme="dark"] .dashboard-app .dashboard-notification-badge {
+  border-color: #151d2e;
+  background-color: #f43f5e;
+  color: #ffffff;
+}
+
+@media (max-width: 480px) {
+  .dashboard-notification-badge {
+    top: -3px;
+    right: -3px;
+    min-width: 16px;
+    height: 16px;
+    font-size: 9px;
+  }
+}
