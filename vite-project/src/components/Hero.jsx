@@ -37,13 +37,13 @@ const HeroSection = () => {
   const formattedBalance = balance.toLocaleString("en-US");
 
   return (
-    <section className="hero-wrapper">
+    <section id="home" className="hero-wrapper">
       <div className="hero-container">
         <div className="hero-left">
-          <div className="badge-pill">
+          {/* <div className="badge-pill">
             <span className="dot"></span>
             <span className="badge-text">Wallet deposits from ₦100</span>
-          </div>
+          </div> */}
 
           <h1 className="hero-title">
             Virtual Numbers.

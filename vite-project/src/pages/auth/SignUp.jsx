@@ -10,6 +10,7 @@ import {
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthUser } from "../../auth/authStorage";
+import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import "../../CSS/auth/SignUp.css";
 
@@ -116,6 +117,14 @@ function SignUp() {
         .join("")
         .slice(0, 2)
         .toUpperCase(),
+    });
+
+    // Welcome the new account with its first notification.
+    pushNotification({
+      type: "security",
+      title: "Welcome to Panda Numbers",
+      description: "Your account was created successfully.",
+      path: "/security",
     });
 
     // Show Success Modal

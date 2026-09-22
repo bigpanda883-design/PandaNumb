@@ -427,4 +427,90 @@
     font-size: 7px;
     padding: 3px 5px;
   }
+}/* -----------------------------------------------------------------------------
+   Unread state + mark-all control
+   -----------------------------------------------------------------------------
+   Unread cards get a blue left rail and a dot; read cards are unchanged. Both
+   survive the dark theme via the shared .dashboard-app overrides below.
+   -------------------------------------------------------------------------- */
+.notification-card {
+  position: relative;
+}
+
+.notification-card-unread {
+  border-color: #cfe2ff;
+  background-color: #f8fbff;
+}
+
+.notification-card-unread .notification-title {
+  color: #0b4ac2;
+}
+
+.notification-unread-dot {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #0066ff;
+}
+
+.notifications-mark-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 8px 16px;
+  border: 1px solid #d6e2f5;
+  border-radius: 20px;
+  background-color: #ffffff;
+  color: #0066ff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.notifications-mark-all-btn:hover {
+  background-color: #eef5ff;
+  border-color: #0066ff;
+}
+
+/* Dark theme */
+html[data-theme="dark"] .dashboard-app .notification-card-unread {
+  border-color: #2f4a7d;
+  background-color: #16203a;
+}
+
+html[data-theme="dark"] .dashboard-app .notification-card-unread .notification-title {
+  color: #8cb8ff;
+}
+
+html[data-theme="dark"] .dashboard-app .notification-unread-dot {
+  background-color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .notifications-mark-all-btn {
+  border-color: #263149;
+  background-color: #151d2e;
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .notifications-mark-all-btn:hover {
+  border-color: #3b82f6;
+  background-color: #1b2438;
+  color: #a3c6ff;
+}
+
+@media (max-width: 480px) {
+  .notifications-mark-all-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .notification-unread-dot {
+    top: 16px;
+    right: 16px;
+  }
 }

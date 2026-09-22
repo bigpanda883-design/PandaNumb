@@ -25,6 +25,7 @@ import {
   FaShieldHalved,
 } from "react-icons/fa6";
 import { useLocation, useNavigate } from "react-router-dom";
+import { pushNotification } from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/Buy.css";
 
 // 1. Service List with Official Attached Logos
@@ -418,7 +419,48 @@ function Buy() {
     setIsSubmitting(true);
     setTimeout(() => {
       setIsSubmitting(false);
-      navigate("/my-numbers");
+
+      // Hand the purchased number to MyNumbers and ask it to open the
+      // Verification Codes view straight away, so the buyer lands on the
+      // number they just paid for instead of the full list.
+      const purchasedNumber = {
+        number: `+1 229 ${Math.floor(100 + Math.random() * 900)} ${Math.floor(
+          1000 + Math.random() * 9000,
+        )}`,
+        countryCode: selectedCountry.code.toLowerCase(),
+        countryName: selectedCountry.name,
+        service: selectedService.name,
+        price: selectedCountry.price,
+        dateStr: new Date().toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        }),
+        orderId: `PN-D${Math.random()
+          .toString(16)
+          .slice(2, 8)
+          .toUpperCase()}`,
+        status: "COMPLETED",
+        codeReceived: false,
+      };
+
+      // Record the purchase as account activity for the notifications bell.
+      pushNotification({
+        type: "purchase",
+        title: "Number purchased",
+        description: `${purchasedNumber.service} number ${purchasedNumber.number} is ready.`,
+        path: "/my-numbers",
+      });
+      pushNotification({
+        type: "payment",
+        title: "Payment completed",
+        description: `Wallet debited for ${purchasedNumber.service} number ${purchasedNumber.price}.`,
+        path: "/transactions",
+      });
+
+      navigate("/my-numbers", {
+        state: { openNumber: purchasedNumber },
+      });
     }, 1500);
   };
 

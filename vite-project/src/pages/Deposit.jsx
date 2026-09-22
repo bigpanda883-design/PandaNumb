@@ -9,6 +9,7 @@ import {
   FiCheck,
 } from "react-icons/fi";
 import { FaBuildingColumns } from "react-icons/fa6";
+import { pushNotification } from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/Deposit.css";
 
 const PRESET_AMOUNTS = [100, 500, 1000, 2000, 5000, 10000, 20000];
@@ -64,6 +65,18 @@ export default function Deposit() {
     setTimeout(() => {
       setBalance((prev) => prev + Number(amount));
       setStep(4);
+
+      // Payment confirmed - tell the user their money landed.
+      const credited = Number(amount).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      pushNotification({
+        type: "deposit",
+        title: "Deposit successful",
+        description: `Your wallet has been credited with ₦${credited}.`,
+        path: "/transactions",
+      });
     }, 2200);
   };
 

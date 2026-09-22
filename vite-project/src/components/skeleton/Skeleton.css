@@ -1,0 +1,86 @@
+/* -----------------------------------------------------------------------------
+   Panda Numbers - Skeleton loading system
+   -----------------------------------------------------------------------------
+   Base shimmer primitives. Colours are declared with CSS custom properties on
+   the blocks themselves so the dark theme only has to swap the variables
+   (see DarkSkeleton.css), and any page can tune a block inline if it needs to.
+
+   Markup stays out of the animation's way: the shimmer is a pseudo-element that
+   sweeps across the block, so it never measures or shifts the layout.
+   -------------------------------------------------------------------------- */
+
+.sk-block {
+  --sk-base: #e7ecf3;
+  --sk-sheen: #f6f9fd;
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--sk-base);
+  /* Prevent a skeleton from ever collapsing a flex/grid row. */
+  min-width: 1px;
+  min-height: 1px;
+  flex-shrink: 0;
+}
+
+/* The moving highlight. `prefers-reduced-motion` below disables the sweep and
+   keeps a static tint instead, so the state is still obvious without motion. */
+.sk-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--sk-sheen) 50%,
+    transparent 100%
+  );
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes sk-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.sk-circle {
+  border-radius: 50% !important;
+}
+
+/* Text lines stack with a small gap, matching a real paragraph. */
+.sk-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+/* Wrapper for shapes that should shimmer as one surface. */
+.sk-group {
+  display: contents;
+}
+
+/* Respect users who ask the OS to cut animation: keep a soft pulse instead. */
+@media (prefers-reduced-motion: reduce) {
+  .sk-block::after {
+    animation: none;
+    transform: none;
+    background: var(--sk-base);
+    opacity: 0.6;
+  }
+
+  .sk-block {
+    animation: sk-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes sk-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+}

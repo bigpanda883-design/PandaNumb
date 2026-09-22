@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FiChevronLeft,
   FiChevronRight,
@@ -9,6 +9,8 @@ import {
   FiLoader,
   FiZap,
 } from "react-icons/fi";
+import { useLocation, useNavigate } from "react-router-dom";
+import { pushNotification } from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/MyNumbers.css";
 
 // Initial mock data list based on image 1
@@ -44,6 +46,9 @@ const initialNumbersList = [
 ];
 
 function MyNumbers() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   // Navigation view state: null = List View, object = Detail View
   const [selectedNumber, setSelectedNumber] = useState(null);
 
@@ -70,7 +75,24 @@ function MyNumbers() {
     setSelectedNumber(null);
     setVerificationCode(null);
     setCopiedType(null);
+
+    // Clear the router state too, otherwise a refresh would re-open the
+    // detail view we just left.
+    navigate("/my-numbers", { replace: true, state: null });
   };
+
+  // A completed purchase arrives with the new number in router state. Open its
+  // Verification Codes view immediately, then clear the state so going back or
+  // refreshing lands on the normal list.
+  useEffect(() => {
+    const purchasedNumber = location.state?.openNumber;
+    if (!purchasedNumber) return;
+
+    handleSelectNumber(purchasedNumber);
+    navigate(location.pathname, { replace: true, state: null });
+    // Run only when the incoming state changes (i.e. right after a purchase).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   // Handle "Get Code" Click
   const handleGetCode = () => {
@@ -96,6 +118,15 @@ function MyNumbers() {
         receivedTime: `${dateStr}, ${timeStr}`,
       });
       setIsFetchingCode(false);
+
+      // A verification code just arrived - that is account activity worth a
+      // notification, linked back to the number it belongs to.
+      pushNotification({
+        type: "code",
+        title: "Verification code received",
+        description: `${selectedNumber.service} code ${generatedCode} arrived.`,
+        path: "/my-numbers",
+      });
     }, 1200);
   };
 
