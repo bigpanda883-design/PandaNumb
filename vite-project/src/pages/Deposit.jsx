@@ -10,13 +10,20 @@ import {
 } from "react-icons/fi";
 import { FaBuildingColumns } from "react-icons/fa6";
 import { pushNotification } from "../notifications/notificationStore";
+import { useBalance } from "../hooks/useBalance";
+import { creditBalance } from "../wallet/walletStore";
+import { addTransaction, TRANSACTION_TYPES } from "../wallet/transactionStore";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { DepositSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Deposit.css";
 
 const PRESET_AMOUNTS = [100, 500, 1000, 2000, 5000, 10000, 20000];
 
 export default function Deposit() {
   const [step, setStep] = useState(1);
-  const [balance, setBalance] = useState(9650);
+  // Shared wallet balance - the same source the dashboard reads.
+  const { balance, isLoading: balanceLoading } = useBalance();
+  const { isLoading: isLoadingPage } = usePageLoading();
   const [amount, setAmount] = useState(1000);
   const [transactionRef, setTransactionRef] = useState("");
   const [copied, setCopied] = useState(false);
@@ -63,13 +70,21 @@ export default function Deposit() {
     setTransactionRef(randomRef);
 
     setTimeout(() => {
-      setBalance((prev) => prev + Number(amount));
+      creditBalance(Number(amount), "deposit");
       setStep(4);
 
-      // Payment confirmed - tell the user their money landed.
+      // Real transaction record - the dashboard, the Transactions page and the
+      // notification all describe this same event.
       const credited = Number(amount).toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
+      });
+      addTransaction({
+        type: TRANSACTION_TYPES.DEPOSIT,
+        title: `Deposit · ₦${credited}`,
+        amount: Number(amount),
+        path: "/deposit",
+        reference: transactionRef,
       });
       pushNotification({
         type: "deposit",
@@ -85,6 +100,10 @@ export default function Deposit() {
     setAmount(1000);
   };
 
+  if (isLoadingPage) {
+    return <DepositSkeleton />;
+  }
+
   return (
     <div className="deposit-content">
       <div className="deposit-header">
@@ -94,7 +113,11 @@ export default function Deposit() {
 
       <div className="balance-card">
         <span className="balance-label">Current balance</span>
-        <h2 className="balance-amount">{formatCurrency(balance)}</h2>
+        <h2 className="balance-amount">
+          {balanceLoading && balance === null
+            ? "Loading…"
+            : formatCurrency(balance ?? 0)}
+        </h2>
       </div>
 
       {/* STEP 1: ENTER AMOUNT */}

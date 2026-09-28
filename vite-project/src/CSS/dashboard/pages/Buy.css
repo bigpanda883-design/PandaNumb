@@ -399,3 +399,137 @@
     width: calc(33.333% - 11px);
   }
 }
+/* -----------------------------------------------------------------------------
+   Insufficient funds + purchase error states (Buy flow)
+   -----------------------------------------------------------------------------
+   Shown on the confirm step when the wallet cannot cover the price, or when the
+   backend cannot fulfil the purchase. Replaces the confirm button rather than
+   sitting beside it, so there is exactly one clear next action.
+   -------------------------------------------------------------------------- */
+.insufficient-funds-card,
+.purchase-error-card {
+  margin-top: 16px;
+  padding: 20px;
+  border-radius: 18px;
+  background-color: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.purchase-error-card {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.insufficient-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.insufficient-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.purchase-error-card .insufficient-header h3 {
+  color: #991b1b;
+}
+
+.insufficient-icon {
+  font-size: 18px;
+  color: #ea580c;
+  flex-shrink: 0;
+}
+
+.purchase-error-card .insufficient-icon {
+  color: #dc2626;
+}
+
+.insufficient-text {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #7c2d12;
+}
+
+.purchase-error-card .insufficient-text {
+  color: #7f1d1d;
+}
+
+.insufficient-shortfall {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: #9a3412;
+}
+
+.insufficient-shortfall strong {
+  font-weight: 800;
+}
+
+.insufficient-fund-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 24px;
+  background-color: #0062e0;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.insufficient-fund-btn:hover {
+  background-color: #004fb8;
+}
+
+/* Dark theme */
+html[data-theme="dark"] .dashboard-app .insufficient-funds-card {
+  background-color: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+html[data-theme="dark"] .dashboard-app .insufficient-funds-card .insufficient-header h3,
+html[data-theme="dark"] .dashboard-app .insufficient-funds-card .insufficient-shortfall {
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .dashboard-app .insufficient-funds-card .insufficient-text {
+  color: #fcd34d;
+}
+
+html[data-theme="dark"] .dashboard-app .insufficient-funds-card .insufficient-icon {
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .dashboard-app .purchase-error-card {
+  background-color: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+html[data-theme="dark"] .dashboard-app .purchase-error-card .insufficient-header h3 {
+  color: #f87171;
+}
+
+html[data-theme="dark"] .dashboard-app .purchase-error-card .insufficient-text {
+  color: #fca5a5;
+}
+
+html[data-theme="dark"] .dashboard-app .purchase-error-card .insufficient-icon {
+  color: #f87171;
+}
+
+@media (max-width: 480px) {
+  .insufficient-funds-card,
+  .purchase-error-card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+}

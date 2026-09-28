@@ -6,6 +6,8 @@ import {
   FiMessageSquare,
   FiSearch,
 } from "react-icons/fi";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { HelpCenterSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/HelpCenter.css";
 
 const faqData = [
@@ -61,6 +63,7 @@ const faqData = [
 function HelpCenter() {
   const [searchTerm, setSearchTerm] = useState("");
   const [openFaqId, setOpenFaqId] = useState("account"); // 'account' open by default matching screenshot
+  const { isLoading } = usePageLoading();
 
   const toggleFaq = (id) => {
     setOpenFaqId((prev) => (prev === id ? null : id));
@@ -71,6 +74,8 @@ function HelpCenter() {
       faq.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
       faq.answer.toLowerCase().includes(searchTerm.toLowerCase()),
   );
+
+  if (isLoading) return <HelpCenterSkeleton />;
 
   return (
     <div className="help-center-wrapper">

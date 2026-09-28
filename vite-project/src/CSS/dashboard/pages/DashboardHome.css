@@ -613,4 +613,61 @@
   .security-header h1 {
     font-size: 23px;
   }
+}/* -----------------------------------------------------------------------------
+   Balance loading / error / rate states
+   -----------------------------------------------------------------------------
+   Shown while the balance or the USD rate is being fetched on the blue banner.
+   Uses the banner's own white text so the loader never disappears against it.
+   -------------------------------------------------------------------------- */
+.balance-loading-bar {
+  display: inline-block;
+  width: 190px;
+  max-width: 60%;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.38) 50%,
+    rgba(255, 255, 255, 0.18) 100%
+  );
+  background-size: 200% 100%;
+  animation: balance-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes balance-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.balance-error-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Small note shown when the rate request failed and a cached rate is in use. */
+.rate-fallback-note {
+  flex-basis: 100%;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .balance-loading-bar {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .balance-loading-bar {
+    width: 140px;
+    height: 28px;
+  }
 }

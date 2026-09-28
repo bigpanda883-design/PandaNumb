@@ -1,400 +1,97 @@
 import { useMemo, useState } from "react";
-import { FiChevronLeft, FiSearch, FiCheck, FiLoader } from "react-icons/fi";
 import {
-  SiWhatsapp,
-  SiTelegram,
-  SiInstagram,
-  SiFacebook,
-  SiTiktok,
-  SiX,
-  SiApple,
-  SiGoogle,
-  SiNetflix,
-  SiSnapchat,
-  SiTinder,
-  SiDiscord,
-  SiYoutube,
-  SiSpotify,
-  SiUber,
-} from "react-icons/si";
-import {
-  FaAmazon,
-  FaLinkedin,
-  FaMicrosoft,
-  FaRobot,
-  FaShieldHalved,
-} from "react-icons/fa6";
-import { useLocation, useNavigate } from "react-router-dom";
+  FiChevronLeft,
+  FiSearch,
+  FiCheck,
+  FiLoader,
+  FiAlertCircle,
+  FiPlus,
+  FiRefreshCw,
+} from "react-icons/fi";
+import { FaShieldHalved } from "react-icons/fa6";
+import { useNavigate } from "react-router-dom";
 import { pushNotification } from "../notifications/notificationStore";
+import { debitBalance } from "../wallet/walletStore";
+import { addTransaction, TRANSACTION_TYPES } from "../wallet/transactionStore";
+import { addActivation } from "../wallet/activationStore";
+import { requestNumber } from "../services/smsProvider";
+import { useCatalogue } from "../services/accPrices";
+import { getAppIdentity } from "../config/appCatalog";
+import { buildCountryList, hasProviderMapping } from "../config/countryCatalog";
+import { useBalance } from "../hooks/useBalance";
+import { BuySkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Buy.css";
-
-// 1. Service List with Official Attached Logos
-const SERVICES = [
-  {
-    id: "whatsapp",
-    name: "WhatsApp",
-    price: "₦2,000.00",
-    rawPrice: 2000,
-    countries: 28,
-    icon: <SiWhatsapp color="#25D366" />,
-  },
-  {
-    id: "telegram",
-    name: "Telegram",
-    price: "₦2,200.00",
-    rawPrice: 2200,
-    countries: 56,
-    icon: <SiTelegram color="#24A1DE" />,
-  },
-  {
-    id: "instagram",
-    name: "Instagram",
-    price: "₦2,500.00",
-    rawPrice: 2500,
-    countries: 28,
-    icon: <SiInstagram color="#E4405F" />,
-  },
-  {
-    id: "facebook",
-    name: "Facebook",
-    price: "₦2,400.00",
-    rawPrice: 2400,
-    countries: 28,
-    icon: <SiFacebook color="#1877F2" />,
-  },
-  {
-    id: "tiktok",
-    name: "TikTok",
-    price: "₦2,300.00",
-    rawPrice: 2300,
-    countries: 28,
-    icon: <SiTiktok color="#000000" />,
-  },
-  {
-    id: "twitter",
-    name: "X (Twitter)",
-    price: "₦2,600.00",
-    rawPrice: 2600,
-    countries: 28,
-    icon: <SiX color="#000000" />,
-  },
-  {
-    id: "openai",
-    name: "OpenAI / ChatGPT",
-    price: "₦3,500.00",
-    rawPrice: 3500,
-    countries: 42,
-    icon: <FaRobot color="#10A37F" />,
-  },
-  {
-    id: "apple",
-    name: "Apple",
-    price: "₦3,000.00",
-    rawPrice: 3000,
-    countries: 28,
-    icon: <SiApple color="#000000" />,
-  },
-  {
-    id: "google",
-    name: "Google",
-    price: "₦3,000.00",
-    rawPrice: 3000,
-    countries: 28,
-    icon: <SiGoogle color="#4285F4" />,
-  },
-  {
-    id: "netflix",
-    name: "Netflix",
-    price: "₦2,400.00",
-    rawPrice: 2400,
-    countries: 28,
-    icon: <SiNetflix color="#E50914" />,
-  },
-  {
-    id: "snapchat",
-    name: "Snapchat",
-    price: "₦2,200.00",
-    rawPrice: 2200,
-    countries: 28,
-    icon: <SiSnapchat color="#FFFC00" />,
-  },
-  {
-    id: "linkedin",
-    name: "LinkedIn",
-    price: "₦2,200.00",
-    rawPrice: 2200,
-    countries: 28,
-    icon: <FaLinkedin color="#0A66C2" />,
-  },
-  {
-    id: "tinder",
-    name: "Tinder",
-    price: "₦2,800.00",
-    rawPrice: 2800,
-    countries: 31,
-    icon: <SiTinder color="#FE3C72" />,
-  },
-  {
-    id: "amazon",
-    name: "Amazon",
-    price: "₦2,900.00",
-    rawPrice: 2900,
-    countries: 25,
-    icon: <FaAmazon color="#FF9900" />,
-  },
-  {
-    id: "microsoft",
-    name: "Microsoft",
-    price: "₦2,700.00",
-    rawPrice: 2700,
-    countries: 35,
-    icon: <FaMicrosoft color="#00A4EF" />,
-  },
-  {
-    id: "discord",
-    name: "Discord",
-    price: "₦2,100.00",
-    rawPrice: 2100,
-    countries: 40,
-    icon: <SiDiscord color="#5865F2" />,
-  },
-  {
-    id: "youtube",
-    name: "YouTube",
-    price: "₦2,500.00",
-    rawPrice: 2500,
-    countries: 30,
-    icon: <SiYoutube color="#FF0000" />,
-  },
-  {
-    id: "spotify",
-    name: "Spotify",
-    price: "₦2,000.00",
-    rawPrice: 2000,
-    countries: 22,
-    icon: <SiSpotify color="#1DB954" />,
-  },
-  {
-    id: "uber",
-    name: "Uber",
-    price: "₦2,300.00",
-    rawPrice: 2300,
-    countries: 18,
-    icon: <SiUber color="#000000" />,
-  },
-];
-
-// 2. Country List Data with SVG Flag URLs
-const COUNTRIES = [
-  {
-    code: "NG",
-    name: "Nigeria",
-    dial: "+234",
-    price: "₦2,000.00",
-    flagUrl: "https://flagcdn.com/w40/ng.png",
-  },
-  {
-    code: "GH",
-    name: "Ghana",
-    dial: "+233",
-    price: "₦3,200.00",
-    flagUrl: "https://flagcdn.com/w40/gh.png",
-  },
-  {
-    code: "KE",
-    name: "Kenya",
-    dial: "+254",
-    price: "₦3,200.00",
-    flagUrl: "https://flagcdn.com/w40/ke.png",
-  },
-  {
-    code: "US",
-    name: "United States",
-    dial: "+1",
-    price: "₦3,200.00",
-    flagUrl: "https://flagcdn.com/w40/us.png",
-  },
-  {
-    code: "GB",
-    name: "United Kingdom",
-    dial: "+44",
-    price: "₦3,200.00",
-    flagUrl: "https://flagcdn.com/w40/gb.png",
-  },
-  {
-    code: "ZA",
-    name: "South Africa",
-    dial: "+27",
-    price: "₦3,200.00",
-    flagUrl: "https://flagcdn.com/w40/za.png",
-  },
-  {
-    code: "AE",
-    name: "United Arab Emirates",
-    dial: "+971",
-    price: "₦3,320.00",
-    flagUrl: "https://flagcdn.com/w40/ae.png",
-  },
-  {
-    code: "DE",
-    name: "Germany",
-    dial: "+49",
-    price: "₦2,560.00",
-    flagUrl: "https://flagcdn.com/w40/de.png",
-  },
-  {
-    code: "EG",
-    name: "Egypt",
-    dial: "+20",
-    price: "₦2,960.00",
-    flagUrl: "https://flagcdn.com/w40/eg.png",
-  },
-  {
-    code: "IN",
-    name: "India",
-    dial: "+91",
-    price: "₦2,680.00",
-    flagUrl: "https://flagcdn.com/w40/in.png",
-  },
-  {
-    code: "IT",
-    name: "Italy",
-    dial: "+39",
-    price: "₦2,800.00",
-    flagUrl: "https://flagcdn.com/w40/it.png",
-  },
-  {
-    code: "CA",
-    name: "Canada",
-    dial: "+1",
-    price: "₦2,520.00",
-    flagUrl: "https://flagcdn.com/w40/ca.png",
-  },
-  {
-    code: "RW",
-    name: "Rwanda",
-    dial: "+250",
-    price: "₦3,080.00",
-    flagUrl: "https://flagcdn.com/w40/rw.png",
-  },
-  {
-    code: "UG",
-    name: "Uganda",
-    dial: "+256",
-    price: "₦3,040.00",
-    flagUrl: "https://flagcdn.com/w40/ug.png",
-  },
-  {
-    code: "ES",
-    name: "Spain",
-    dial: "+34",
-    price: "₦2,760.00",
-    flagUrl: "https://flagcdn.com/w40/es.png",
-  },
-  {
-    code: "NL",
-    name: "Netherlands",
-    dial: "+31",
-    price: "₦2,840.00",
-    flagUrl: "https://flagcdn.com/w40/nl.png",
-  },
-  {
-    code: "TZ",
-    name: "Tanzania",
-    dial: "+255",
-    price: "₦3,000.00",
-    flagUrl: "https://flagcdn.com/w40/tz.png",
-  },
-  {
-    code: "TR",
-    name: "Turkey",
-    dial: "+90",
-    price: "₦3,280.00",
-    flagUrl: "https://flagcdn.com/w40/tr.png",
-  },
-  {
-    code: "PT",
-    name: "Portugal",
-    dial: "+351",
-    price: "₦3,200.00",
-    flagUrl: "https://flagcdn.com/w40/pt.png",
-  },
-  {
-    code: "SE",
-    name: "Sweden",
-    dial: "+46",
-    price: "₦3,240.00",
-    flagUrl: "https://flagcdn.com/w40/se.png",
-  },
-  {
-    code: "PH",
-    name: "Philippines",
-    dial: "+63",
-    price: "₦2,880.00",
-    flagUrl: "https://flagcdn.com/w40/ph.png",
-  },
-  {
-    code: "FR",
-    name: "France",
-    dial: "+33",
-    price: "₦2,600.00",
-    flagUrl: "https://flagcdn.com/w40/fr.png",
-  },
-  {
-    code: "BR",
-    name: "Brazil",
-    dial: "+55",
-    price: "₦2,720.00",
-    flagUrl: "https://flagcdn.com/w40/br.png",
-  },
-  {
-    code: "MX",
-    name: "Mexico",
-    dial: "+52",
-    price: "₦3,360.00",
-    flagUrl: "https://flagcdn.com/w40/mx.png",
-  },
-];
 
 function Buy() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { animatedBalance } = useBalance();
 
-  // Service cards on the dashboard open this page with router state
-  // ({ service: "WhatsApp" }), so honour that instead of ignoring it.
-  const requestedService = useMemo(() => {
-    const requested = location.state?.service;
-    if (!requested) return null;
-    return SERVICES.find((service) => service.name === requested) ?? null;
-  }, [location.state]);
+  // Fetch real catalogue from ACC Numbers API
+  const {
+    catalogue,
+    isLoading: isLoadingCatalogue,
+    error: catalogueError,
+    retry: retryCatalogue,
+  } = useCatalogue();
 
-  // Navigation step control (1: Service, 2: Country, 3: Confirm)
-  const [step, setStep] = useState(requestedService ? 2 : 1);
-
-  // Selected state
-  const [selectedService, setSelectedService] = useState(requestedService);
+  const [step, setStep] = useState(1);
   const [selectedCountry, setSelectedCountry] = useState(null);
-
-  // Search filter query
+  const [selectedService, setSelectedService] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Loading state on purchase confirmation
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [purchaseError, setPurchaseError] = useState(null);
 
-  // Filter countries list dynamically
+  const canBuyAtAll = hasProviderMapping();
+  const countries = useMemo(() => buildCountryList(catalogue), [catalogue]);
+
+  // Dynamically map ALL available services for selected country
+  const services = useMemo(() => {
+    if (!catalogue || !selectedCountry) return [];
+    const country = catalogue.countries?.[selectedCountry.slug];
+    if (!country) return [];
+
+    return Object.values(country.services)
+      .map((entry) => ({
+        ...entry,
+        ...getAppIdentity(entry.id),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [catalogue, selectedCountry]);
+
+  // Search filtering over real countries
   const filteredCountries = useMemo(() => {
-    if (!searchQuery.trim()) return COUNTRIES;
     const q = searchQuery.toLowerCase().trim();
-    return COUNTRIES.filter(
+    if (!q) return countries;
+    return countries.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
-        c.dial.includes(q) ||
-        c.code.toLowerCase().includes(q),
+        (c.dial && c.dial.includes(q)) ||
+        (c.iso && c.iso.toLowerCase().includes(q)),
     );
-  }, [searchQuery]);
+  }, [countries, searchQuery]);
 
-  // Handle Step Back Button
+  // Search filtering over real API services
+  const filteredServices = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return services;
+    return services.filter((s) => s.label.toLowerCase().includes(q));
+  }, [services, searchQuery]);
+
+  const hasKnownPrice =
+    selectedService != null && Number.isFinite(selectedService.cost);
+
+  const purchasePrice = hasKnownPrice ? Number(selectedService.cost) : 0;
+  const availableBalance = Number(animatedBalance || 0);
+  const shortfall = Math.max(0, purchasePrice - availableBalance);
+  const hasInsufficientFunds =
+    hasKnownPrice && purchasePrice > 0 && shortfall > 0;
+
+  const stockCount = selectedService?.count ?? 0;
+  const isOutOfStock = stockCount <= 0;
+
   const handleBack = () => {
+    setPurchaseError(null);
+    setSearchQuery("");
     if (step > 1) {
       setStep((prev) => prev - 1);
     } else {
@@ -402,71 +99,149 @@ function Buy() {
     }
   };
 
-  // Step 1: Click Service
   const handleSelectService = (service) => {
     setSelectedService(service);
-    setStep(2);
-  };
-
-  // Step 2: Click Country
-  const handleSelectCountry = (country) => {
-    setSelectedCountry(country);
+    setSearchQuery("");
     setStep(3);
   };
 
-  // Step 3: Purchase confirmation action
-  const handleConfirmPurchase = () => {
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+  const handleSelectCountry = (country) => {
+    setSelectedCountry(country);
+    setSelectedService(null);
+    setPurchaseError(null);
+    setSearchQuery("");
+    setStep(2);
+  };
 
-      // Hand the purchased number to MyNumbers and ask it to open the
-      // Verification Codes view straight away, so the buyer lands on the
-      // number they just paid for instead of the full list.
+  // `smsProvider` already maps every provider token to a user-facing sentence
+  // and exposes the token as `error.code`, so there is nothing to re-invent here.
+  // Re-wording it locally is how NO_BALANCE came to be shown as "out of stock"
+  // when the truth was that the provider account had no credit - two different
+  // problems, and the wrong one sends the operator looking in the wrong place.
+  const mapProviderError = (error) => {
+    if (!error) return "Failed to purchase number. Please try again.";
+    return error.message || "Failed to purchase number. Please try again.";
+  };
+
+  const handleConfirmPurchase = async () => {
+    if (isSubmitting) return;
+
+    if (hasInsufficientFunds || isOutOfStock || !hasKnownPrice) return;
+    if (!canBuyAtAll) return;
+
+    // The provider id is the ONLY id Yankee Verify accepts for a country. Falling
+    // back to the ISO code would send e.g. "US" where a numeric id is required
+    // and buy from an arbitrary country, so a missing mapping stops the purchase.
+    const countryCode = selectedCountry?.providerId;
+    // The variant id ("whatsapp_virtual28"), not the bare service name: the
+    // provider refuses the un-suffixed form.
+    const serviceCode = selectedService?.id;
+
+    if (!countryCode || !serviceCode) return;
+
+    setIsSubmitting(true);
+    setPurchaseError(null);
+
+    const price = Number(selectedService.cost);
+
+    try {
+      // The backend owns the action name and the API key; only the two real
+      // arguments are sent from here.
+      const { activationId, phone } = await requestNumber({
+        service: serviceCode,
+        country: countryCode,
+      });
+
+      if (!activationId || !phone) {
+        throw new Error("Invalid activation response from server.");
+      }
+
+      // Track activation record with real activation ID
+      const activation = addActivation({
+        activationId,
+        phone,
+        service: selectedService.label,
+        country: selectedCountry.name,
+        price,
+      });
+
       const purchasedNumber = {
-        number: `+1 229 ${Math.floor(100 + Math.random() * 900)} ${Math.floor(
-          1000 + Math.random() * 9000,
-        )}`,
-        countryCode: selectedCountry.code.toLowerCase(),
+        id: activationId,
+        number: phone,
+        countryCode: selectedCountry.iso
+          ? selectedCountry.iso.toLowerCase()
+          : "",
         countryName: selectedCountry.name,
-        service: selectedService.name,
-        price: selectedCountry.price,
-        dateStr: new Date().toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        }),
-        orderId: `PN-D${Math.random()
-          .toString(16)
-          .slice(2, 8)
-          .toUpperCase()}`,
-        status: "COMPLETED",
+        service: selectedService.label,
+        price: `₦${price.toLocaleString()}`,
+        orderId: activationId,
+        status: "WAITING",
         codeReceived: false,
+        dateStr: activation?.dateStr,
       };
 
-      // Record the purchase as account activity for the notifications bell.
+      // Deduct wallet balance and log transactions
+      debitBalance(price, "purchase");
+
+      addTransaction({
+        type: TRANSACTION_TYPES.PURCHASE,
+        title: `${purchasedNumber.service} number ${purchasedNumber.number}`,
+        amount: -price,
+        path: "/my-numbers",
+        reference: activationId,
+      });
+
       pushNotification({
         type: "purchase",
         title: "Number purchased",
         description: `${purchasedNumber.service} number ${purchasedNumber.number} is ready.`,
         path: "/my-numbers",
       });
-      pushNotification({
-        type: "payment",
-        title: "Payment completed",
-        description: `Wallet debited for ${purchasedNumber.service} number ${purchasedNumber.price}.`,
-        path: "/transactions",
-      });
+
+      setIsSubmitting(false);
 
       navigate("/my-numbers", {
         state: { openNumber: purchasedNumber },
       });
-    }, 1500);
+    } catch (error) {
+      setIsSubmitting(false);
+      setPurchaseError({ message: mapProviderError(error) });
+    }
   };
+
+  if (isLoadingCatalogue) {
+    return <BuySkeleton />;
+  }
+
+  if (catalogueError) {
+    return (
+      <section className="buy-flow-container">
+        <div className="buy-step-content">
+          <div className="purchase-error-card" role="alert">
+            <div className="insufficient-header">
+              <FiAlertCircle className="insufficient-icon" />
+              <h3>Unable to load services</h3>
+            </div>
+            <p className="insufficient-text">
+              {catalogueError.message ||
+                "The service catalogue could not be loaded."}
+            </p>
+            <button
+              type="button"
+              className="insufficient-fund-btn"
+              onClick={retryCatalogue}
+            >
+              <FiRefreshCw aria-hidden="true" />
+              Try again
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="buy-flow-container">
-      {/* HEADER WITH PROGRESS BAR */}
       <header className="buy-header">
         <div className="buy-header-left">
           <button
@@ -481,12 +256,11 @@ function Buy() {
             <h1 className="buy-main-title">Buy a number</h1>
             <span className="buy-step-indicator">
               Step {step} of 3 ·{" "}
-              {step === 1 ? "Service" : step === 2 ? "Country" : "Confirm"}
+              {step === 1 ? "Country" : step === 2 ? "Service" : "Confirm"}
             </span>
           </div>
         </div>
 
-        {/* 3 Step Progress Bar */}
         <div className="buy-progress-bar">
           <div className={`progress-segment ${step >= 1 ? "active" : ""}`} />
           <div className={`progress-segment ${step >= 2 ? "active" : ""}`} />
@@ -494,40 +268,20 @@ function Buy() {
         </div>
       </header>
 
-      {/* STEP 1: CHOOSE SERVICE */}
-      {step === 1 && (
-        <div className="buy-step-content slide-up-anim">
-          <h2 className="step-subtitle">Choose a service</h2>
-          <div className="services-grid">
-            {SERVICES.map((srv, idx) => (
-              <div
-                key={srv.id}
-                className="service-card"
-                style={{ animationDelay: `${idx * 0.02}s` }}
-                onClick={() => handleSelectService(srv)}
-              >
-                <div className="service-icon-wrapper">{srv.icon}</div>
-                <div className="service-details">
-                  <h3 className="service-name">{srv.name}</h3>
-                  <span className="service-price">From {srv.price}</span>
-                  <span className="service-countries-count">
-                    {srv.countries} countries
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+      {!canBuyAtAll && (
+        <div className="purchase-error-card" role="alert">
+          <p className="insufficient-text">
+            Country mapping is not configured, so purchases are disabled. Set
+            VITE_YANKEE_COUNTRY_MAP to enable buying.
+          </p>
         </div>
       )}
 
-      {/* STEP 2: CHOOSE COUNTRY */}
-      {step === 2 && (
+      {/* STEP 1: Choose Country */}
+      {step === 1 && (
         <div className="buy-step-content slide-up-anim">
-          <h2 className="step-subtitle">
-            Choose a country for {selectedService?.name}
-          </h2>
+          <h2 className="step-subtitle">Choose a country</h2>
 
-          {/* Search Bar */}
           <div className="country-search-bar">
             <FiSearch className="search-icon" />
             <input
@@ -538,31 +292,30 @@ function Buy() {
             />
           </div>
 
-          {/* Country List */}
           <div className="countries-list">
             {filteredCountries.map((ctry, idx) => (
               <div
-                key={ctry.code}
+                key={ctry.slug}
                 className="country-card"
                 style={{ animationDelay: `${idx * 0.02}s` }}
                 onClick={() => handleSelectCountry(ctry)}
               >
                 <div className="country-info">
-                  {/* Flag Image Badge */}
-                  <img
-                    src={ctry.flagUrl}
-                    alt={ctry.name}
-                    className="country-flag-img"
-                  />
-
+                  {ctry.flagUrl && (
+                    <img
+                      src={ctry.flagUrl}
+                      alt={ctry.name}
+                      className="country-flag-img"
+                    />
+                  )}
                   <div className="country-text">
                     <span className="country-name">{ctry.name}</span>
                     <span className="country-subtext">
-                      {ctry.dial} · instant delivery
+                      {ctry.dial ? `${ctry.dial} · ` : ""}
+                      {ctry.canPurchase ? "instant delivery" : "unavailable"}
                     </span>
                   </div>
                 </div>
-                <div className="country-price">{ctry.price}</div>
               </div>
             ))}
 
@@ -575,7 +328,62 @@ function Buy() {
         </div>
       )}
 
-      {/* STEP 3: CONFIRM ORDER */}
+      {/* STEP 2: Choose Service */}
+      {step === 2 && (
+        <div className="buy-step-content slide-up-anim">
+          <h2 className="step-subtitle">
+            Choose a service for {selectedCountry?.name}
+          </h2>
+
+          <div className="country-search-bar">
+            <FiSearch className="search-icon" />
+            <input
+              type="text"
+              placeholder="Search service"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          <div className="services-grid">
+            {filteredServices.map((srv, idx) => {
+              const inStock = srv.count > 0;
+              return (
+                <div
+                  key={srv.id}
+                  className={`service-card${inStock ? "" : " service-card-disabled"}`}
+                  style={{ animationDelay: `${idx * 0.02}s` }}
+                  onClick={inStock ? () => handleSelectService(srv) : undefined}
+                  aria-disabled={!inStock}
+                >
+                  <div className="service-icon-wrapper">
+                    <srv.Icon color={srv.color} />
+                  </div>
+                  <div className="service-details">
+                    <h3 className="service-name">{srv.label}</h3>
+                    <span className="service-price">
+                      {srv.cost === null
+                        ? "Price unavailable"
+                        : `₦${srv.cost.toLocaleString()}`}
+                    </span>
+                    <span className="service-countries-count">
+                      {inStock ? `${srv.count} in stock` : "Unavailable"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {filteredServices.length === 0 && (
+              <div className="no-results">
+                No services found for "{searchQuery}"
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* STEP 3: Confirm Order */}
       {step === 3 && selectedService && selectedCountry && (
         <div className="buy-step-content slide-up-anim">
           <div className="confirm-card">
@@ -584,60 +392,129 @@ function Buy() {
             <div className="confirm-row">
               <span className="confirm-label">Service</span>
               <span className="confirm-value font-bold flex-align-center">
-                <span className="confirm-app-logo">{selectedService.icon}</span>
-                {selectedService.name}
+                <span className="confirm-app-logo">
+                  <selectedService.Icon color={selectedService.color} />
+                </span>
+                {selectedService.label}
               </span>
             </div>
 
             <div className="confirm-row">
               <span className="confirm-label">Country</span>
               <span className="confirm-value font-bold flex-align-center">
-                <img
-                  src={selectedCountry.flagUrl}
-                  alt={selectedCountry.name}
-                  className="country-flag-img-sm"
-                />
-                {selectedCountry.name} ({selectedCountry.dial})
+                {selectedCountry.flagUrl && (
+                  <img
+                    src={selectedCountry.flagUrl}
+                    alt={selectedCountry.name}
+                    className="country-flag-img-sm"
+                  />
+                )}
+                {selectedCountry.name}
+                {selectedCountry.dial ? ` (${selectedCountry.dial})` : ""}
               </span>
             </div>
 
             <div className="confirm-row">
-              <span className="confirm-label">Delivery</span>
-              <span className="confirm-value">Instant · demo number</span>
+              <span className="confirm-label">Available stock</span>
+              <span className="confirm-value">{stockCount} numbers</span>
             </div>
 
             <hr className="confirm-divider" />
 
             <div className="confirm-row">
               <span className="confirm-label">Total</span>
-              <span className="confirm-price">{selectedCountry.price}</span>
+              <span className="confirm-price">
+                ₦{purchasePrice.toLocaleString()}
+              </span>
             </div>
 
             <div className="confirm-row">
               <span className="confirm-label">Wallet balance</span>
-              <span className="confirm-balance">₦10,750.00</span>
+              <span className="confirm-balance">
+                {new Intl.NumberFormat("en-NG", {
+                  style: "currency",
+                  currency: "NGN",
+                  minimumFractionDigits: 2,
+                }).format(animatedBalance || 0)}
+              </span>
             </div>
           </div>
 
-          {/* CONFIRM BUTTON */}
-          <button
-            type="button"
-            className="confirm-submit-btn"
-            disabled={isSubmitting}
-            onClick={handleConfirmPurchase}
-          >
-            {isSubmitting ? (
-              <>
-                <FiLoader className="spinner-icon" />
-                <span>Buying number...</span>
-              </>
-            ) : (
-              <>
-                <FiCheck className="check-icon" />
-                <span>Confirm purchase · {selectedCountry.price}</span>
-              </>
-            )}
-          </button>
+          {hasInsufficientFunds && (
+            <div className="insufficient-funds-card" role="alert">
+              <div className="insufficient-header">
+                <FiAlertCircle className="insufficient-icon" />
+                <h3>Insufficient funds</h3>
+              </div>
+              <p className="insufficient-text">
+                Your balance is not enough to complete this purchase. Please
+                fund your wallet to continue.
+              </p>
+              <p className="insufficient-shortfall">
+                Add{" "}
+                <strong>
+                  {new Intl.NumberFormat("en-NG", {
+                    style: "currency",
+                    currency: "NGN",
+                    minimumFractionDigits: 2,
+                  }).format(shortfall)}
+                </strong>{" "}
+                to complete this purchase.
+              </p>
+              <button
+                type="button"
+                className="insufficient-fund-btn"
+                onClick={() => navigate("/deposit")}
+              >
+                <FiPlus aria-hidden="true" />
+                Fund wallet
+              </button>
+            </div>
+          )}
+
+          {purchaseError && (
+            <div className="purchase-error-card" role="alert">
+              <div className="insufficient-header">
+                <FiAlertCircle className="insufficient-icon" />
+                <h3>Could not complete the purchase</h3>
+              </div>
+              <p className="insufficient-text">{purchaseError.message}</p>
+              <button
+                type="button"
+                className="insufficient-fund-btn"
+                onClick={handleConfirmPurchase}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!hasInsufficientFunds && hasKnownPrice && purchasePrice > 0 && (
+            <button
+              type="button"
+              className="confirm-submit-btn"
+              disabled={
+                isSubmitting ||
+                !canBuyAtAll ||
+                (!selectedCountry?.providerId && !selectedCountry?.iso)
+              }
+              onClick={handleConfirmPurchase}
+            >
+              {isSubmitting ? (
+                <>
+                  <FiLoader className="spinner-icon" />
+                  <span>Buying number...</span>
+                </>
+              ) : (
+                <>
+                  <FiCheck className="check-icon" />
+                  <span>
+                    Confirm purchase · ₦{purchasePrice.toLocaleString()}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
 
           <p className="balance-verification-notice">
             <FaShieldHalved className="shield-icon" /> Balance is verified on

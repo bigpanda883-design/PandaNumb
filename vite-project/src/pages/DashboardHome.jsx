@@ -15,21 +15,52 @@ import {
   FaTelegramPlane,
   FaInstagram,
   FaFacebookF,
-  FaHandPaper,
 } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
-import { getAuthUser } from "../auth/authStorage";
+import { useBalance } from "../hooks/useBalance";
+import { useTransactions } from "../hooks/useTransactions";
+import { useUsdToNgnRate } from "../wallet/exchangeRate";
+import { DashboardHomeSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/DashboardHome.css";
 
 function DashboardHome() {
   const navigate = useNavigate();
-  const user = getAuthUser();
-  const firstName = user?.fullName?.split(" ")[0] || "Big";
-  const email = user?.email || "fxpanda74@gmail.com";
-  const phone = user?.phone || "09132490567";
 
   const [hideBalance, setHideBalance] = useState(true);
   const [currency, setCurrency] = useState("NGN");
+
+  // Balance comes from the shared wallet store (never a literal), and the USD
+  // figure is derived from the freshly fetched rate.
+  const { balance, animatedBalance, isLoading, error } = useBalance();
+  const {
+    rate,
+    isLoading: rateLoading,
+    isFallback: rateIsFallback,
+  } = useUsdToNgnRate();
+  // Real activity, shared with the Transactions page. Empty for a new account.
+  const allTransactions = useTransactions();
+  const recentTransactions = allTransactions.slice(0, 3);
+  const numbersPurchased = allTransactions.filter(
+    (tx) => tx.type === "purchase" && tx.status === "SUCCESSFUL",
+  ).length;
+  const formatNaira = (value) =>
+    new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      minimumFractionDigits: 2,
+    }).format(value || 0);
+
+  const formatUsd = (value) => {
+    if (!rate) return null;
+    return `$${(value / rate).toFixed(2)}`;
+  };
+
+  // Show the full-page skeleton until the balance has resolved. Keyed on
+  // `balance` (the authoritative value) rather than the animated count, because
+  // the animation starts at 0 and would otherwise look like "not loaded".
+  if (isLoading || balance === null) {
+    return <DashboardHomeSkeleton />;
+  }
 
   return (
     <div className="dashboard-home-wrapper">
@@ -66,9 +97,19 @@ function DashboardHome() {
 
           {/* BALANCE DISPLAY */}
           <div className="balance-amount-display">
-            {hideBalance ? (
+            {error && !isLoading ? (
+              /* API failure - say so rather than showing a fake figure. */
+              <span className="balance-error-text">
+                Balance unavailable. Pull to retry.
+              </span>
+            ) : isLoading && animatedBalance === 0 ? (
+              <span
+                className="balance-loading-bar"
+                role="status"
+                aria-label="Loading balance"
+              />
+            ) : hideBalance ? (
               <div className="masked-dots">
-                <span></span>
                 <span></span>
                 <span></span>
                 <span></span>
@@ -77,13 +118,22 @@ function DashboardHome() {
               </div>
             ) : (
               <span className="balance-text">
-                {currency === "NGN" ? "₦10,750.00" : "$14.20"}
+                {currency === "NGN"
+                  ? formatNaira(animatedBalance)
+                  : rateLoading
+                    ? "Loading rate…"
+                    : (formatUsd(animatedBalance) ?? "Rate unavailable")}
               </span>
             )}
           </div>
 
           {/* ACTION BUTTONS */}
           <div className="balance-actions-row">
+            {rateIsFallback && currency === "USD" && !rateLoading && (
+              <span className="rate-fallback-note">
+                Offline rate · live rate unavailable
+              </span>
+            )}
             <button
               type="button"
               className="deposit-action-btn"
@@ -109,7 +159,7 @@ function DashboardHome() {
             <div className="stat-icon-circle blue">
               <FiSmartphone />
             </div>
-            <div className="stat-value">2</div>
+            <div className="stat-value">{numbersPurchased}</div>
             <div className="stat-label">Numbers purchased</div>
           </div>
 
@@ -125,15 +175,17 @@ function DashboardHome() {
             <div className="stat-icon-circle check-blue">
               <FiCheckCircle />
             </div>
-            <div className="stat-value">2</div>
-            <div className="stat-label">Verifications completed</div>
+            <div className="stat-value">
+              {allTransactions.filter((tx) => tx.status === "SUCCESSFUL").length}
+            </div>
+            <div className="stat-label">Completed activities</div>
           </div>
 
           <div className="stat-card">
             <div className="stat-icon-circle wallet-blue">
               <FiCreditCard />
             </div>
-            <div className="stat-value">₦7,550.00</div>
+            <div className="stat-value">{formatNaira(animatedBalance)}</div>
             <div className="stat-label">Wallet balance</div>
           </div>
         </section>
@@ -205,24 +257,26 @@ function DashboardHome() {
           </div>
 
           <div className="transaction-list">
-            <TransactionRow
-              type="deposit"
-              title="TEST deposit · demo bank transfer"
-              date="17 Sept 2026, 23:19"
-              amount="+₦100.00"
-            />
-            <TransactionRow
-              type="deposit"
-              title="TEST deposit · demo bank transfer"
-              date="17 Sept 2026, 23:16"
-              amount="+₦1,000.00"
-            />
-            <TransactionRow
-              type="purchase"
-              title="Telegram number +1 229 838 3490"
-              date="07 Sept 2026, 07:52"
-              amount="-₦2,800.00"
-            />
+            {recentTransactions.length > 0 ? (
+              recentTransactions.map((tx) => (
+                <TransactionRow
+                  key={tx.id}
+                  title={tx.title}
+                  date={tx.date}
+                  amount={tx.amount}
+                  status={tx.status}
+                />
+              ))
+            ) : (
+              /* A brand-new account genuinely has no activity yet. */
+              <div className="empty-state">
+                <strong>No transactions yet</strong>
+                <span>
+                  Fund your wallet or buy a number and your activity shows up
+                  here.
+                </span>
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -255,13 +309,18 @@ function ServiceCard({ name, subtext, brandClass, Icon, onClick }) {
   );
 }
 
-function TransactionRow({ type, title, date, amount }) {
-  const isDeposit = type === "deposit";
+function TransactionRow({ title, date, amount, status }) {
+  const isDeposit = amount >= 0;
+  const displayAmount = `${
+    isDeposit ? "+" : "-"
+  }₦${Math.abs(amount).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
   return (
     <article className="transaction-row">
-      <span
-        className={`transaction-icon ${isDeposit ? "deposit" : "purchase"}`}
-      >
+      <span className={`transaction-icon ${isDeposit ? "deposit" : "purchase"}`}>
         {isDeposit ? <FiArrowDownLeft /> : <FiArrowUpRight />}
       </span>
       <div className="transaction-copy">
@@ -270,9 +329,9 @@ function TransactionRow({ type, title, date, amount }) {
       </div>
       <div className="transaction-amount">
         <strong className={isDeposit ? "positive" : "negative"}>
-          {amount}
+          {displayAmount}
         </strong>
-        <span className="status-badge">SUCCESSFUL</span>
+        <span className="status-badge">{status}</span>
       </div>
     </article>
   );

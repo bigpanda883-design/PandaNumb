@@ -1,0 +1,41 @@
+/* -----------------------------------------------------------------------------
+   Panda Numbers - dashboard page transitions
+   -----------------------------------------------------------------------------
+   A short fade + slide-up applied to the routed content only. The header,
+   sidebar and bottom nav sit outside this wrapper, so they never animate and
+   the chrome stays perfectly still while the page changes.
+   -------------------------------------------------------------------------- */
+
+.dashboard-page-transition {
+  animation: dashboard-page-enter 0.28s ease-out both;
+  /* Avoid a transform on a container that scrolls, which would clip sticky
+     children. `animation-fill-mode: both` keeps the final state clean. */
+  will-change: opacity, transform;
+}
+
+@keyframes dashboard-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Users who ask the OS to reduce motion get a plain fade, no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-page-transition {
+    animation: dashboard-page-fade 0.2s ease-out both;
+  }
+
+  @keyframes dashboard-page-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}

@@ -1,70 +1,31 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FiArrowUpRight, FiArrowDownLeft, FiCreditCard } from "react-icons/fi";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { useTransactions } from "../hooks/useTransactions";
+import { TransactionsSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Transactions.css";
 
-const initialTransactions = [
-  {
-    id: 1,
-    type: "purchase",
-    title: "WhatsApp number +1 632 923 4808",
-    date: "18 Sept 2026, 02:00",
-    amount: "-₦3,200.00",
-    status: "SUCCESSFUL",
-    path: "/my-numbers",
-  },
-  {
-    id: 2,
-    type: "deposit",
-    title: "TEST deposit · demo bank transfer",
-    date: "17 Sept 2026, 23:19",
-    amount: "+₦100.00",
-    status: "SUCCESSFUL",
-    path: "/deposit",
-  },
-  {
-    id: 3,
-    type: "deposit",
-    title: "TEST deposit · demo bank transfer",
-    date: "17 Sept 2026, 23:16",
-    amount: "+₦1,000.00",
-    status: "SUCCESSFUL",
-    path: "/deposit",
-  },
-  {
-    id: 4,
-    type: "deposit",
-    title: "TEST deposit · demo bank transfer",
-    date: "07 Sept 2026, 08:30",
-    amount: "+₦7,450.00",
-    status: "SUCCESSFUL",
-    path: "/deposit",
-  },
-  {
-    id: 5,
-    type: "purchase",
-    title: "Telegram number +1 229 838 3490",
-    date: "07 Sept 2026, 07:52",
-    amount: "-₦2,800.00",
-    status: "SUCCESSFUL",
-    path: "/my-numbers",
-  },
-  {
-    id: 6,
-    type: "deposit",
-    title: "TEST deposit · demo bank transfer",
-    date: "22 Aug 2026, 19:32",
-    amount: "+₦5,000.00",
-    status: "SUCCESSFUL",
-    path: "/deposit",
-  },
-];
+/** Format a signed naira amount the way both list UIs already render it. */
+function formatAmount(amount) {
+  const sign = amount >= 0 ? "+" : "-";
+  const value = Math.abs(amount).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}₦${value}`;
+}
 
 function Transactions() {
   const [activeTab, setActiveTab] = useState("all");
   const navigate = useNavigate();
+  const { isLoading } = usePageLoading();
+  // Real history from the shared store - empty for a brand-new account.
+  const transactions = useTransactions();
 
-  const filteredTransactions = initialTransactions.filter((tx) => {
+  if (isLoading) return <TransactionsSkeleton />;
+
+  const filteredTransactions = transactions.filter((tx) => {
     if (activeTab === "all") return true;
     return tx.type === activeTab;
   });
@@ -145,7 +106,9 @@ function Transactions() {
                 </div>
 
                 <div className="tx-right">
-                  <span className={`tx-amount ${tx.type}`}>{tx.amount}</span>
+                  <span className={`tx-amount ${tx.type}`}>
+                    {formatAmount(tx.amount)}
+                  </span>
                   <span className="tx-status-badge">{tx.status}</span>
                 </div>
               </div>

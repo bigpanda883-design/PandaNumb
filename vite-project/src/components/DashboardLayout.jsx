@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import DashboardHeader from "./DashboardHeader";
 import MobileBottomNav from "./MobileBottomNav";
 import Sidebar from "./Sidebar";
+import WhatsAppAnnouncementPopup from "./WhatsAppAnnouncementPopup";
 import "../CSS/dashboard/Dashboard.css";
 import "../CSS/dashboard/DarkMode.css";
+import "../CSS/dashboard/PageTransitions.css";
 
 function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // Keying the wrapper on the path re-runs the entrance animation on every
+  // dashboard navigation without touching any individual page.
+  const { pathname } = useLocation();
 
   // Stop the page behind the drawer from scrolling while it is open.
   // (Every drawer link, the overlay and the close button all call onClose,
@@ -27,10 +32,14 @@ function DashboardLayout() {
       <div className="dashboard-main-shell">
         <DashboardHeader onMenuToggle={() => setIsSidebarOpen(true)} />
         <main className="dashboard-content">
-          <Outlet />
+          <div className="dashboard-page-transition" key={pathname}>
+            <Outlet />
+          </div>
         </main>
       </div>
       <MobileBottomNav />
+      {/* Shown once per session after entering the dashboard. */}
+      <WhatsAppAnnouncementPopup />
     </div>
   );
 }
