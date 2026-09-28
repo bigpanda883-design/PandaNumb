@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# -----------------------------------------------------------------------------
+# Secrets - NEVER commit these
+# -----------------------------------------------------------------------------
+# .env.server holds the Yankee Verify API key. Committing it would leak the key.
+.env
+.env.*
+!.env.example
+
+# Belt-and-braces: block the key file even if a broad pattern is loosened later.
+*.key
+server/.env*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

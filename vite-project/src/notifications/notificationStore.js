@@ -59,30 +59,12 @@ export function getUnreadCount() {
 }
 
 /**
- * Seed the store once with the sample history that used to live inside the
- * Notifications page. `localStorage` is untouched until now, so an existing
- * user is never overwritten - this only fills a genuinely empty store.
+ * NOTE: notifications are never seeded.
+ *
+ * A brand-new account must start with an empty notification list, so the store
+ * deliberately holds nothing until a real account action records one. Any
+ * sample/demo history would show a new user activity that never happened.
  */
-const SEED_FLAG_KEY = "panda-numbers-notifications-seeded";
-
-export function seedNotificationsOnce(samples) {
-  try {
-    if (localStorage.getItem(SEED_FLAG_KEY)) return;
-    localStorage.setItem(SEED_FLAG_KEY, "1");
-  } catch {
-    return;
-  }
-  if (readStore().length > 0 || !Array.isArray(samples)) return;
-
-  const seeded = samples.map((sample, index) => ({
-    ...sample,
-    id: sample.id ?? `seed-${index}`,
-    // The samples are history, so they arrive already read.
-    read: true,
-    createdAt: Date.now() - index * 1000,
-  }));
-  writeStore(seeded);
-}
 
 /**
  * Record an account activity as a notification.

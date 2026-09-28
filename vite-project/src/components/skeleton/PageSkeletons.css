@@ -1,0 +1,200 @@
+/* -----------------------------------------------------------------------------
+   Panda Numbers - page skeleton layout
+   -----------------------------------------------------------------------------
+   Layout-only rules. Colours come from the .sk-block primitives, so light/dark
+   is handled in one place (Skeleton.css + the dark overrides).
+
+   These shells deliberately reuse the real pages' spacing so nothing jumps when
+   the content replaces the skeleton.
+   -------------------------------------------------------------------------- */
+
+.sk-page {
+  /* Skeletons are decorative; keep them out of the a11y tree's way. */
+  pointer-events: none;
+}
+
+/* --- Balance banner placeholder ------------------------------------------ */
+.sk-balance-banner {
+  border-radius: 24px;
+  padding: 26px 28px;
+  margin-bottom: 24px;
+  background-color: #e9eff8;
+}
+
+.sk-balance-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.sk-balance-amount {
+  margin-bottom: 22px;
+}
+
+.sk-balance-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* --- Generic rows / lists ------------------------------------------------ */
+.sk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sk-row,
+.sk-card-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background-color: #ffffff;
+  border: 1px solid #edf1f7;
+}
+
+.sk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 18px;
+  background-color: #ffffff;
+  border: 1px solid #edf1f7;
+}
+
+.sk-row-copy,
+.sk-row-end,
+.user-details,
+.service-details,
+.banner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sk-row-end {
+  align-items: flex-end;
+  flex: 0 0 auto;
+}
+
+.sk-card-block {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* --- Panels (cards that hold forms / content) ---------------------------- */
+.sk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 20px;
+  background-color: #ffffff;
+  border: 1px solid #edf1f7;
+}
+
+.sk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sk-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.sk-faq-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.sk-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+/* Banner shell used inside the verification-codes skeleton. */
+.sk-banner {
+  border-radius: 28px;
+  padding: 26px 30px;
+  background-color: #0b5ed7;
+}
+
+/* -----------------------------------------------------------------------------
+   Dark theme - surfaces only (the .sk-block palette is overridden globally in
+   CSS/dashboard/DarkMode.css).
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .sk-balance-banner {
+  background-color: #1b2438;
+}
+
+html[data-theme="dark"] .dashboard-app .sk-row,
+html[data-theme="dark"] .dashboard-app .sk-card,
+html[data-theme="dark"] .dashboard-app .sk-panel {
+  background-color: #151d2e;
+  border-color: #263149;
+}
+
+html[data-theme="dark"] .dashboard-app .sk-faq-row {
+  border-bottom-color: #263149;
+}
+
+/* -----------------------------------------------------------------------------
+   Responsive - match the real pages' mobile breakpoints.
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .sk-balance-banner {
+    padding: 20px;
+    border-radius: 20px;
+  }
+
+  .sk-balance-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .sk-chip-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .sk-row,
+  .sk-card-block {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .sk-panel {
+    padding: 16px;
+    border-radius: 16px;
+  }
+}
+
+@media (max-width: 380px) {
+  .sk-balance-banner {
+    padding: 16px;
+  }
+
+  .sk-chip-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-page * {
+    animation-duration: 0.01ms !important;
+  }
+}

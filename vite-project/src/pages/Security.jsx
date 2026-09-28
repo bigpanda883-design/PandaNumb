@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { FiShield, FiEye, FiEyeOff, FiKey } from "react-icons/fi";
 import { pushNotification } from "../notifications/notificationStore";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { SecuritySkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Security.css";
 
 const Security = () => {
   const [showPassword, setShowPassword] = useState(false);
+  const { isLoading } = usePageLoading();
   const [formData, setFormData] = useState({
     currentPassword: "",
     newPassword: "",
@@ -40,6 +43,8 @@ const Security = () => {
       confirmPassword: "",
     });
   };
+
+  if (isLoading) return <SecuritySkeleton />;
 
   return (
     <div className="security-page">

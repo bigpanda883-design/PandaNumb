@@ -11,50 +11,34 @@ import {
 } from "react-icons/fi";
 import { useLocation, useNavigate } from "react-router-dom";
 import { pushNotification } from "../notifications/notificationStore";
+import { useVerificationCode } from "../hooks/useVerificationCode";
+import {
+  getActivations,
+  recordCode,
+  updateActivationStatus,
+  NUMBER_STATUS,
+  subscribeToActivations,
+} from "../wallet/activationStore";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { MyNumbersSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/MyNumbers.css";
 
-// Initial mock data list based on image 1
-const initialNumbersList = [
-  {
-    id: "1",
-    number: "+1 632 923 4808",
-    countryCode: "us",
-    countryName: "United States",
-    service: "WhatsApp",
-    price: "₦3,200.00",
-    dateStr: "18 Sept 2026, 02:00",
-    orderId: "PN-D00042FD",
-    status: "COMPLETED",
-    codeReceived: true,
-    verificationCode: "750529",
-    codeReceivedTime: "18 Sept 2026, 02:09",
-  },
-  {
-    id: "2",
-    number: "+1 229 838 3490",
-    countryCode: "us",
-    countryName: "United States",
-    service: "Telegram",
-    price: "₦2,800.00",
-    dateStr: "07 Sept 2026, 07:52",
-    orderId: "PN-D00089BC",
-    status: "COMPLETED",
-    codeReceived: true,
-    verificationCode: "482910",
-    codeReceivedTime: "07 Sept 2026, 07:55",
-  },
-];
+// No hardcoded number list: a user's numbers come from the backend only.
 
 function MyNumbers() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isLoading: isLoadingList } = usePageLoading();
 
   // Navigation view state: null = List View, object = Detail View
   const [selectedNumber, setSelectedNumber] = useState(null);
 
+  // Numbers issued by the provider, from the activation store.
+  const [numbersList, setNumbersList] = useState(getActivations);
+  const [listError] = useState(null);
+
   // Verification state for selected item
   const [verificationCode, setVerificationCode] = useState(null);
-  const [isFetchingCode, setIsFetchingCode] = useState(false);
   const [copiedType, setCopiedType] = useState(null);
 
   // When opening a specific number card
@@ -81,6 +65,78 @@ function MyNumbers() {
     navigate("/my-numbers", { replace: true, state: null });
   };
 
+  // Poll the provider for the code belonging to the selected activation.
+  const {
+    code: liveCode,
+    receivedAt: liveCodeTime,
+    isPolling,
+    error: codeError,
+    startPolling,
+    cancel,
+  } = useVerificationCode(selectedNumber?.id ?? null);
+
+  // Keep the list in sync with the store.
+  useEffect(() => {
+    return subscribeToActivations(setNumbersList);
+  }, []);
+
+  // When the provider delivers a code, persist it and notify. The state update
+  // is deferred so the effect body itself does not set state during the commit.
+  useEffect(() => {
+    if (!liveCode || !selectedNumber) return;
+
+    Promise.resolve().then(() => {
+      setVerificationCode({
+        code: liveCode,
+        receivedTime: liveCodeTime
+          ? liveCodeTime.toLocaleString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })
+          : "",
+      });
+    });
+
+    recordCode(selectedNumber.id, liveCode, liveCodeTime || new Date());
+    updateActivationStatus(selectedNumber.id, NUMBER_STATUS.CODE_RECEIVED);
+
+    pushNotification({
+      type: "code",
+      title: "Verification code received",
+      description: `${selectedNumber.service} code ${liveCode} arrived.`,
+      path: "/my-numbers",
+    });
+  }, [liveCode, liveCodeTime, selectedNumber]);
+
+  // If a previously stored activation already has its code, show it.
+  useEffect(() => {
+    if (!selectedNumber) return;
+    const stored = getActivations().find(
+      (a) => a.activationId === selectedNumber.id,
+    );
+    if (stored?.code) {
+      Promise.resolve().then(() => {
+        setVerificationCode({
+          code: stored.code,
+          receivedTime: stored.receivedAt
+            ? new Date(stored.receivedAt).toLocaleString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              })
+            : "",
+        });
+      });
+    }
+  }, [selectedNumber]);
+
   // A completed purchase arrives with the new number in router state. Open its
   // Verification Codes view immediately, then clear the state so going back or
   // refreshing lands on the normal list.
@@ -88,46 +144,33 @@ function MyNumbers() {
     const purchasedNumber = location.state?.openNumber;
     if (!purchasedNumber) return;
 
-    handleSelectNumber(purchasedNumber);
+    Promise.resolve().then(() => handleSelectNumber(purchasedNumber));
     navigate(location.pathname, { replace: true, state: null });
     // Run only when the incoming state changes (i.e. right after a purchase).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
-  // Handle "Get Code" Click
+  // Handle "Get Code" - start polling the provider for the real SMS code.
   const handleGetCode = () => {
-    setIsFetchingCode(true);
-    setTimeout(() => {
-      const generatedCode = Math.floor(
-        100000 + Math.random() * 900000,
-      ).toString();
-      const now = new Date();
-      const dateStr = now.toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-      const timeStr = now.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
+    if (!selectedNumber) return;
+    startPolling();
+  };
 
-      setVerificationCode({
-        code: generatedCode,
-        receivedTime: `${dateStr}, ${timeStr}`,
-      });
-      setIsFetchingCode(false);
-
-      // A verification code just arrived - that is account activity worth a
-      // notification, linked back to the number it belongs to.
+  // Cancel the activation and refund it with the provider.
+  const handleCancelNumber = async () => {
+    try {
+      await cancel();
+      updateActivationStatus(selectedNumber.id, NUMBER_STATUS.CANCELLED);
       pushNotification({
-        type: "code",
-        title: "Verification code received",
-        description: `${selectedNumber.service} code ${generatedCode} arrived.`,
+        type: "purchase",
+        title: "Number cancelled",
+        description: `${selectedNumber.service} number ${selectedNumber.number} was released and refunded.`,
         path: "/my-numbers",
       });
-    }, 1200);
+      handleBackToList();
+    } catch {
+      // The provider refused the cancel; leave the number as it is.
+    }
   };
 
   // Copy helper
@@ -136,6 +179,12 @@ function MyNumbers() {
     setCopiedType(type);
     setTimeout(() => setCopiedType(null), 2000);
   };
+
+  // Loading the list: the skeleton supplies its own page shell, so return it
+  // before the real (nested) wrapper to avoid compounding two page wrappers.
+  if (isLoadingList) {
+    return <MyNumbersSkeleton />;
+  }
 
   return (
     <div className="mynumbers-page-wrapper">
@@ -151,8 +200,22 @@ function MyNumbers() {
             </div>
 
             <div className="numbers-cards-flex">
-              {initialNumbersList.map((item) => (
-                <div
+              {listError ? (
+                <div className="empty-state">
+                  <strong>Could not load your numbers</strong>
+                  <span>{listError.message}</span>
+                </div>
+              ) : numbersList.length === 0 ? (
+                <div className="empty-state">
+                  <strong>No numbers yet</strong>
+                  <span>
+                    Buy a number and it will appear here with its verification
+                    codes.
+                  </span>
+                </div>
+              ) : (
+                numbersList.map((item) => (
+                  <div
                   key={item.id}
                   className="number-item-card"
                   role="button"
@@ -188,7 +251,8 @@ function MyNumbers() {
                     <FiChevronRight className="chevron-icon" />
                   </div>
                 </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         ) : (
@@ -246,7 +310,7 @@ function MyNumbers() {
                 ) : (
                   <span className="badge-ready">
                     <FiZap aria-hidden="true" />
-                    <span>READY · DEMO</span>
+                    <span>READY</span>
                   </span>
                 )}
               </div>
@@ -278,22 +342,40 @@ function MyNumbers() {
                 <h3 className="no-codes-title">No codes yet</h3>
                 <p className="no-codes-desc">
                   Use this number on the service you selected, then tap Get code
-                  to receive your simulated verification SMS.
+                  to receive your verification SMS.
                 </p>
+
                 <button
                   type="button"
                   className="get-code-btn"
-                  disabled={isFetchingCode}
+                  disabled={isPolling}
                   onClick={handleGetCode}
                 >
-                  {isFetchingCode ? (
+                  {isPolling ? (
                     <>
                       <FiLoader className="spin-icon" />
-                      <span>Fetching code...</span>
+                      <span>Waiting for code...</span>
                     </>
+                  ) : codeError ? (
+                    "Retry"
                   ) : (
                     "Get code"
                   )}
+                </button>
+
+                {/* The provider refused the request - explain why. */}
+                {codeError && (
+                  <p className="code-error-text" role="alert">
+                    {codeError.message}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  className="cancel-number-btn"
+                  onClick={handleCancelNumber}
+                >
+                  Cancel number and refund
                 </button>
               </div>
             ) : (

@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import App from "../App";
 import DashboardLayout from "../components/DashboardLayout";
 import ActiveSMS from "../pages/ActiveSMS";
@@ -13,6 +13,7 @@ import Security from "../pages/Security";
 import Transactions from "../pages/Transactions";
 import Login from "../pages/auth/Login";
 import SignUp from "../pages/auth/SignUp";
+import NotFound from "../pages/NotFound";
 import ScrollToTop from "../components/ScrollToTop";
 import ProtectedRoute from "./ProtectedRoute";
 
@@ -38,7 +39,8 @@ function AppRoutes() {
             <Route path="/security" element={<Security />} />
           </Route>
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Unknown URLs get a real 404 instead of silently bouncing to "/". */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

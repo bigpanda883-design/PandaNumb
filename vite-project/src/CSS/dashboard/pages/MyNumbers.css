@@ -698,3 +698,64 @@
     font-size: 20px;
   }
 }
+/* -----------------------------------------------------------------------------
+   Cancel / refund control on the verification panel
+   -----------------------------------------------------------------------------
+   Releases the number back to the provider with a refund. Styled as a quiet
+   secondary action so it never competes with "Get code".
+   -------------------------------------------------------------------------- */
+.cancel-number-btn {
+  margin-top: 12px;
+  padding: 9px 18px;
+  border-radius: 22px;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancel-number-btn:hover {
+  border-color: #fca5a5;
+  background-color: #fef2f2;
+  color: #dc2626;
+}
+
+html[data-theme="dark"] .dashboard-app .cancel-number-btn {
+  background-color: #151d2e;
+  border-color: #263149;
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .dashboard-app .cancel-number-btn:hover {
+  border-color: rgba(248, 113, 113, 0.5);
+  background-color: rgba(220, 38, 38, 0.14);
+  color: #f87171;
+}
+
+/* Provider error message under the Get code button. */
+.code-error-text {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: 420px;
+}
+
+html[data-theme="dark"] .dashboard-app .code-error-text {
+  background-color: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #fca5a5;
+}
+
+@media (max-width: 640px) {
+  .cancel-number-btn {
+    width: 100%;
+  }
+}

@@ -1,69 +1,20 @@
-import { useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FiBell, FiArrowRight, FiCheck } from "react-icons/fi";
 import { useNotifications } from "../hooks/useNotifications";
 import {
   markAllNotificationsRead,
   markNotificationRead,
-  seedNotificationsOnce,
 } from "../notifications/notificationStore";
 import "../CSS/dashboard/pages/Notifications.css";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { NotificationsSkeleton } from "../components/skeleton/PageSkeletons";
 
-// Sample history, seeded once into the store so a brand-new account still has
-// something to show. Real account actions append to the same store on top.
-const sampleNotifications = [
-  {
-    type: "code",
-    title: "Verification code received",
-    description: "WhatsApp code 750529 arrived.",
-    date: "18 Sept 2026, 02:09",
-    path: "/my-numbers",
-  },
-  {
-    type: "purchase",
-    title: "Number purchased",
-    description: "WhatsApp number +1 632 923 4808 is ready.",
-    date: "18 Sept 2026, 02:00",
-    path: "/my-numbers",
-  },
-  {
-    type: "deposit",
-    title: "Deposit successful",
-    description: "Your wallet has been credited.",
-    date: "17 Sept 2026, 23:19",
-    path: "/transactions",
-  },
-  {
-    type: "deposit",
-    title: "Deposit successful",
-    description: "Your wallet has been credited.",
-    date: "17 Sept 2026, 23:16",
-    path: "/transactions",
-  },
-  {
-    type: "code",
-    title: "Verification code received",
-    description: "Telegram code 917414 arrived.",
-    date: "07 Sept 2026, 07:55",
-    path: "/my-numbers",
-  },
-  {
-    type: "purchase",
-    title: "Number purchased",
-    description: "Telegram number +1 229 838 3490 is ready.",
-    date: "07 Sept 2026, 07:52",
-    path: "/my-numbers",
-  },
-];
-
+// No sample/demo history: a new account must start empty, so every notification
+// here comes from a real action recorded by the shared store.
 function Notifications() {
   const { notifications, unreadCount } = useNotifications();
   const navigate = useNavigate();
-
-  // Make sure the sample history exists before the first render reads it.
-  useEffect(() => {
-    seedNotificationsOnce(sampleNotifications);
-  }, []);
+  const { isLoading } = usePageLoading();
 
   // Opening an individual notification clears its unread flag, which updates
   // the header badge immediately through the shared store.
@@ -73,6 +24,8 @@ function Notifications() {
       navigate(item.path);
     }
   };
+
+  if (isLoading) return <NotificationsSkeleton />;
 
   return (
     <section className="notifications-page-container">

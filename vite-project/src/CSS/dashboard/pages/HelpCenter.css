@@ -316,3 +316,121 @@
     font-size: 18px;
   }
 }
+/* ==========================================
+   Dark mode
+   ------------------------------------------
+   The Help Center shipped with no dark rules beyond the page shell, so every
+   card, the search field, the FAQ rows and the secondary button stayed white
+   with near-black text. Scoped exactly like the rest of the app
+   (html[data-theme="dark"] .dashboard-app ...) and colour-only: no layout,
+   spacing or typography changes.
+   ========================================== */
+
+html[data-theme="dark"] .dashboard-app .help-center-wrapper {
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .help-center-header h1 {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .help-center-header p {
+  color: #93a3bd;
+}
+
+/* --- Support action cards ------------------------------------------------ */
+html[data-theme="dark"] .dashboard-app .help-card {
+  background: #151d2e;
+  border-color: #263149;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .dashboard-app .help-card-icon-wrap {
+  background: rgba(59, 130, 246, 0.16);
+}
+
+html[data-theme="dark"] .dashboard-app .help-card-icon {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .help-card h3 {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .help-card-contact {
+  color: #93a3bd;
+}
+
+/* Secondary button (Email support) */
+html[data-theme="dark"] .dashboard-app .help-btn.secondary-btn {
+  background: #101827;
+  border-color: #2a3650;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .help-btn.secondary-btn:hover {
+  background: #1b2438;
+  border-color: #33415c;
+  color: #ffffff;
+}
+
+/* --- FAQ panel ----------------------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .help-faq-card {
+  background: #151d2e;
+  border-color: #263149;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .dashboard-app .faq-search-icon {
+  color: #64748b;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-search-wrap input {
+  background-color: #101827;
+  border-color: #2a3650;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-search-wrap input::placeholder {
+  color: #64748b;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-search-wrap input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+html[data-theme="dark"] .dashboard-app .faq-item {
+  border-bottom-color: #263149;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-question-btn {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-question-btn:hover {
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-arrow {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-answer {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .dashboard-app .faq-no-results {
+  color: #93a3bd;
+}
+
+/* --- Loading shells (skeleton) ------------------------------------------- */
+html[data-theme="dark"] .dashboard-app .help-center-wrapper .sk-card,
+html[data-theme="dark"] .dashboard-app .help-center-wrapper .sk-panel {
+  background-color: #151d2e;
+  border-color: #263149;
+}
+
+html[data-theme="dark"] .dashboard-app .help-center-wrapper .sk-faq-row {
+  border-bottom-color: #263149;
+}

@@ -3,11 +3,14 @@ import { FiLifeBuoy, FiLogOut } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { clearAuthUser, getAuthUser } from "../auth/authStorage";
 import { pushNotification } from "../notifications/notificationStore";
+import { usePageLoading } from "../hooks/usePageLoading";
+import { ProfileSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Profile.css";
 
 function Profile() {
   const navigate = useNavigate();
   const user = getAuthUser();
+  const { isLoading } = usePageLoading();
 
   const [formData, setFormData] = useState({
     fullName: user?.fullName || "",
@@ -55,6 +58,8 @@ function Profile() {
     clearAuthUser();
     navigate("/login", { replace: true });
   };
+
+  if (isLoading) return <ProfileSkeleton />;
 
   return (
     <section className="profile-page-container">

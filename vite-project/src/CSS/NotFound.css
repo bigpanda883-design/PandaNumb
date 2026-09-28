@@ -1,0 +1,313 @@
+/* -----------------------------------------------------------------------------
+   Panda Numbers - 404 page
+   -----------------------------------------------------------------------------
+   Matches the auth pages' centred-card look and the app's brand palette. The
+   dark theme is driven by the same <html data-theme="dark"> attribute the rest
+   of the app uses, so it follows the existing toggle.
+   -------------------------------------------------------------------------- */
+
+.notfound-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  box-sizing: border-box;
+  background-color: #f6f8fc;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+.notfound-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 40px 36px;
+  border-radius: 28px;
+  background-color: #ffffff;
+  border: 1px solid #eef2f7;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.06);
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Brand mark - mirrors the header logo exactly. */
+.notfound-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.notfound-logo .logo-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background-color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 2px 6px rgba(0, 102, 255, 0.25);
+}
+
+.notfound-logo .logo-p {
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.notfound-logo .logo-dot {
+  position: absolute;
+  bottom: 7px;
+  right: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background-color: #ffffff;
+}
+
+.notfound-logo .logo-text {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.notfound-logo .text-black {
+  color: #0d1321;
+}
+
+.notfound-logo .text-blue {
+  color: #0066ff;
+}
+
+.notfound-code {
+  font-size: 76px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #0066ff;
+  margin-bottom: 10px;
+}
+
+.notfound-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #0d1727;
+  margin: 0 0 10px;
+  letter-spacing: -0.02em;
+}
+
+.notfound-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: #64748b;
+  margin: 0 auto 26px;
+  max-width: 420px;
+}
+
+.notfound-path {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #334155;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.notfound-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 30px;
+}
+
+.notfound-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.notfound-btn.primary {
+  background-color: #0066ff;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
+}
+
+.notfound-btn.primary:hover {
+  background-color: #0052cc;
+}
+
+.notfound-btn.secondary {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #1a202c;
+}
+
+.notfound-btn.secondary:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+/* --- Popular pages ------------------------------------------------------- */
+.notfound-suggestions {
+  padding-top: 22px;
+  border-top: 1px solid #eef2f7;
+}
+
+.notfound-suggestions-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 12px;
+}
+
+.notfound-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.notfound-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid #e8edf5;
+  background-color: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.notfound-link:hover {
+  border-color: #0066ff;
+  color: #0066ff;
+  background-color: #eef5ff;
+}
+
+.notfound-footer {
+  margin: 24px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* -----------------------------------------------------------------------------
+   Dark theme
+   -------------------------------------------------------------------------- */
+html[data-theme="dark"] .notfound-page {
+  background-color: #0b1120;
+}
+
+html[data-theme="dark"] .notfound-card {
+  background-color: #151d2e;
+  border-color: #263149;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="dark"] .notfound-logo .text-black {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .notfound-title {
+  color: #e9eefb;
+}
+
+html[data-theme="dark"] .notfound-text {
+  color: #93a3bd;
+}
+
+html[data-theme="dark"] .notfound-path {
+  background-color: #101827;
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .notfound-btn.secondary {
+  background-color: #151d2e;
+  border-color: #263149;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .notfound-btn.secondary:hover {
+  background-color: #1b2438;
+  border-color: #33415c;
+}
+
+html[data-theme="dark"] .notfound-suggestions {
+  border-top-color: #263149;
+}
+
+html[data-theme="dark"] .notfound-suggestions-label {
+  color: #64748b;
+}
+
+html[data-theme="dark"] .notfound-link {
+  background-color: #101827;
+  border-color: #263149;
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .notfound-link:hover {
+  border-color: #3b82f6;
+  background-color: #16203a;
+  color: #6aa5ff;
+}
+
+html[data-theme="dark"] .notfound-footer {
+  color: #64748b;
+}
+
+/* -----------------------------------------------------------------------------
+   Responsive
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+  .notfound-page {
+    padding: 24px 16px;
+  }
+
+  .notfound-card {
+    padding: 30px 20px;
+    border-radius: 22px;
+  }
+
+  .notfound-code {
+    font-size: 60px;
+  }
+
+  .notfound-title {
+    font-size: 20px;
+  }
+
+  .notfound-actions {
+    flex-direction: column;
+  }
+
+  .notfound-btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notfound-btn,
+  .notfound-link {
+    transition: none;
+  }
+}

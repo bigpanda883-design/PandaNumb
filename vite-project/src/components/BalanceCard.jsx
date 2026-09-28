@@ -1,34 +1,52 @@
 import { useEffect, useState } from "react";
 import { FiEye, FiEyeOff, FiPlus, FiSmartphone } from "react-icons/fi";
 import { Link } from "react-router-dom";
+import { useUsdToNgnRate } from "../wallet/exchangeRate";
+import { useBalance } from "../hooks/useBalance";
 import "../CSS/dashboard/components/BalanceCard.css";
 
-function BalanceCard({ baseNairaBalance = 10750 }) {
+// NOTE: no provider API key here, and none anywhere in the frontend.
+// The SMS provider is reached only through our own backend (server/index.js).
+
+function BalanceCard() {
   const [isVisible, setIsVisible] = useState(true);
-  const [currency, setCurrency] = useState("NGN"); // "NGN" or "USD"
+  const [currency, setCurrency] = useState("NGN");
   const [animatedValue, setAnimatedValue] = useState(0);
 
-  // Conversion rate: $1 USD = 1500 NGN (adjust if needed)
-  const EXCHANGE_RATE_USD = 1500;
+  const {
+    rate,
+    isLoading: rateLoading,
+    isFallback: rateIsFallback,
+  } = useUsdToNgnRate();
 
-  // Target balance depending on selected currency
+  // The USER'S balance, from the shared wallet store.
+  //
+  // This deliberately does NOT call the SMS provider's getBalance: that figure
+  // is the provider's own wallet, and showing it as the user's balance would be
+  // wrong. The provider balance is surfaced separately via getProviderBalance().
+  const {
+    balance,
+    isLoading: isLoadingBalance,
+    error: balanceError,
+  } = useBalance();
+
+  const nairaBalance = typeof balance === "number" ? balance : 0;
+
+  // Target balance conversion
   const targetBalance =
-    currency === "USD"
-      ? baseNairaBalance / EXCHANGE_RATE_USD
-      : baseNairaBalance;
+    currency === "USD" && rate ? nairaBalance / rate : nairaBalance;
 
-  // Count-up animation on refresh or currency change
+  // Count-up animation
   useEffect(() => {
     let animationFrameId;
-    const duration = 1200; // 1.2 seconds count animation
+    const duration = 1200;
     const startTime = performance.now();
 
     const animateCount = (currentTime) => {
       const elapsedTime = currentTime - startTime;
       const progress = Math.min(elapsedTime / duration, 1);
-
-      // Ease-out curve
       const easeOut = 1 - Math.pow(1 - progress, 3);
+
       setAnimatedValue(easeOut * targetBalance);
 
       if (progress < 1) {
@@ -44,8 +62,12 @@ function BalanceCard({ baseNairaBalance = 10750 }) {
   // Format currency display string
   const formatDisplay = () => {
     if (!isVisible) return "••••••";
+    if (isLoadingBalance) return "Loading balance…";
+    if (balanceError) return "Balance unavailable";
 
     if (currency === "USD") {
+      if (rateLoading) return "Loading rate…";
+      if (!rate) return "Rate unavailable";
       return `$${animatedValue.toFixed(2)}`;
     }
 
@@ -58,7 +80,7 @@ function BalanceCard({ baseNairaBalance = 10750 }) {
 
   return (
     <section className="balance-card" aria-label="Wallet balance">
-      {/* TOP ROW: Header + Eye Icon on Left | Currency Switcher on Right */}
+      {/* TOP ROW */}
       <div className="balance-card-header">
         <div className="balance-label-wrapper">
           <span className="balance-label">Available Balance</span>
@@ -72,7 +94,7 @@ function BalanceCard({ baseNairaBalance = 10750 }) {
           </button>
         </div>
 
-        {/* Currency Switcher Top Right */}
+        {/* Currency Switcher */}
         <div className="currency-switcher" aria-label="Currency option">
           <button
             type="button"
@@ -91,10 +113,15 @@ function BalanceCard({ baseNairaBalance = 10750 }) {
         </div>
       </div>
 
-      {/* MIDDLE ROW: Big Animated Balance */}
+      {/* MIDDLE ROW */}
       <div className="balance-amount">{formatDisplay()}</div>
+      {rateIsFallback && currency === "USD" && !rateLoading && (
+        <span className="balance-rate-note">
+          Offline rate · live rate unavailable
+        </span>
+      )}
 
-      {/* BOTTOM ROW: Action Buttons */}
+      {/* BOTTOM ROW */}
       <div className="balance-actions">
         <Link className="balance-btn secondary-btn" to="/deposit">
           <FiPlus className="btn-icon" />
