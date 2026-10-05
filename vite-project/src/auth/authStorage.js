@@ -17,12 +17,34 @@ const ACCOUNT_SCOPED_KEYS = [
   "panda-numbers-usd-ngn-rate",
 ];
 
+const AUTH_TOKEN_KEY = "panda-numbers-auth-token";
+
 export function getAuthUser() {
   try {
     const storedUser = localStorage.getItem(AUTH_STORAGE_KEY);
     return storedUser ? JSON.parse(storedUser) : null;
   } catch {
     return null;
+  }
+}
+
+export function getAuthToken() {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setAuthToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      return;
+    }
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch {
+    // Non-fatal.
   }
 }
 
@@ -49,9 +71,6 @@ export function setAuthUser(user) {
     });
   }
 
-  // A fresh sign-in is the newest statement about this account's balance, so
-  // stamp it. Any wallet value written earlier is then correctly treated as
-  // stale by fetchBalance().
   localStorage.setItem(
     AUTH_STORAGE_KEY,
     JSON.stringify({ ...user, balanceUpdatedAt: Date.now() }),
@@ -71,6 +90,12 @@ export function clearAuthUser() {
       // Storage can be unavailable; nothing to clear in that case.
     }
   });
+
+  try {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch {
+    // Non-fatal.
+  }
 
   window.dispatchEvent(new CustomEvent("panda-wallet-change"));
   window.dispatchEvent(new CustomEvent("panda-notifications-change"));

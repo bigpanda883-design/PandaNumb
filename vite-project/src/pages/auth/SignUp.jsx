@@ -9,7 +9,7 @@ import {
   FiSun,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
-import { setAuthUser } from "../../auth/authStorage";
+import { setAuthToken, setAuthUser } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import "../../CSS/auth/SignUp.css";
@@ -94,7 +94,7 @@ function SignUp() {
     return nextErrors;
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     const nextErrors = validate();
 
@@ -105,35 +105,67 @@ function SignUp() {
 
     setIsSubmitting(true);
 
-    // Save auth state
-    setAuthUser({
-      fullName: values.fullName.trim(),
-      email: values.email.trim(),
-      phone: values.phone.trim(),
-      initials: values.fullName
-        .trim()
-        .split(/\s+/)
-        .map((part) => part[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase(),
-    });
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: values.fullName.trim(),
+          fullName: values.fullName.trim(),
+          email: values.email.trim(),
+          phone: values.phone.trim(),
+          password: values.password,
+        }),
+      });
 
-    // Welcome the new account with its first notification.
-    pushNotification({
-      type: "security",
-      title: "Welcome to Panda Numbers",
-      description: "Your account was created successfully.",
-      path: "/security",
-    });
+      const payload = await response.json();
 
-    // Show Success Modal
-    setShowSuccessModal(true);
+      if (!response.ok) {
+        throw new Error(payload?.message || "Account creation failed.");
+      }
 
-    // Redirect after exactly 1 second
-    window.setTimeout(() => {
-      navigate("/dashboard", { replace: true });
-    }, 1000);
+      const user = payload?.user || {};
+      const fullName = user.fullName || user.name || values.fullName.trim();
+      const email = user.email || values.email.trim();
+      const phone = user.phone || values.phone.trim();
+
+      setAuthUser({
+        fullName,
+        email,
+        phone,
+        initials: fullName
+          .split(/\s+/)
+          .map((part) => part[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase(),
+      });
+
+      if (payload.token) {
+        setAuthToken(payload.token);
+      }
+
+      pushNotification({
+        type: "security",
+        title: "Welcome to Panda Numbers",
+        description: "Your account was created successfully.",
+        path: "/security",
+      });
+
+      setShowSuccessModal(true);
+
+      window.setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 1000);
+    } catch (error) {
+      setErrors({
+        submit: error?.message || "Account creation failed. Please try again.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const toggleVisibility = (field) => {

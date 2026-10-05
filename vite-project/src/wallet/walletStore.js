@@ -105,7 +105,11 @@ export function debitBalance(amount, source = "purchase") {
  * @returns {Promise<number>} the authoritative balance
  */
 export async function fetchBalance({ signal } = {}) {
-  const endpoint = import.meta.env?.VITE_BALANCE_ENDPOINT;
+  const endpoint =
+    import.meta.env?.VITE_BALANCE_ENDPOINT ||
+    (typeof window !== "undefined" && window.location.origin
+      ? `${window.location.origin}/api/wallet/balance`
+      : "");
 
   // A real network request has latency; a localStorage read does not. Without
   // this floor the loading state would resolve within a single frame and the
@@ -114,15 +118,18 @@ export async function fetchBalance({ signal } = {}) {
   const minimumLatency = new Promise((resolve) => setTimeout(resolve, 550));
 
   if (endpoint) {
+    const token = localStorage.getItem("panda-numbers-auth-token");
     const response = await fetch(endpoint, {
       signal,
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     });
     if (!response.ok) {
       throw new Error(`Balance request failed (${response.status})`);
     }
     const data = await response.json();
-    // Accept the common field names rather than guessing one.
     const value =
       data.balance ??
       data.walletBalance ??

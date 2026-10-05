@@ -1,3 +1,5 @@
+import { getAuthToken } from "../auth/authStorage";
+
 /**
  * Panda Numbers - API contract
  * ============================
@@ -52,10 +54,18 @@
  * Country           { code, name, dial, price, rawPrice, flagUrl }
  */
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || "";
+let API_BASE_URL =
+  (typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.VITE_API_BASE_URL) ||
+  "";
+
+export function getApiBaseUrl() {
+  return globalThis.__PANDA_API_BASE_URL__ || API_BASE_URL || "";
+}
 
 export function isApiConfigured() {
-  return Boolean(API_BASE_URL);
+  return true;
 }
 
 /**
@@ -80,11 +90,10 @@ export class MissingEndpointError extends Error {
  * caller can never mistake an absent backend for a successful empty response.
  */
 export async function apiRequest(path, options = {}) {
-  if (!isApiConfigured()) {
-    throw new MissingEndpointError(options.operation || path, path);
-  }
+  const baseUrl = getApiBaseUrl();
+  const url = baseUrl ? `${baseUrl}${path}` : path;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(url, {
     headers: {
       Accept: "application/json",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -102,4 +111,79 @@ export async function apiRequest(path, options = {}) {
   }
 
   return response.status === 204 ? null : response.json();
+}
+
+export async function loginUser({ email, password }, { signal } = {}) {
+  const payload = await apiRequest("/api/auth/login", {
+    method: "POST",
+    signal,
+    operation: "login",
+    body: JSON.stringify({ email, password }),
+  });
+
+  return {
+    user: payload?.user,
+    token: payload?.token,
+  };
+}
+
+export async function signUpUser(
+  { fullName, email, phone, password },
+  { signal } = {},
+) {
+  const payload = await apiRequest("/api/auth/signup", {
+    method: "POST",
+    signal,
+    operation: "sign up",
+    body: JSON.stringify({ fullName, email, phone, password }),
+  });
+
+  return {
+    user: payload?.user,
+    token: payload?.token,
+  };
+}
+
+export async function fetchCurrentUser({ signal } = {}) {
+  const payload = await apiRequest("/api/auth/me", {
+    signal,
+    operation: "load current user",
+  });
+
+  return payload?.user ?? null;
+}
+
+export async function logoutUser({ signal } = {}) {
+  await apiRequest("/api/auth/logout", {
+    method: "POST",
+    signal,
+    operation: "logout",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
+  });
+}
+
+export async function fetchWalletBalance({ signal } = {}) {
+  const payload = await apiRequest("/api/wallet/balance", {
+    signal,
+    operation: "load wallet balance",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
+  });
+
+  return typeof payload?.balance === "number" ? payload.balance : 0;
+}
+
+export async function depositToWallet(amount, { signal } = {}) {
+  const payload = await apiRequest("/api/wallet/deposit", {
+    method: "POST",
+    signal,
+    operation: "deposit to wallet",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    body: JSON.stringify({ amount }),
+  });
+
+  return {
+    balance: payload?.balance,
+    transaction: payload?.transaction,
+    user: payload?.user,
+  };
 }

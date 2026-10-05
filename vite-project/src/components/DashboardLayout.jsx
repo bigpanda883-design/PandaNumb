@@ -14,6 +14,16 @@ function DashboardLayout() {
   // dashboard navigation without touching any individual page.
   const { pathname } = useLocation();
 
+  // Close the drawer on navigation so the next page is not hidden behind an
+  // open menu. Resetting during render (instead of in an effect) avoids the
+  // extra cascading render React would otherwise do. See
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    setIsSidebarOpen(false);
+  }
+
   // Stop the page behind the drawer from scrolling while it is open.
   // (Every drawer link, the overlay and the close button all call onClose,
   // so the drawer is never left open behind the next page.)

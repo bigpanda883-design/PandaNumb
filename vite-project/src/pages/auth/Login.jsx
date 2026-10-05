@@ -11,7 +11,11 @@ import {
   FiX,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
-import { setAuthUser } from "../../auth/authStorage";
+import {
+  getAuthToken,
+  setAuthToken,
+  setAuthUser,
+} from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import "../../CSS/auth/Login.css";
@@ -105,16 +109,41 @@ function Login() {
     setIsSubmitting(true);
 
     try {
-      // Simulate API call processing safely
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      const name = values.email.split("@")[0] || "Panda User";
-      setAuthUser({
-        fullName: name,
-        email: values.email.trim(),
-        phone: "09132490567",
-        initials: name.slice(0, 2).toUpperCase(),
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: values.email.trim(),
+          password: values.password,
+        }),
       });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.message || "Invalid email or password.");
+      }
+
+      const user = payload?.user || {};
+      const fullName =
+        user.fullName ||
+        user.name ||
+        values.email.split("@")[0] ||
+        "Panda User";
+      const email = user.email || values.email.trim();
+      const phone = user.phone || "";
+
+      setAuthUser({
+        fullName,
+        email,
+        phone,
+        initials: fullName.slice(0, 2).toUpperCase(),
+      });
+      if (payload.token) {
+        setAuthToken(payload.token);
+      }
 
       pushNotification({
         type: "security",
@@ -128,8 +157,12 @@ function Login() {
       setTimeout(() => {
         navigate("/dashboard", { replace: true });
       }, 500);
-    } catch {
-      triggerToast("An unexpected error occurred. Please try again.", "error");
+    } catch (error) {
+      triggerToast(
+        error?.message || "An unexpected error occurred. Please try again.",
+        "error",
+      );
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -288,12 +321,9 @@ function Login() {
 
               {/* There is no self-service reset flow yet, so this opens the
                   support mailbox that the Footer and Help Center also use. */}
-              <a
-                href="mailto:Bigpanda883@gmail.com?subject=Panda%20Numbers%20password%20reset"
-                className="auth-inline-link"
-              >
+              <Link to="/forgot-password" className="auth-inline-link">
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             <button

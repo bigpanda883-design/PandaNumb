@@ -12,6 +12,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { pushNotification } from "../notifications/notificationStore";
 import { useVerificationCode } from "../hooks/useVerificationCode";
+import { fetchMyNumbers } from "../services/numbersApi";
 import {
   getActivations,
   recordCode,
@@ -35,7 +36,45 @@ function MyNumbers() {
 
   // Numbers issued by the provider, from the activation store.
   const [numbersList, setNumbersList] = useState(getActivations);
-  const [listError] = useState(null);
+  const [listError, setListError] = useState(null);
+
+  // Hydrate from the backend so a user's numbers survive a new device/session.
+  // The local activation store stays the immediate source for the UI; the server
+  // list is the durable one and is merged in on load.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchMyNumbers({ signal: controller.signal })
+      .then((serverNumbers) => {
+        if (controller.signal.aborted) return;
+        if (!Array.isArray(serverNumbers)) return;
+        const local = getActivations();
+        const known = new Set(local.map((a) => a.activationId));
+        const missing = serverNumbers
+          .filter((n) => n?.id && !known.has(n.id))
+          .map((n) => ({
+            activationId: n.id,
+            phone: n.number,
+            service: n.service,
+            country: n.countryName,
+            price: n.priceValue,
+            status: n.status,
+            code: n.code || null,
+            receivedAt: n.receivedAt || null,
+            dateStr: n.dateStr,
+            createdAt: n.createdAt
+              ? new Date(n.createdAt).getTime()
+              : Date.now(),
+          }));
+        if (missing.length > 0) setNumbersList([...missing, ...local]);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted || error?.name === "AbortError") return;
+        // A failed hydration is not fatal: the local store still renders. Only
+        // surface it when there is nothing else to show.
+        if (getActivations().length === 0) setListError(error);
+      });
+    return () => controller.abort();
+  }, []);
 
   // Verification state for selected item
   const [verificationCode, setVerificationCode] = useState(null);

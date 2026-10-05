@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FiLifeBuoy, FiLogOut } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { clearAuthUser, getAuthUser } from "../auth/authStorage";
+import { logoutUser } from "../services/apiClient";
 import { pushNotification } from "../notifications/notificationStore";
 import { usePageLoading } from "../hooks/usePageLoading";
 import { ProfileSkeleton } from "../components/skeleton/PageSkeletons";
@@ -54,9 +55,15 @@ function Profile() {
     navigate("/help-center");
   };
 
-  const handleLogout = () => {
-    clearAuthUser();
-    navigate("/login", { replace: true });
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // Always clear the local session if the server cannot be reached.
+    } finally {
+      clearAuthUser();
+      navigate("/login", { replace: true });
+    }
   };
 
   if (isLoading) return <ProfileSkeleton />;

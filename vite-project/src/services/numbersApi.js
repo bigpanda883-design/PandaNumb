@@ -10,26 +10,42 @@
  * number or code.
  */
 import { apiRequest, MissingEndpointError } from "./apiClient";
+import { getAuthToken } from "../auth/authStorage";
 
 /** All numbers belonging to the authenticated user. */
 export async function fetchMyNumbers({ signal } = {}) {
   const data = await apiRequest("/api/numbers", {
     signal,
     operation: "list purchased numbers",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
   });
   return data?.numbers ?? [];
 }
 
 /**
- * Buy a number. The server allocates the real number and returns it together
- * with the updated balance and the created transaction.
+ * Buy a number. The server allocates the real number from the provider, debits
+ * the balance, records the transaction and returns all three.
  */
-export async function purchaseNumber({ serviceId, countryCode, signal } = {}) {
+export async function purchaseNumber({
+  serviceId,
+  countryCode,
+  serviceName,
+  countryName,
+  price,
+  signal,
+} = {}) {
   const data = await apiRequest("/api/numbers/purchase", {
     method: "POST",
-    body: JSON.stringify({ serviceId, countryCode }),
+    body: JSON.stringify({
+      serviceId,
+      countryCode,
+      serviceName,
+      countryName,
+      price,
+    }),
     signal,
     operation: "purchase a number",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
   });
   return {
     number: data?.number,
@@ -44,8 +60,20 @@ export async function requestVerificationCode(numberId, { signal } = {}) {
     method: "POST",
     signal,
     operation: "request a verification code",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
   });
-  return { code: data?.code, receivedAt: data?.receivedAt };
+  return { status: data?.status, code: data?.code, receivedAt: data?.receivedAt };
+}
+
+/** Cancel a purchased number and release it with the provider. */
+export async function cancelNumber(numberId, { signal } = {}) {
+  const data = await apiRequest(`/api/numbers/${numberId}/cancel`, {
+    method: "POST",
+    signal,
+    operation: "cancel a number",
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
+  });
+  return data;
 }
 
 export { MissingEndpointError };

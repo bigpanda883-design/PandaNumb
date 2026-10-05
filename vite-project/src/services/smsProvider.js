@@ -12,7 +12,7 @@
  * Endpoints (all server-side, key hidden):
  *   GET /api/sms/balance            -> ACCESS_BALANCE:<n>
  *   GET /api/sms/stock?country=US   -> { "wa_0": "250344", ... }
- *   GET /api/sms/number?service=&country=  -> ACCESS_NUMBER:<id>:<phone>
+ *   POST /api/sms/number                   -> ACCESS_NUMBER:<id>:<phone>
  *   GET /api/sms/status?id=         -> STATUS_WAIT_CODE | STATUS_OK:<otp>
  *   GET /api/sms/set-status?id=&status=  -> ACCESS_ACTIVATION | ACCESS_CANCEL | ...
  */
@@ -54,7 +54,10 @@ const PROVIDER_MESSAGES = {
     "Cancellation is not available yet. The provider only allows it after a short waiting period.",
   STATUS_CANCEL: "This activation was cancelled.",
   ERROR: "The provider reported an error. Please try again.",
+  PROVIDER_STOCK_ERROR:
+    "Yankee rejected the stock lookup. Check the country code supported by the provider and retry.",
   PROVIDER_UNREACHABLE: "Could not reach the verification provider.",
+  PROVIDER_TIMEOUT: "The verification provider timed out. Please try again.",
   PROVIDER_HTTP_ERROR: "The verification provider returned an error.",
   // Sent by our own server, not the provider.
   NOT_FOUND: "The backend endpoint was not found.",
@@ -83,10 +86,20 @@ function buildUrl(path, params = {}) {
   return url.toString();
 }
 
-async function callBackend(path, params, { signal } = {}) {
+async function callBackend(path, params, { signal, method = "GET" } = {}) {
   let response;
   try {
-    response = await fetch(buildUrl(path, params), { signal });
+    response = await fetch(buildUrl(path, method === "GET" ? params : {}), {
+      signal,
+      method,
+      cache: "no-store",
+      ...(method === "POST"
+        ? {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(params),
+          }
+        : {}),
+    });
   } catch (error) {
     if (error?.name === "AbortError") throw error;
     throw new SmsProviderError("PROVIDER_UNREACHABLE", String(error));
@@ -96,14 +109,20 @@ async function callBackend(path, params, { signal } = {}) {
     // The backend answers JSON on failure, plain text on success. A transport
     // failure (server down, Vite proxy missing) is NOT a provider error, so it
     // must not be reported as one.
-    let code = response.status >= 500 ? "PROVIDER_UNREACHABLE" : "PROVIDER_HTTP_ERROR";
+    let code =
+      response.status >= 500 ? "PROVIDER_UNREACHABLE" : "PROVIDER_HTTP_ERROR";
+    let message = "";
     try {
       const body = await response.json();
       if (body?.error) code = body.error;
+      if (typeof body?.message === "string") message = body.message;
     } catch {
       /* keep the default code */
     }
-    throw new SmsProviderError(code, `HTTP ${response.status}`);
+    const error = new SmsProviderError(code, `HTTP ${response.status}`);
+    if (message) error.message = message;
+    error.status = response.status;
+    throw error;
   }
 
   const text = (await response.text()).trim();
@@ -144,9 +163,21 @@ export async function getProviderBalance({ signal } = {}) {
  */
 export async function getNumbersStatus(country, { signal } = {}) {
   const text = await callBackend("/stock", { country }, { signal });
+
+  if (text === "ERROR") {
+    throw new SmsProviderError("PROVIDER_STOCK_ERROR", text);
+  }
+
+  if (PROVIDER_MESSAGES[text]) {
+    throw new SmsProviderError(text, text);
+  }
+
   try {
     const data = JSON.parse(text);
-    return data && typeof data === "object" ? data : {};
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new SmsProviderError("PROVIDER_HTTP_ERROR", text);
+    }
+    return data;
   } catch {
     throw new SmsProviderError("PROVIDER_HTTP_ERROR", text);
   }
@@ -173,7 +204,7 @@ export async function requestNumber({
   const text = await callBackend(
     "/number",
     { service, country, maxPrice },
-    { signal },
+    { signal, method: "POST" },
   );
 
   const parts = text.split(":");
