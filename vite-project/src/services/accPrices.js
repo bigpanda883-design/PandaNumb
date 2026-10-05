@@ -28,10 +28,8 @@
  * - Level 3 keys are VARIANTS ("virtual28", "virtual51"). The variant id is
  *   per country for the same service: usa.whatsapp has virtual28/51/63/8,
  *   nigeria.whatsapp has virtual2/34. Of 155 countries, 152 expose more than
- *   one variant and NO country uses a single shared id - so a variant id cannot
- *   be treated as a global service identifier. The full "whatsapp_virtual28" IS
- *   what the provider's `service` parameter expects, which is why collapsing
- *   service ids was wrong: it would have sent getNumber a service it rejects.
+ *   one variant and NO country uses a single shared id. These ACC IDs are kept
+ *   intact, but are not assumed to match another provider's service identifiers.
  *
  * Only { cost, count, rate* } appear inside a variant. Every one of the 54,452
  * service entries nests variants - there is no flat form to fall back to.
@@ -122,9 +120,8 @@ export async function fetchCatalogue({ signal, force = false } = {}) {
     );
   }
 
-  // Normalize country -> service -> variant into a FLAT list of buyable
-  // variants. Each variant keeps its provider-facing id ("whatsapp_virtual28")
-  // so the purchase call can send exactly what the provider expects.
+  // Normalize country -> service -> variant into a flat list while preserving
+  // the original ACC identifiers for matching and diagnostics.
   const countries = {};
   const serviceIds = new Set();
 

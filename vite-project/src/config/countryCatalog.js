@@ -1,24 +1,14 @@
 /**
  * Panda Numbers - country catalogue
  * =================================
- * Maps the ACC Numbers country slugs (155 of them, e.g. "unitedstates") to the
- * data the Buy flow needs: a display name, an ISO code and a flag.
- *
- * IMPORTANT - the Yankee Verify id is NOT derived here.
- * -----------------------------------------------------
- * ACC Numbers keys countries by slug; Yankee Verify expects a numeric country id
- * (e.g. "187"). No table exists in either API that maps one to the other, and
- * the requirement is explicit: do not guess an identifier mapping.
- *
- * Therefore `providerId` is optional and only ever set from a table you supply
- * via VITE_YANKEE_COUNTRY_MAP (a JSON object of { "ISO": "providerId" }).
- * Until that is provided, `providerId` is null, and the Buy flow refuses to
- * purchase for that country rather than risking a wrong-country activation.
+ * Maps provider country names and codes to display metadata and Yankee country
+ * identifiers. Unknown country keys remain unavailable instead of being guessed.
  */
 
-/** Slugs whose closing word does not convert cleanly on its own. */
+/** Provider and catalogue country names that do not match the canonical slug. */
 const SLUG_ALIASES = {
   usa: "unitedstates",
+  england: "unitedkingdom",
   uk: "unitedkingdom",
   uae: "unitedarabemirates",
   congo: "congodemocraticrepublic",
@@ -407,45 +397,6 @@ const DIAL_BY_ISO = {
   ZW: "+263",
 };
 
-/**
- * Optional override table supplied at build time.
- * Set VITE_YANKEE_COUNTRY_MAP to a JSON object like:
- *   {"US":"187","NG":"19","GB":"16"}
- */
-function loadProviderMap() {
-  const raw = import.meta.env?.VITE_YANKEE_COUNTRY_MAP;
-  if (!raw) return {};
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    // A malformed map must not fail silently: without it every country becomes
-    // unpurchasable, which is indistinguishable from "not configured yet".
-    console.error(
-      "[countryCatalog] VITE_YANKEE_COUNTRY_MAP is not valid JSON; " +
-        "purchases will stay disabled.",
-      error,
-    );
-    return {};
-  }
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-
-  // Normalise the ISO keys to upper case so {"us":"187"} and {"US":"187"}
-  // both resolve, and drop entries with an empty provider id.
-  const normalized = {};
-  for (const [iso, providerId] of Object.entries(parsed)) {
-    if (providerId === null || providerId === undefined || providerId === "") {
-      continue;
-    }
-    normalized[String(iso).toUpperCase()] = String(providerId);
-  }
-  return normalized;
-}
-
-const PROVIDER_MAP = loadProviderMap();
-
 /** Human names for the ISO codes above. */
 const ISO_LABELS = {
   AF: "Afghanistan",
@@ -640,16 +591,33 @@ const ISO_LABELS = {
  * Declared after ISO_LABELS so the table is initialised before this runs.
  */
 export function slugToLabel(slug) {
-  const iso = ISO_BY_SLUG[slug];
+  const normalized = normalizeCountryKey(slug);
+  const iso = resolveCountryIso(normalized);
   if (iso && ISO_LABELS[iso]) return ISO_LABELS[iso];
 
-  // No ISO entry: fall back to capitalising the raw slug.
-  const normalized = SLUG_ALIASES[slug] || slug;
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return String(slug || "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function normalizeCountryKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function resolveCountryIso(value) {
+  const key = SLUG_ALIASES[value] || value;
+  if (/^[a-z]{2}$/.test(key) && ISO_LABELS[key.toUpperCase()]) {
+    return key.toUpperCase();
+  }
+  return ISO_BY_SLUG[key] ?? null;
 }
 
 /**
- * Build the display entry for an ACC Numbers country slug.
+ * Build the display entry for a catalogue country key.
  *
  * @returns {{
  *   slug:string, iso:string|null, name:string, dial:string|null,
@@ -657,9 +625,10 @@ export function slugToLabel(slug) {
  * }}
  */
 export function getCountryEntry(slug) {
-  const iso = ISO_BY_SLUG[slug] ?? null;
-  // PROVIDER_MAP is keyed by upper-case ISO; `iso` is already upper case.
-  const providerId = iso ? (PROVIDER_MAP[iso] ?? null) : null;
+  const iso = resolveCountryIso(normalizeCountryKey(slug));
+  // Yankee's stock action accepts ISO-2 country identifiers; numeric example
+  // mappings were not supported by the configured provider endpoint.
+  const providerId = iso;
 
   return {
     slug,
@@ -668,14 +637,14 @@ export function getCountryEntry(slug) {
     dial: iso ? (DIAL_BY_ISO[iso] ?? null) : null,
     flagUrl: iso ? `https://flagcdn.com/w40/${iso.toLowerCase()}.png` : null,
     providerId,
-    // Only purchasable once a verified provider id exists for it.
+    // Only purchasable when the key resolves to a known ISO-2 identifier.
     canPurchase: Boolean(providerId),
   };
 }
 
 /**
  * Turn the catalogue's country map into a sorted, display-ready list.
- * Countries without a verified provider id are still listed, but flagged.
+ * Countries without a recognized ISO-2 identifier are listed but not purchasable.
  */
 export function buildCountryList(catalogue) {
   if (!catalogue?.countries) return [];
@@ -685,12 +654,7 @@ export function buildCountryList(catalogue) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** True when at least one country has a verified Yankee Verify id. */
-export function hasProviderMapping() {
-  return Object.keys(PROVIDER_MAP).length > 0;
-}
-
-/** True when this specific country has a verified Yankee Verify id. */
+/** True when this country resolves to an ISO-2 Yankee country identifier. */
 export function canPurchaseCountry(country) {
   return Boolean(country?.providerId);
 }

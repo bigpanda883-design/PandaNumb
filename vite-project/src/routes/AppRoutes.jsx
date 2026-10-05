@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import App from "../App";
 import DashboardLayout from "../components/DashboardLayout";
 import ActiveSMS from "../pages/ActiveSMS";
@@ -13,6 +13,7 @@ import Security from "../pages/Security";
 import Transactions from "../pages/Transactions";
 import Login from "../pages/auth/Login";
 import SignUp from "../pages/auth/SignUp";
+import ForgotPassword from "../pages/auth/ForgotPassword";
 import NotFound from "../pages/NotFound";
 import ScrollToTop from "../components/ScrollToTop";
 import ProtectedRoute from "./ProtectedRoute";
@@ -25,6 +26,8 @@ function AppRoutes() {
         <Route path="/" element={<App />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/help" element={<Navigate to="/help-center" replace />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<DashboardHome />} />

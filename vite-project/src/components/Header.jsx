@@ -9,11 +9,12 @@ import "../CSS/Header.css";
 // scroll target and to decide which item is highlighted in the header.
 const navLinks = [
   { label: "Home", to: "/#home", sectionId: "home" },
+  { label: "Buy Number", to: "/buy", sectionId: "buy" },
   { label: "How It Works", to: "/#how-it-works", sectionId: "how-it-works" },
   { label: "Services", to: "/#services", sectionId: "services" },
   { label: "Pricing", to: "/#pricing", sectionId: "pricing" },
   { label: "FAQ", to: "/#faq", sectionId: "faq" },
-  { label: "Help", to: "/#why-us", sectionId: "why-us", fallback: "help" },
+  { label: "Help", to: "/#help", sectionId: "help", fallback: "help" },
 ];
 
 const Navbar = () => {
@@ -21,12 +22,24 @@ const Navbar = () => {
   const { pathname, hash } = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Never leave the mobile menu hanging open behind the next page. Resetting
+  // during render (instead of in an effect) avoids the extra cascading render
+  // React would otherwise do. See
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [lastLocationKey, setLastLocationKey] = useState(`${pathname}${hash}`);
+  if (lastLocationKey !== `${pathname}${hash}`) {
+    setLastLocationKey(`${pathname}${hash}`);
+    setMobileMenuOpen(false);
+  }
+
   // Highlight the item that matches the current URL. "Home" is also active on
   // the landing page with no hash at all, since that is its scroll target.
   const activeLabel = navLinks.find((link) =>
     hash
       ? hash === `#${link.sectionId}` || hash === `#${link.fallback}`
-      : pathname === "/" && link.label === "Home",
+      : pathname === "/"
+        ? link.label === "Home"
+        : pathname === link.to && link.label === "Buy Number",
   )?.label;
 
   const closeMobileMenu = () => setMobileMenuOpen(false);

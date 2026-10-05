@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  checkStatus,
-  GET_STATUS,
-  setStatus,
-  SET_STATUS,
-} from "../services/smsProvider";
+import { requestVerificationCode, cancelNumber } from "../services/numbersApi";
 
 const POLL_INTERVAL = Number(import.meta.env?.VITE_SMS_POLL_INTERVAL) || 5000;
 
 /**
- * Polls the provider for the verification code belonging to one activation.
+ * Polls OUR backend for the verification code belonging to one purchased number.
  *
- * The provider only reveals a code once the SMS has actually arrived, so this
- * polls `getStatus` on an interval until it does. Nothing is generated locally -
- * `code` is only ever what the provider returned.
+ * The backend owns the provider API key and asks the provider whether the SMS
+ * has arrived; it only ever returns a code the provider actually delivered.
+ * Nothing is generated locally - `code` is only ever what the provider returned.
  *
- * @param {string|null} activationId  provider activation id (from requestNumber)
+ * @param {string|null} numberId  the purchased number's id (activation id)
  */
-export function useVerificationCode(activationId) {
+export function useVerificationCode(numberId) {
   const [code, setCode] = useState(null);
   const [receivedAt, setReceivedAt] = useState(null);
   const [isPolling, setIsPolling] = useState(false);
@@ -34,22 +29,26 @@ export function useVerificationCode(activationId) {
 
   // `pollRef` breaks the self-reference: `poll` schedules the next call, so it
   // cannot close over itself. The ref always points at the latest `poll` for the
-  // current activation, and the inner healer below keeps it assigned on every
-  // render.
+  // current number, and the effect below keeps it assigned on every render.
   const pollRef = useRef(null);
 
   const poll = useCallback(
     async (signal) => {
       try {
-        const result = await checkStatus(activationId, { signal });
+        const result = await requestVerificationCode(numberId, { signal });
         if (signal?.aborted) return;
 
-        if (result.status === GET_STATUS.CODE_RECEIVED && result.code) {
+        if (result.status === "CODE_RECEIVED" && result.code) {
           setCode(result.code);
-          setReceivedAt(new Date());
+          setReceivedAt(result.receivedAt ? new Date(result.receivedAt) : new Date());
           setIsPolling(false);
-          // The number is finished with once the code is read.
-          setStatus(activationId, SET_STATUS.FINISH_NO_REFUND).catch(() => {});
+          // The backend releases the activation with the provider once the code
+          // is read, so no further action is needed here.
+          return;
+        }
+
+        if (result.status === "CANCELLED") {
+          setIsPolling(false);
           return;
         }
 
@@ -65,7 +64,7 @@ export function useVerificationCode(activationId) {
         setIsPolling(false);
       }
     },
-    [activationId],
+    [numberId],
   );
 
   useEffect(() => {
@@ -73,12 +72,12 @@ export function useVerificationCode(activationId) {
   }, [poll]);
 
   const startPolling = useCallback(() => {
-    if (!activationId) return;
+    if (!numberId) return;
     stopPolling();
     setError(null);
     setIsPolling(true);
     poll();
-  }, [activationId, poll, stopPolling]);
+  }, [numberId, poll, stopPolling]);
 
   // Clean up any in-flight timer on unmount or when the activation changes.
   useEffect(() => {
@@ -89,22 +88,21 @@ export function useVerificationCode(activationId) {
     };
   }, [stopPolling]);
 
-  /** Cancel the activation and refund it with the provider. */
+  /** Cancel the number and refund it through our backend. */
   const cancel = useCallback(async () => {
-    if (!activationId) return null;
+    if (!numberId) return null;
     stopPolling();
-    return setStatus(activationId, SET_STATUS.CANCEL_AND_REFUND);
-  }, [activationId, stopPolling]);
+    return cancelNumber(numberId);
+  }, [numberId, stopPolling]);
 
   /** Ask the provider for a fresh SMS on the same number. */
   const requestAnotherCode = useCallback(async () => {
-    if (!activationId) return null;
+    if (!numberId) return null;
     setCode(null);
     setError(null);
-    await setStatus(activationId, SET_STATUS.REQUEST_ANOTHER_CODE);
     startPolling();
     return true;
-  }, [activationId, startPolling]);
+  }, [numberId, startPolling]);
 
   return {
     code,

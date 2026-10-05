@@ -2,19 +2,15 @@ import { useState } from "react";
 import {
   FiCreditCard,
   FiChevronLeft,
-  FiCopy,
-  FiArrowRight,
+  FiAlertCircle,
   FiCheckCircle,
-  FiLoader,
-  FiCheck,
 } from "react-icons/fi";
-import { FaBuildingColumns } from "react-icons/fa6";
-import { pushNotification } from "../notifications/notificationStore";
 import { useBalance } from "../hooks/useBalance";
-import { creditBalance } from "../wallet/walletStore";
-import { addTransaction, TRANSACTION_TYPES } from "../wallet/transactionStore";
 import { usePageLoading } from "../hooks/usePageLoading";
 import { DepositSkeleton } from "../components/skeleton/PageSkeletons";
+import { depositToWallet } from "../services/apiClient";
+import { setBalance } from "../wallet/walletStore";
+import { addTransaction } from "../wallet/transactionStore";
 import "../CSS/dashboard/pages/Deposit.css";
 
 const PRESET_AMOUNTS = [100, 500, 1000, 2000, 5000, 10000, 20000];
@@ -25,14 +21,9 @@ export default function Deposit() {
   const { balance, isLoading: balanceLoading } = useBalance();
   const { isLoading: isLoadingPage } = usePageLoading();
   const [amount, setAmount] = useState(1000);
-  const [transactionRef, setTransactionRef] = useState("");
-  const [copied, setCopied] = useState(false);
-
-  const bankDetails = {
-    bankName: "PalmPay",
-    accountNumber: "9048247067",
-    accountName: "Panda Numbers",
-  };
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
 
   const formatCurrency = (val) => {
     return `₦${Number(val).toLocaleString("en-US", {
@@ -52,52 +43,46 @@ export default function Deposit() {
 
   const handleProceedToPayment = () => {
     if (!amount || amount < 100) return;
+    setError(null);
+    setSuccessMessage(null);
     setStep(2);
   };
 
-  const handleCopyAccount = () => {
-    navigator.clipboard.writeText(bankDetails.accountNumber);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const handleConfirmDeposit = async () => {
+    if (!amount || amount < 100 || isSubmitting) return;
 
-  const handleConfirmPayment = () => {
-    setStep(3);
-    const randomRef =
-      "PN-TEST-" +
-      Math.random().toString(36).substring(2, 8).toUpperCase() +
-      "-PPZY";
-    setTransactionRef(randomRef);
+    setIsSubmitting(true);
+    setError(null);
+    setSuccessMessage(null);
 
-    setTimeout(() => {
-      creditBalance(Number(amount), "deposit");
-      setStep(4);
-
-      // Real transaction record - the dashboard, the Transactions page and the
-      // notification all describe this same event.
-      const credited = Number(amount).toLocaleString("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
+    try {
+      const response = await depositToWallet(Number(amount));
+      // The backend returns the AUTHORITATIVE post-deposit balance. Setting it
+      // (rather than crediting the amount again) is what keeps the displayed
+      // balance equal to the server's - crediting would double-count the deposit.
+      const nextBalance = Number(response?.balance);
+      if (Number.isFinite(nextBalance)) {
+        setBalance(nextBalance, "demo-deposit");
+      }
       addTransaction({
-        type: TRANSACTION_TYPES.DEPOSIT,
-        title: `Deposit · ₦${credited}`,
+        type: "deposit",
+        title: "Wallet deposit",
         amount: Number(amount),
         path: "/deposit",
-        reference: transactionRef,
+        reference: response?.transaction?.reference || `DEP-${Date.now()}`,
       });
-      pushNotification({
-        type: "deposit",
-        title: "Deposit successful",
-        description: `Your wallet has been credited with ₦${credited}.`,
-        path: "/transactions",
-      });
-    }, 2200);
-  };
-
-  const handleReset = () => {
-    setStep(1);
-    setAmount(1000);
+      setSuccessMessage(
+        `Deposit successful. Your wallet was credited with ₦${Number(amount).toLocaleString()}.`,
+      );
+      setStep(1);
+      setAmount(1000);
+    } catch (depositError) {
+      setError(
+        depositError?.message || "The demo deposit could not be processed.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoadingPage) {
@@ -119,6 +104,19 @@ export default function Deposit() {
             : formatCurrency(balance ?? 0)}
         </h2>
       </div>
+
+      {error && (
+        <div className="deposit-error" role="alert">
+          {error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="deposit-success" role="status">
+          <FiCheckCircle aria-hidden="true" />
+          <span>{successMessage}</span>
+        </div>
+      )}
 
       {/* STEP 1: ENTER AMOUNT */}
       {step === 1 && (
@@ -181,7 +179,7 @@ export default function Deposit() {
         </div>
       )}
 
-      {/* STEP 2: TRANSFER INSTRUCTIONS */}
+      {/* STEP 2: LOCAL DEMO DEPOSIT */}
       {step === 2 && (
         <div className="deposit-card">
           <div className="card-top-nav">
@@ -192,118 +190,41 @@ export default function Deposit() {
             >
               <FiChevronLeft />
             </button>
-            <div>
-              <h3 className="card-title">Transfer instructions</h3>
-              <span className="card-sub">
-                Test payment — no real money moves.
-              </span>
+            <h3 className="card-title">Confirm demo deposit</h3>
+          </div>
+          <div className="demo-banner" role="status">
+            <FiAlertCircle className="demo-icon" aria-hidden="true" />
+            <div className="demo-text">
+              <strong>Temporary local deposit API</strong>
+              <p>
+                This is a backend-only demo payment flow for testing the wallet
+                and purchase journey before the real payment provider is
+                connected.
+              </p>
             </div>
           </div>
 
-          <div className="transfer-amount-box">
-            <span className="transfer-label">Amount to transfer</span>
-            <h2 className="transfer-value">{formatCurrency(amount || 0)}</h2>
-          </div>
-
-          <div className="details-list">
-            <div className="detail-item">
-              <span className="detail-label">Bank</span>
-              <div className="detail-val-row">
-                <span className="bank-icon-badge">
-                  <FaBuildingColumns aria-hidden="true" />
-                </span>
-                <strong className="detail-value">{bankDetails.bankName}</strong>
-              </div>
-            </div>
-
-            <div className="detail-item">
-              <span className="detail-label">Account number</span>
-              <div className="detail-val-row space-between">
-                <strong className="detail-value bold">
-                  {bankDetails.accountNumber}
-                </strong>
-                <button
-                  type="button"
-                  className="copy-btn"
-                  onClick={handleCopyAccount}
-                >
-                  {copied ? <FiCheck className="copied-icon" /> : <FiCopy />}
-                </button>
-              </div>
-            </div>
-
-            <div className="detail-item">
-              <span className="detail-label">Account name</span>
-              <strong className="detail-value">
-                {bankDetails.accountName}
-              </strong>
-            </div>
+          <div className="deposit-confirm-amount">
+            Deposit amount: <strong>₦{Number(amount).toLocaleString()}</strong>
           </div>
 
           <button
             type="button"
             className="primary-btn"
-            onClick={handleConfirmPayment}
+            onClick={handleConfirmDeposit}
+            disabled={isSubmitting}
           >
-            I've made the payment <FiArrowRight />
+            {isSubmitting ? "Processing deposit..." : "Confirm deposit"}
           </button>
 
-          <p className="disclaimer-text">
-            In test mode we simulate verification instantly. With a live
-            provider connected, your wallet only updates after a verified
-            payment confirmation.
-          </p>
-        </div>
-      )}
-
-      {/* STEP 3: VERIFYING LOADER */}
-      {step === 3 && (
-        <div className="deposit-card processing-card">
-          <div className="spinner-wrap">
-            <FiLoader className="spin-icon" />
-          </div>
-          <h3 className="processing-title">Verifying Payment</h3>
-          <p className="processing-desc">
-            Please wait while we confirm your transfer...
-          </p>
-        </div>
-      )}
-
-      {/* STEP 4: SUCCESS */}
-      {step === 4 && (
-        <div className="success-flow">
-          <div className="success-card">
-            <div className="success-badge">
-              <FiCheckCircle />
-            </div>
-            <h3 className="success-title">Payment successful</h3>
-            <h2 className="success-amount">{formatCurrency(amount || 0)}</h2>
-            <div className="wallet-updated-chip">
-              <FiCheck /> Wallet updated
-            </div>
-            <span className="ref-text">Reference: {transactionRef}</span>
-            <span className="test-chip">TEST TRANSACTION</span>
-          </div>
-
-          <div className="new-balance-card">
-            <span className="new-bal-label">New wallet balance</span>
-            <h2 className="new-bal-val">{formatCurrency(balance)}</h2>
-          </div>
-
-          <div className="action-row">
-            <button type="button" className="secondary-btn flex-1">
-              View transactions
-            </button>
-            <button type="button" className="primary-btn flex-1">
-              Buy a number
-            </button>
-          </div>
-
-          <div className="reset-wrap">
-            <button type="button" className="link-btn" onClick={handleReset}>
-              Make another test deposit
-            </button>
-          </div>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => setStep(1)}
+            style={{ marginTop: "10px" }}
+          >
+            <FiChevronLeft aria-hidden="true" /> Back to amount
+          </button>
         </div>
       )}
     </div>

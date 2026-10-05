@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FiChevronLeft,
   FiSearch,
@@ -11,22 +11,30 @@ import {
 import { FaShieldHalved } from "react-icons/fa6";
 import { useNavigate } from "react-router-dom";
 import { pushNotification } from "../notifications/notificationStore";
-import { debitBalance } from "../wallet/walletStore";
+import { setBalance } from "../wallet/walletStore";
 import { addTransaction, TRANSACTION_TYPES } from "../wallet/transactionStore";
 import { addActivation } from "../wallet/activationStore";
-import { requestNumber } from "../services/smsProvider";
+import { getNumbersStatus } from "../services/smsProvider";
+import { purchaseNumber } from "../services/numbersApi";
 import { useCatalogue } from "../services/accPrices";
 import { getAppIdentity } from "../config/appCatalog";
-import { buildCountryList, hasProviderMapping } from "../config/countryCatalog";
+import { buildCountryList } from "../config/countryCatalog";
 import { useBalance } from "../hooks/useBalance";
 import { BuySkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Buy.css";
+
+function getProviderStockCount(stock, serviceId) {
+  if (!stock || typeof stock !== "object" || !serviceId) return null;
+  if (!Object.hasOwn(stock, serviceId)) return null;
+
+  const count = Number(stock[serviceId]);
+  return Number.isFinite(count) && count >= 0 ? count : null;
+}
 
 function Buy() {
   const navigate = useNavigate();
   const { animatedBalance } = useBalance();
 
-  // Fetch real catalogue from ACC Numbers API
   const {
     catalogue,
     isLoading: isLoadingCatalogue,
@@ -35,89 +43,221 @@ function Buy() {
   } = useCatalogue();
 
   const [step, setStep] = useState(1);
+  const [selectedAppService, setSelectedAppService] = useState(null);
   const [selectedCountry, setSelectedCountry] = useState(null);
-  const [selectedService, setSelectedService] = useState(null);
+  const [selectedOffer, setSelectedOffer] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [purchaseError, setPurchaseError] = useState(null);
+  const [providerStock, setProviderStock] = useState(null);
+  const [isLoadingProviderStock, setIsLoadingProviderStock] = useState(false);
+  const [providerStockError, setProviderStockError] = useState(null);
+  const [providerStockRefresh, setProviderStockRefresh] = useState(0);
 
-  const canBuyAtAll = hasProviderMapping();
-  const countries = useMemo(() => buildCountryList(catalogue), [catalogue]);
+  const allCountries = useMemo(() => buildCountryList(catalogue), [catalogue]);
+  const canBuyAtAll = true;
 
-  // Dynamically map ALL available services for selected country
-  const services = useMemo(() => {
-    if (!catalogue || !selectedCountry) return [];
-    const country = catalogue.countries?.[selectedCountry.slug];
-    if (!country) return [];
+  const SERVICE_OFFER_OPTIONS = {
+    whatsapp: [
+      {
+        id: "voucher",
+        label: "Voucher",
+        sellingPrice: 3200,
+        providerProductId: "voucher",
+      },
+      {
+        id: "all-countries",
+        label: "All Countries",
+        sellingPrice: 4200,
+        providerProductId: "all-countries",
+      },
+    ],
+    telegram: [
+      {
+        id: "fresh",
+        label: "Fresh / New",
+        sellingPrice: 3000,
+        providerProductId: "fresh",
+      },
+      {
+        id: "used",
+        label: "Used / Open",
+        sellingPrice: 5715,
+        providerProductId: "used",
+      },
+    ],
+  };
 
-    return Object.values(country.services)
-      .map((entry) => ({
-        ...entry,
-        ...getAppIdentity(entry.id),
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [catalogue, selectedCountry]);
+  const catalogueServices = useMemo(() => {
+    if (!catalogue?.countries) return [];
+    const serviceIds = new Set();
+    Object.values(catalogue.countries).forEach((country) => {
+      Object.values(country.services || {}).forEach((entry) => {
+        if (entry.serviceId) serviceIds.add(entry.serviceId);
+      });
+    });
 
-  // Search filtering over real countries
+    return [...serviceIds]
+      .map((id) => ({ id, ...getAppIdentity(id) }))
+      .sort((left, right) => {
+        const priority = ["whatsapp", "facebook", "telegram", "instagram"];
+        const leftRank = priority.indexOf(left.id);
+        const rightRank = priority.indexOf(right.id);
+        const rankDifference =
+          (leftRank < 0 ? Number.MAX_SAFE_INTEGER : leftRank) -
+          (rightRank < 0 ? Number.MAX_SAFE_INTEGER : rightRank);
+        return rankDifference || left.label.localeCompare(right.label);
+      });
+  }, [catalogue]);
+
+  const countries = useMemo(() => {
+    if (!catalogue || !selectedAppService) return allCountries;
+    return allCountries.filter((country) => {
+      const services = catalogue.countries?.[country.slug]?.services || {};
+      return Object.values(services).some(
+        (entry) => entry.serviceId === selectedAppService.id,
+      );
+    });
+  }, [allCountries, catalogue, selectedAppService]);
+
   const filteredCountries = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return countries;
     return countries.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.dial && c.dial.includes(q)) ||
-        (c.iso && c.iso.toLowerCase().includes(q)),
+      (country) =>
+        country.name.toLowerCase().includes(q) ||
+        (country.dial && country.dial.includes(q)) ||
+        (country.iso && country.iso.toLowerCase().includes(q)),
     );
   }, [countries, searchQuery]);
 
-  // Search filtering over real API services
   const filteredServices = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return services;
-    return services.filter((s) => s.label.toLowerCase().includes(q));
-  }, [services, searchQuery]);
+    if (!q) return catalogueServices;
+    return catalogueServices.filter((service) =>
+      service.label.toLowerCase().includes(q),
+    );
+  }, [catalogueServices, searchQuery]);
 
-  const hasKnownPrice =
-    selectedService != null && Number.isFinite(selectedService.cost);
+  const serviceOptions = selectedAppService?.id
+    ? SERVICE_OFFER_OPTIONS[selectedAppService.id] || []
+    : [];
 
-  const purchasePrice = hasKnownPrice ? Number(selectedService.cost) : 0;
+  useEffect(() => {
+    if (!selectedAppService) {
+      setSelectedOffer(null);
+      return;
+    }
+
+    if (serviceOptions.length === 0) {
+      setSelectedOffer(null);
+      return;
+    }
+
+    setSelectedOffer((current) => {
+      if (
+        !current ||
+        !serviceOptions.some((option) => option.id === current.id)
+      ) {
+        return serviceOptions[0];
+      }
+      return current;
+    });
+  }, [selectedAppService, serviceOptions]);
+
+  useEffect(() => {
+    if (!selectedCountry?.providerId) {
+      setProviderStock(null);
+      setProviderStockError(null);
+      setIsLoadingProviderStock(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setProviderStock(null);
+    setProviderStockError(null);
+    setIsLoadingProviderStock(true);
+
+    getNumbersStatus(selectedCountry.providerId, { signal: controller.signal })
+      .then((stock) => {
+        if (!controller.signal.aborted) setProviderStock(stock);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted && error?.name !== "AbortError") {
+          setProviderStockError(error);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingProviderStock(false);
+      });
+
+    return () => controller.abort();
+  }, [selectedCountry, providerStockRefresh]);
+
+  const purchasePrice = Number(selectedOffer?.sellingPrice || 0);
   const availableBalance = Number(animatedBalance || 0);
   const shortfall = Math.max(0, purchasePrice - availableBalance);
-  const hasInsufficientFunds =
-    hasKnownPrice && purchasePrice > 0 && shortfall > 0;
+  const hasKnownPrice = Number.isFinite(purchasePrice) && purchasePrice > 0;
+  const hasInsufficientFunds = hasKnownPrice && shortfall > 0;
 
-  const stockCount = selectedService?.count ?? 0;
-  const isOutOfStock = stockCount <= 0;
+  const providerStockKey =
+    selectedOffer?.providerProductId || selectedAppService?.id;
+  const providerCount = providerStockKey
+    ? getProviderStockCount(providerStock, providerStockKey)
+    : null;
+  const stockCount = providerCount ?? 0;
+  const isOutOfStock =
+    providerCount === 0 ||
+    (providerStock &&
+      Object.keys(providerStock).length > 0 &&
+      providerCount === null);
 
   const handleBack = () => {
     setPurchaseError(null);
     setSearchQuery("");
-    if (step > 1) {
-      setStep((prev) => prev - 1);
-    } else {
+
+    if (step === 1) {
       navigate("/dashboard");
+      return;
+    }
+
+    if (step === 2) {
+      setSelectedAppService(null);
+      setSelectedCountry(null);
+      setSelectedOffer(null);
+      setStep(1);
+      return;
+    }
+
+    if (step === 3) {
+      setSelectedCountry(null);
+      setSelectedOffer(null);
+      setStep(2);
     }
   };
 
-  const handleSelectService = (service) => {
-    setSelectedService(service);
-    setSearchQuery("");
-    setStep(3);
-  };
-
-  const handleSelectCountry = (country) => {
-    setSelectedCountry(country);
-    setSelectedService(null);
+  const handleSelectAppService = (service) => {
+    setSelectedAppService(service);
+    setSelectedCountry(null);
+    setSelectedOffer(null);
     setPurchaseError(null);
     setSearchQuery("");
     setStep(2);
   };
 
-  // `smsProvider` already maps every provider token to a user-facing sentence
-  // and exposes the token as `error.code`, so there is nothing to re-invent here.
-  // Re-wording it locally is how NO_BALANCE came to be shown as "out of stock"
-  // when the truth was that the provider account had no credit - two different
-  // problems, and the wrong one sends the operator looking in the wrong place.
+  const handleSelectCountry = (country) => {
+    setSelectedCountry(country);
+    setSelectedOffer(null);
+    setPurchaseError(null);
+    setSearchQuery("");
+    setStep(3);
+  };
+
+  const handleOfferSelect = (offer) => {
+    setSelectedOffer(offer);
+    setPurchaseError(null);
+  };
+
   const mapProviderError = (error) => {
     if (!error) return "Failed to purchase number. Please try again.";
     return error.message || "Failed to purchase number. Please try again.";
@@ -125,70 +265,71 @@ function Buy() {
 
   const handleConfirmPurchase = async () => {
     if (isSubmitting) return;
+    if (hasInsufficientFunds || isLoadingProviderStock || providerStockError)
+      return;
+    if (!hasKnownPrice || !selectedCountry || !selectedOffer) return;
 
-    if (hasInsufficientFunds || isOutOfStock || !hasKnownPrice) return;
-    if (!canBuyAtAll) return;
-
-    // The provider id is the ONLY id Yankee Verify accepts for a country. Falling
-    // back to the ISO code would send e.g. "US" where a numeric id is required
-    // and buy from an arbitrary country, so a missing mapping stops the purchase.
     const countryCode = selectedCountry?.providerId;
-    // The variant id ("whatsapp_virtual28"), not the bare service name: the
-    // provider refuses the un-suffixed form.
-    const serviceCode = selectedService?.id;
-
-    if (!countryCode || !serviceCode) return;
+    if (!countryCode || !selectedAppService?.id) return;
+    if (isOutOfStock) return;
 
     setIsSubmitting(true);
     setPurchaseError(null);
 
-    const price = Number(selectedService.cost);
-
     try {
-      // The backend owns the action name and the API key; only the two real
-      // arguments are sent from here.
-      const { activationId, phone } = await requestNumber({
-        service: serviceCode,
-        country: countryCode,
+      // Buy through OUR backend: it resolves the provider's service code, debits
+      // the wallet server-side, records the transaction and returns the real
+      // number the provider issued. The browser never debits its own balance.
+      const { number, balance, transaction } = await purchaseNumber({
+        serviceId: selectedAppService.id,
+        countryCode,
+        serviceName: selectedAppService.label,
+        countryName: selectedCountry.name,
+        price: purchasePrice,
       });
 
-      if (!activationId || !phone) {
-        throw new Error("Invalid activation response from server.");
+      if (!number?.number || !number?.id) {
+        throw new Error(
+          "The server did not return a number for this purchase.",
+        );
       }
 
-      // Track activation record with real activation ID
-      const activation = addActivation({
-        activationId,
-        phone,
-        service: selectedService.label,
-        country: selectedCountry.name,
-        price,
+      // Mirror the server's records into the local stores the UI reads from.
+      addActivation({
+        activationId: number.id,
+        phone: number.number,
+        service: number.service,
+        country: number.countryName,
+        price: number.priceValue ?? purchasePrice,
       });
 
       const purchasedNumber = {
-        id: activationId,
-        number: phone,
-        countryCode: selectedCountry.iso
-          ? selectedCountry.iso.toLowerCase()
-          : "",
-        countryName: selectedCountry.name,
-        service: selectedService.label,
-        price: `₦${price.toLocaleString()}`,
-        orderId: activationId,
-        status: "WAITING",
+        id: number.id,
+        number: number.number,
+        countryCode: number.countryCode || "",
+        countryName: number.countryName,
+        service: number.service,
+        price: number.price,
+        orderId: number.orderId,
+        status: number.status || "WAITING",
         codeReceived: false,
-        dateStr: activation?.dateStr,
+        dateStr: number.dateStr,
       };
 
-      // Deduct wallet balance and log transactions
-      debitBalance(price, "purchase");
+      // The backend is the source of truth for the balance.
+      const nextBalance = Number(balance);
+      if (Number.isFinite(nextBalance)) {
+        setBalance(nextBalance, "purchase");
+      }
 
       addTransaction({
         type: TRANSACTION_TYPES.PURCHASE,
-        title: `${purchasedNumber.service} number ${purchasedNumber.number}`,
-        amount: -price,
+        title:
+          transaction?.title ||
+          `${purchasedNumber.service} number ${purchasedNumber.number}`,
+        amount: -purchasePrice,
         path: "/my-numbers",
-        reference: activationId,
+        reference: transaction?.reference || number.id,
       });
 
       pushNotification({
@@ -199,10 +340,7 @@ function Buy() {
       });
 
       setIsSubmitting(false);
-
-      navigate("/my-numbers", {
-        state: { openNumber: purchasedNumber },
-      });
+      navigate("/my-numbers", { state: { openNumber: purchasedNumber } });
     } catch (error) {
       setIsSubmitting(false);
       setPurchaseError({ message: mapProviderError(error) });
@@ -256,121 +394,60 @@ function Buy() {
             <h1 className="buy-main-title">Buy a number</h1>
             <span className="buy-step-indicator">
               Step {step} of 3 ·{" "}
-              {step === 1 ? "Country" : step === 2 ? "Service" : "Confirm"}
+              {step === 1
+                ? "Service"
+                : step === 2
+                  ? "Country"
+                  : "Offer & purchase"}
             </span>
           </div>
         </div>
 
         <div className="buy-progress-bar">
-          <div className={`progress-segment ${step >= 1 ? "active" : ""}`} />
-          <div className={`progress-segment ${step >= 2 ? "active" : ""}`} />
-          <div className={`progress-segment ${step >= 3 ? "active" : ""}`} />
+          {Array.from({ length: 3 }, (_, index) => (
+            <div
+              key={index}
+              className={`progress-segment ${step >= index + 1 ? "active" : ""}`}
+            />
+          ))}
         </div>
       </header>
 
-      {!canBuyAtAll && (
-        <div className="purchase-error-card" role="alert">
-          <p className="insufficient-text">
-            Country mapping is not configured, so purchases are disabled. Set
-            VITE_YANKEE_COUNTRY_MAP to enable buying.
-          </p>
-        </div>
-      )}
-
-      {/* STEP 1: Choose Country */}
       {step === 1 && (
         <div className="buy-step-content slide-up-anim">
-          <h2 className="step-subtitle">Choose a country</h2>
+          <h2 className="step-subtitle">Choose a service</h2>
 
           <div className="country-search-bar">
             <FiSearch className="search-icon" />
             <input
-              type="text"
-              placeholder="Search country or dialling code"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="countries-list">
-            {filteredCountries.map((ctry, idx) => (
-              <div
-                key={ctry.slug}
-                className="country-card"
-                style={{ animationDelay: `${idx * 0.02}s` }}
-                onClick={() => handleSelectCountry(ctry)}
-              >
-                <div className="country-info">
-                  {ctry.flagUrl && (
-                    <img
-                      src={ctry.flagUrl}
-                      alt={ctry.name}
-                      className="country-flag-img"
-                    />
-                  )}
-                  <div className="country-text">
-                    <span className="country-name">{ctry.name}</span>
-                    <span className="country-subtext">
-                      {ctry.dial ? `${ctry.dial} · ` : ""}
-                      {ctry.canPurchase ? "instant delivery" : "unavailable"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {filteredCountries.length === 0 && (
-              <div className="no-results">
-                No countries found for "{searchQuery}"
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* STEP 2: Choose Service */}
-      {step === 2 && (
-        <div className="buy-step-content slide-up-anim">
-          <h2 className="step-subtitle">
-            Choose a service for {selectedCountry?.name}
-          </h2>
-
-          <div className="country-search-bar">
-            <FiSearch className="search-icon" />
-            <input
-              type="text"
+              type="search"
               placeholder="Search service"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(event) => setSearchQuery(event.target.value)}
             />
           </div>
 
           <div className="services-grid">
-            {filteredServices.map((srv, idx) => {
-              const inStock = srv.count > 0;
+            {filteredServices.map((service, index) => {
+              const Icon = service.Icon;
               return (
-                <div
-                  key={srv.id}
-                  className={`service-card${inStock ? "" : " service-card-disabled"}`}
-                  style={{ animationDelay: `${idx * 0.02}s` }}
-                  onClick={inStock ? () => handleSelectService(srv) : undefined}
-                  aria-disabled={!inStock}
+                <button
+                  key={service.id}
+                  type="button"
+                  className="service-card"
+                  style={{ animationDelay: `${index * 0.02}s` }}
+                  onClick={() => handleSelectAppService(service)}
                 >
-                  <div className="service-icon-wrapper">
-                    <srv.Icon color={srv.color} />
-                  </div>
-                  <div className="service-details">
-                    <h3 className="service-name">{srv.label}</h3>
-                    <span className="service-price">
-                      {srv.cost === null
-                        ? "Price unavailable"
-                        : `₦${srv.cost.toLocaleString()}`}
-                    </span>
+                  <span className="service-icon-wrapper">
+                    <Icon color={service.color} aria-hidden="true" />
+                  </span>
+                  <span className="service-details">
+                    <span className="service-name">{service.label}</span>
                     <span className="service-countries-count">
-                      {inStock ? `${srv.count} in stock` : "Unavailable"}
+                      Select to choose a country
                     </span>
-                  </div>
-                </div>
+                  </span>
+                </button>
               );
             })}
 
@@ -383,21 +460,87 @@ function Buy() {
         </div>
       )}
 
-      {/* STEP 3: Confirm Order */}
-      {step === 3 && selectedService && selectedCountry && (
+      {step === 2 && selectedAppService && (
+        <div className="buy-step-content slide-up-anim">
+          <h2 className="step-subtitle">
+            Choose a country for {selectedAppService.label}
+          </h2>
+
+          <div className="country-search-bar">
+            <FiSearch className="search-icon" />
+            <input
+              type="search"
+              placeholder="Search country or dialling code"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </div>
+
+          <div className="countries-list">
+            {filteredCountries.map((country, index) => (
+              <button
+                key={country.slug}
+                type="button"
+                className="country-card"
+                style={{ animationDelay: `${index * 0.02}s` }}
+                disabled={!country.canPurchase}
+                onClick={() => handleSelectCountry(country)}
+              >
+                <div className="country-info">
+                  {country.flagUrl && (
+                    <img
+                      src={country.flagUrl}
+                      alt=""
+                      className="country-flag-img"
+                    />
+                  )}
+                  <div className="country-text">
+                    <span className="country-name">{country.name}</span>
+                    <span className="country-subtext">
+                      {country.dial ? `${country.dial} · ` : ""}
+                      {country.canPurchase
+                        ? "check live inventory"
+                        : "country code unavailable"}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+
+            {filteredCountries.length === 0 && (
+              <div className="no-results">
+                No countries with {selectedAppService.label} catalogue entries
+                found for "{searchQuery}".
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {step === 3 && selectedAppService && selectedCountry && (
         <div className="buy-step-content slide-up-anim">
           <div className="confirm-card">
-            <h2 className="confirm-title">Order summary</h2>
+            <h2 className="confirm-title">{selectedAppService.label}</h2>
 
-            <div className="confirm-row">
-              <span className="confirm-label">Service</span>
-              <span className="confirm-value font-bold flex-align-center">
-                <span className="confirm-app-logo">
-                  <selectedService.Icon color={selectedService.color} />
-                </span>
-                {selectedService.label}
-              </span>
-            </div>
+            {serviceOptions.length > 0 && (
+              <div
+                className="offer-toggle-group"
+                role="tablist"
+                aria-label="Choose an offer type"
+              >
+                {serviceOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`offer-toggle${selectedOffer?.id === option.id ? " active" : ""}`}
+                    onClick={() => handleOfferSelect(option)}
+                  >
+                    <span>{option.label}</span>
+                    <span>₦{Number(option.sellingPrice).toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="confirm-row">
               <span className="confirm-label">Country</span>
@@ -415,8 +558,23 @@ function Buy() {
             </div>
 
             <div className="confirm-row">
+              <span className="confirm-label">Offer</span>
+              <span className="confirm-value">
+                {selectedOffer ? selectedOffer.label : "Select an offer"}
+              </span>
+            </div>
+
+            <div className="confirm-row">
               <span className="confirm-label">Available stock</span>
-              <span className="confirm-value">{stockCount} numbers</span>
+              <span className="confirm-value">
+                {isLoadingProviderStock
+                  ? "Checking provider inventory..."
+                  : providerStockError
+                    ? "Inventory unavailable"
+                    : providerCount === null
+                      ? "No stock data"
+                      : `${stockCount} numbers`}
+              </span>
             </div>
 
             <hr className="confirm-divider" />
@@ -440,6 +598,26 @@ function Buy() {
             </div>
           </div>
 
+          {providerStockError && (
+            <div className="purchase-error-card" role="alert">
+              <p className="insufficient-text">
+                Could not check provider inventory: {providerStockError.message}
+              </p>
+            </div>
+          )}
+
+          {providerCount === 0 &&
+            !providerStockError &&
+            !isLoadingProviderStock && (
+              <div className="purchase-error-card" role="alert">
+                <p className="insufficient-text">
+                  No live numbers are available for this{" "}
+                  {selectedAppService.label} offer in {selectedCountry.name}{" "}
+                  right now.
+                </p>
+              </div>
+            )}
+
           {hasInsufficientFunds && (
             <div className="insufficient-funds-card" role="alert">
               <div className="insufficient-header">
@@ -447,8 +625,7 @@ function Buy() {
                 <h3>Insufficient funds</h3>
               </div>
               <p className="insufficient-text">
-                Your balance is not enough to complete this purchase. Please
-                fund your wallet to continue.
+                Your balance is not enough to complete this purchase.
               </p>
               <p className="insufficient-shortfall">
                 Add{" "}
@@ -495,7 +672,11 @@ function Buy() {
               className="confirm-submit-btn"
               disabled={
                 isSubmitting ||
+                isLoadingProviderStock ||
+                Boolean(providerStockError) ||
+                isOutOfStock ||
                 !canBuyAtAll ||
+                !selectedOffer ||
                 (!selectedCountry?.providerId && !selectedCountry?.iso)
               }
               onClick={handleConfirmPurchase}
@@ -517,8 +698,8 @@ function Buy() {
           )}
 
           <p className="balance-verification-notice">
-            <FaShieldHalved className="shield-icon" /> Balance is verified on
-            our servers before you are charged.
+            <FaShieldHalved className="shield-icon" />
+            Balance is verified on our servers before you are charged.
           </p>
         </div>
       )}

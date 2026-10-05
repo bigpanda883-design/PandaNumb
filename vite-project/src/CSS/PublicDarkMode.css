@@ -7,10 +7,21 @@ html[data-theme="dark"] body {
 html[data-theme="dark"] body {
   color-scheme: dark;
 }
-                                                                                                                         
+
 html[data-theme="dark"] .panda-header {
   background-color: rgba(13, 19, 33, 0.92);
   border-bottom-color: #1f2a3f;
+}
+
+html[data-theme="dark"] .footer-section,
+html[data-theme="dark"] .footer-links a,
+html[data-theme="dark"] .brand-description,
+html[data-theme="dark"] .footer-bottom,
+html[data-theme="dark"] .copyright-text,
+html[data-theme="dark"] .currency-text,
+html[data-theme="dark"] .footer-heading,
+html[data-theme="dark"] .logo-text {
+  color: #e9eefb;
 }
 
 html[data-theme="dark"] .logo-text .text-black {

@@ -13,6 +13,7 @@ import {
 } from "react-icons/fi";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearAuthUser } from "../auth/authStorage";
+import { logoutUser } from "../services/apiClient";
 import "../CSS/dashboard/components/Sidebar.css";
 
 const mainItems = [
@@ -34,9 +35,15 @@ const moreItems = [
 function Sidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    clearAuthUser();
-    navigate("/login", { replace: true });
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // Always clear the local session if the server cannot be reached.
+    } finally {
+      clearAuthUser();
+      navigate("/login", { replace: true });
+    }
   };
 
   const renderItems = (items) =>
