@@ -13,7 +13,11 @@ body {
 }
 
 .auth-page {
+  /* 100vh on mobile is the LARGEST viewport: it is taller than what is
+     visible once the browser bars are showing, which pushes the submit button
+     off-screen. 100dvh tracks the real visible height. */
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   background: #ffffff;
   color: #0f172a;
@@ -406,6 +410,26 @@ body {
   margin-top: 2px;
 }
 
+/* Form-level error (e.g. the account could not be created). Shown above the
+   submit button so it stays visible after the mobile toast fades. */
+.auth-form-error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background-color: #fef2f2;
+  color: #991b1b;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+body.dark-mode .auth-form-error {
+  background-color: #450a0a;
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
+
 /* Checkbox & Forgot Password Row */
 .auth-actions-row {
   display: flex;
@@ -591,5 +615,11 @@ body.dark-mode .auth-mobile-popup.success {
   .auth-mobile-popup {
     bottom: 16px;
     width: calc(100% - 24px);
+  }
+
+  /* 16px is the threshold below which iOS Safari zooms the page in when a
+     field is focused, which then leaves the form scrolled off-screen. */
+  .field-group input {
+    font-size: 16px;
   }
 }

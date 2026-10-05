@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  FiAlertCircle,
   FiArrowLeft,
   FiCheckCircle,
   FiEye,
@@ -7,11 +8,13 @@ import {
   FiLoader,
   FiMoon,
   FiSun,
+  FiX,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthToken, setAuthUser } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
+import { requestJson } from "../../services/httpClient";
 import "../../CSS/auth/SignUp.css";
 
 const initialValues = {
@@ -33,6 +36,30 @@ function SignUp() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  // Mobile Pop-up / Toast notification state. Without this, a failed sign-up
+  // showed nothing at all on a phone: `errors.submit` was set but never
+  // rendered anywhere in this component.
+  const [toast, setToast] = useState({
+    show: false,
+    message: "",
+    type: "error",
+  });
+
+  const toastTimerRef = useRef(null);
+
+  const triggerToast = (message, type = "error") => {
+    window.clearTimeout(toastTimerRef.current);
+    setToast({ show: true, message, type });
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast({ show: false, message: "", type: "error" });
+    }, 4500);
+  };
+
+  // A pending toast must not fire into an unmounted component.
+  useEffect(() => {
+    return () => window.clearTimeout(toastTimerRef.current);
+  }, []);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -100,33 +127,33 @@ function SignUp() {
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      triggerToast(Object.values(nextErrors)[0], "error");
       return;
     }
 
     setIsSubmitting(true);
+    setErrors({});
 
     try {
-      const response = await fetch("/api/auth/register", {
+      // Defensive body read: an empty/HTML response (offline phone, static
+      // host, proxy down) becomes a readable message rather than
+      // "Unexpected end of JSON input".
+      const payload = await requestJson("/api/auth/register", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+        body: {
           name: values.fullName.trim(),
           fullName: values.fullName.trim(),
           email: values.email.trim(),
           phone: values.phone.trim(),
           password: values.password,
-        }),
+        },
       });
 
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Account creation failed.");
+      if (!payload?.user) {
+        throw new Error("The server returned an invalid sign-up response.");
       }
 
-      const user = payload?.user || {};
+      const user = payload.user;
       const fullName = user.fullName || user.name || values.fullName.trim();
       const email = user.email || values.email.trim();
       const phone = user.phone || values.phone.trim();
@@ -160,9 +187,13 @@ function SignUp() {
         navigate("/dashboard", { replace: true });
       }, 1000);
     } catch (error) {
-      setErrors({
-        submit: error?.message || "Account creation failed. Please try again.",
-      });
+      // requestJson only ever throws ApiError (or our own validation Error),
+      // so this message is always safe to show and is never a raw
+      // "Unexpected end of JSON input".
+      const message =
+        error?.message || "Account creation failed. Please try again.";
+      setErrors({ submit: message });
+      triggerToast(message, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -174,6 +205,32 @@ function SignUp() {
 
   return (
     <main className="auth-page">
+      {/* Mobile Pop-up Alert Banner */}
+      {toast.show && (
+        <div
+          className={`auth-mobile-popup ${toast.type}`}
+          role="alert"
+          aria-live="assertive"
+        >
+          <div className="popup-content">
+            {toast.type === "error" ? (
+              <FiAlertCircle className="popup-icon" />
+            ) : (
+              <FiCheckCircle className="popup-icon" />
+            )}
+            <span>{toast.message}</span>
+          </div>
+          <button
+            type="button"
+            className="popup-close-btn"
+            aria-label="Dismiss message"
+            onClick={() => setToast((current) => ({ ...current, show: false }))}
+          >
+            <FiX />
+          </button>
+        </div>
+      )}
+
       {/* Success Modal Popup */}
       {showSuccessModal && (
         <div className="auth-modal-overlay">
@@ -357,6 +414,12 @@ function SignUp() {
               )}
             </div>
 
+            {errors.submit && (
+              <p className="auth-form-error" role="alert">
+                {errors.submit}
+              </p>
+            )}
+
             <button
               className="auth-submit"
               type="submit"
@@ -364,7 +427,7 @@ function SignUp() {
             >
               {isSubmitting ? (
                 <>
-                  <FiLoader className="loading-icon" aria-hidden="true" />
+                  <FiLoader className="loading-icon" aria-hidden="true" />{" "}
                   Creating account...
                 </>
               ) : (

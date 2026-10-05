@@ -11,13 +11,10 @@ import {
   FiX,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  getAuthToken,
-  setAuthToken,
-  setAuthUser,
-} from "../../auth/authStorage";
+import { setAuthToken, setAuthUser } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
+import { requestJson } from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
 
 const initialValues = {
@@ -109,24 +106,22 @@ function Login() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/api/auth/login", {
+      // requestJson reads the body defensively, so an empty response (proxy
+      // down, offline phone, static host) produces a readable message instead
+      // of throwing "Unexpected end of JSON input".
+      const payload = await requestJson("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+        body: {
           email: values.email.trim(),
           password: values.password,
-        }),
+        },
       });
 
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.message || "Invalid email or password.");
+      if (!payload?.token || !payload?.user) {
+        throw new Error("The server returned an invalid login response.");
       }
 
-      const user = payload?.user || {};
+      const user = payload.user;
       const fullName =
         user.fullName ||
         user.name ||
@@ -171,7 +166,11 @@ function Login() {
     <main className="auth-page">
       {/* Mobile Pop-up Alert Banner */}
       {toast.show && (
-        <div className={`auth-mobile-popup ${toast.type}`} role="alert">
+        <div
+          className={`auth-mobile-popup ${toast.type}`}
+          role="alert"
+          aria-live="assertive"
+        >
           <div className="popup-content">
             {toast.type === "error" ? (
               <FiAlertCircle className="popup-icon" />

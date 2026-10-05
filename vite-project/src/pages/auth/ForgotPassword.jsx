@@ -13,6 +13,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthToken, setAuthUser } from "../../auth/authStorage";
 import { useTheme } from "../../context/themeStore";
+import { requestJson } from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
 
 const initialValues = {
@@ -116,16 +117,10 @@ function ForgotPassword() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/auth/forgot-password", {
+      await requestJson("/api/auth/forgot-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: values.email.trim() }),
+        body: { email: values.email.trim() },
       });
-
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.message || "Unable to send the reset code.");
-      }
 
       setStep("code");
       triggerToast("A reset code has been sent to your email.", "success");
@@ -148,19 +143,13 @@ function ForgotPassword() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/auth/verify-reset-code", {
+      await requestJson("/api/auth/verify-reset-code", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           email: values.email.trim(),
           code: values.code.trim(),
-        }),
+        },
       });
-
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.message || "The reset code is invalid.");
-      }
 
       setStep("reset");
       triggerToast("Code verified. Create your new password.", "success");
@@ -183,22 +172,16 @@ function ForgotPassword() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/auth/reset-password", {
+      const payload = await requestJson("/api/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           email: values.email.trim(),
           code: values.code.trim(),
           newPassword: values.newPassword,
-        }),
+        },
       });
 
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.message || "Password reset failed.");
-      }
-
-      if (payload.token) {
+      if (payload?.token) {
         setAuthToken(payload.token);
       }
 

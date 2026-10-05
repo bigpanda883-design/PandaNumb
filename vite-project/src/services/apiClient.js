@@ -1,4 +1,11 @@
 import { getAuthToken } from "../auth/authStorage";
+import { ApiError, getApiBaseUrl, requestJson } from "./httpClient.js";
+
+// Re-exported so existing importers keep a single source of truth for the
+// configured base URL and the shared error type.
+export { getApiBaseUrl };
+export { ApiError };
+
 
 /**
  * Panda Numbers - API contract
@@ -54,16 +61,6 @@ import { getAuthToken } from "../auth/authStorage";
  * Country           { code, name, dial, price, rawPrice, flagUrl }
  */
 
-let API_BASE_URL =
-  (typeof import.meta !== "undefined" &&
-    import.meta.env &&
-    import.meta.env.VITE_API_BASE_URL) ||
-  "";
-
-export function getApiBaseUrl() {
-  return globalThis.__PANDA_API_BASE_URL__ || API_BASE_URL || "";
-}
-
 export function isApiConfigured() {
   return true;
 }
@@ -86,31 +83,22 @@ export class MissingEndpointError extends Error {
 
 /**
  * Perform a real API request.
- * Throws MissingEndpointError when VITE_API_BASE_URL is not configured, so a
- * caller can never mistake an absent backend for a successful empty response.
+ *
+ * Delegates to `requestJson`, which reads the body defensively. The previous
+ * implementation called `response.json()` directly, so an empty or HTML body
+ * surfaced as "Unexpected end of JSON input" instead of a usable error.
+ *
+ * `operation` is kept in the message so a failure still names the call.
  */
 export async function apiRequest(path, options = {}) {
-  const baseUrl = getApiBaseUrl();
-  const url = baseUrl ? `${baseUrl}${path}` : path;
-
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
-
-  if (!response.ok) {
-    const error = new Error(
-      `${options.operation || path} failed (${response.status})`,
-    );
-    error.status = response.status;
+  try {
+    return await requestJson(path, options);
+  } catch (error) {
+    if (error instanceof ApiError && options.operation) {
+      error.message = `${options.operation}: ${error.message}`;
+    }
     throw error;
   }
-
-  return response.status === 204 ? null : response.json();
 }
 
 export async function loginUser({ email, password }, { signal } = {}) {
