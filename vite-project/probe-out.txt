@@ -1,0 +1,11 @@
+GET / (page loads)
+  ERROR: fetch failed
+
+POST /api/auth/login (wrong creds)
+  ERROR: fetch failed
+
+POST /api/auth/register (new user)
+  ERROR: fetch failed
+
+POST /api/auth/login (correct creds)
+  ERROR: fetch failed

@@ -3,5 +3,10 @@
   "installCommand": "npm install --prefix vite-project",
   "buildCommand": "npm --prefix vite-project run build",
   "outputDirectory": "vite-project/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
 }

@@ -132,7 +132,7 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, providerConfigured: Boolean(API_KEY) });
 });
 
-app.post("/api/auth/register", async (req, res) => {
+const registerHandler = async (req, res) => {
   const name = String(req.body.name || req.body.fullName || "").trim();
   const email = String(req.body.email || "")
     .trim()
@@ -217,11 +217,15 @@ app.post("/api/auth/register", async (req, res) => {
     user: safeUser(user),
     token,
   });
-});
+};
 
-app.post("/api/auth/signup", async (req, res) => {
-  return app._router.handle(req, res);
-});
+app.post("/api/auth/register", registerHandler);
+
+// Alias: the sign-up UI posts to /api/auth/signup, but the real handler lives
+// at /api/auth/register. Forward the body to that handler instead of
+// re-dispatching the request through the router (which matched this same route
+// again and produced an empty response -> "Unexpected end of JSON input").
+app.post("/api/auth/signup", registerHandler);
 
 app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body.email || "")
@@ -994,7 +998,54 @@ app.get("/api/sms/:action", (req, res) =>
 );
 app.post("/api/sms/number", (req, res) => proxySmsAction("number", req, res));
 
-app.listen(PORT, () => {
+// Unknown /api routes must answer with JSON. Express's built-in 404 sends an
+// HTML page, which the browser cannot parse as JSON - that surfaces as
+// "Unexpected end of JSON input" on a phone.
+app.use("/api", (req, res) =>
+  fail(res, 404, "NOT_FOUND", "That endpoint does not exist."),
+);
+
+// Express's default error handler answers with an HTML page. A malformed or
+// oversized body would then reach the browser as HTML, and the client's
+// response.json() would fail with "Unexpected end of JSON input" instead of
+// showing the real reason. Always answer with JSON.
+app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  const isBodyTooLarge = error?.type === "entity.too.large";
+  const isBodyError =
+    isBodyTooLarge || error?.type === "entity.parse.failed";
+
+  if (isBodyError) {
+    return fail(
+      res,
+      isBodyTooLarge ? 413 : 400,
+      "INVALID_REQUEST",
+      isBodyTooLarge
+        ? "The request body is too large."
+        : "The request body could not be read as JSON.",
+    );
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.error("[panda-server] unhandled error", error);
+  }
+
+  return fail(
+    res,
+    500,
+    "SERVER_ERROR",
+    "Something went wrong on our end. Please try again.",
+  );
+});
+
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`[panda-server] listening on http://localhost:${PORT}`);
+  console.log(
+    `[panda-server] also reachable on the LAN - use the Vite URL printed by ` +
+      `the dev server (http://<your-lan-ip>:5173) to test on a phone.`,
+  );
   console.log("[panda-server] authentication and SMS routes are active");
 });
