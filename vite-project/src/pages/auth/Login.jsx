@@ -12,9 +12,10 @@ import {
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthToken, setAuthUser } from "../../auth/authStorage";
+import { authenticateLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
-import { requestJson } from "../../services/httpClient";
+import { isBackendUnavailable, requestJson } from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
 
 const initialValues = {
@@ -106,22 +107,44 @@ function Login() {
     setIsSubmitting(true);
 
     try {
-      // requestJson reads the body defensively, so an empty response (proxy
-      // down, offline phone, static host) produces a readable message instead
-      // of throwing "Unexpected end of JSON input".
-      const payload = await requestJson("/api/auth/login", {
-        method: "POST",
-        body: {
+      let user;
+      let token = "";
+
+      try {
+        // Prefer the real server. requestJson reads the body defensively, so an
+        // empty response (proxy down, offline phone, static host) produces a
+        // readable message instead of "Unexpected end of JSON input".
+        const payload = await requestJson("/api/auth/login", {
+          method: "POST",
+          body: {
+            email: values.email.trim(),
+            password: values.password,
+          },
+        });
+
+        if (!payload?.user) {
+          throw new Error("The server returned an invalid login response.");
+        }
+
+        user = payload.user;
+        token = payload.token || "";
+      } catch (error) {
+        // No server answered (the site is deployed without a backend). Check the
+        // account book this browser holds instead of dead-ending the user.
+        if (!isBackendUnavailable(error)) throw error;
+
+        const local = await authenticateLocalAccount({
           email: values.email.trim(),
           password: values.password,
-        },
-      });
+        });
 
-      if (!payload?.token || !payload?.user) {
-        throw new Error("The server returned an invalid login response.");
+        if (!local.ok) {
+          throw new Error(local.message);
+        }
+
+        user = local.user;
       }
 
-      const user = payload.user;
       const fullName =
         user.fullName ||
         user.name ||
@@ -136,8 +159,8 @@ function Login() {
         phone,
         initials: fullName.slice(0, 2).toUpperCase(),
       });
-      if (payload.token) {
-        setAuthToken(payload.token);
+      if (token) {
+        setAuthToken(token);
       }
 
       pushNotification({

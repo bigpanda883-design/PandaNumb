@@ -12,9 +12,13 @@ import {
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthToken, setAuthUser } from "../../auth/authStorage";
+import { registerLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
-import { requestJson } from "../../services/httpClient";
+import {
+  isBackendUnavailable,
+  requestJson,
+} from "../../services/httpClient";
 import "../../CSS/auth/SignUp.css";
 
 const initialValues = {
@@ -135,25 +139,49 @@ function SignUp() {
     setErrors({});
 
     try {
-      // Defensive body read: an empty/HTML response (offline phone, static
-      // host, proxy down) becomes a readable message rather than
-      // "Unexpected end of JSON input".
-      const payload = await requestJson("/api/auth/register", {
-        method: "POST",
-        body: {
-          name: values.fullName.trim(),
+      let user;
+      let token = "";
+
+      try {
+        // Defensive body read: an empty/HTML response (offline phone, static
+        // host, proxy down) becomes a readable message rather than
+        // "Unexpected end of JSON input".
+        const payload = await requestJson("/api/auth/register", {
+          method: "POST",
+          body: {
+            name: values.fullName.trim(),
+            fullName: values.fullName.trim(),
+            email: values.email.trim(),
+            phone: values.phone.trim(),
+            password: values.password,
+          },
+        });
+
+        if (!payload?.user) {
+          throw new Error("The server returned an invalid sign-up response.");
+        }
+
+        user = payload.user;
+        token = payload.token || "";
+      } catch (error) {
+        // No server answered (the site is deployed without a backend). Keep the
+        // account in this browser so sign-in still works afterwards.
+        if (!isBackendUnavailable(error)) throw error;
+
+        const local = await registerLocalAccount({
           fullName: values.fullName.trim(),
           email: values.email.trim(),
           phone: values.phone.trim(),
           password: values.password,
-        },
-      });
+        });
 
-      if (!payload?.user) {
-        throw new Error("The server returned an invalid sign-up response.");
+        if (!local.ok) {
+          throw new Error(local.message);
+        }
+
+        user = local.user;
       }
 
-      const user = payload.user;
       const fullName = user.fullName || user.name || values.fullName.trim();
       const email = user.email || values.email.trim();
       const phone = user.phone || values.phone.trim();
@@ -170,8 +198,8 @@ function SignUp() {
           .toUpperCase(),
       });
 
-      if (payload.token) {
-        setAuthToken(payload.token);
+      if (token) {
+        setAuthToken(token);
       }
 
       pushNotification({
