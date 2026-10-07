@@ -55,6 +55,24 @@ export class ApiError extends Error {
 
 
 /**
+ * True when a failure means "there is no API server reachable", as opposed to
+ * the server answering with a real error.
+ *
+ * The app is published as static files, so on a host with no backend the
+ * request 404s or returns HTML. Those cases mean the auth pages should fall
+ * back to the on-device account book rather than showing a dead end.
+ *
+ * A genuine 401/409 from a live server must NOT fall back: the credentials
+ * really are wrong.
+ */
+export function isBackendUnavailable(error) {
+  if (!(error instanceof ApiError)) return false;
+  if (error.kind === "network" || error.kind === "timeout") return true;
+  if (error.kind === "parse") return true;
+  return error.status === 404 || error.status === 405 || error.status === 502;
+}
+
+/**
  * Read a response body as JSON without ever throwing on a bad body.
  *
  * Returns `{ data, parsed, empty, raw }`:
