@@ -54,7 +54,9 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 function normaliseEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function notifyAccountChange() {
@@ -166,7 +168,8 @@ export async function registerLocalAccount({
   if (getAccount(accounts, key)) {
     return {
       ok: false,
-      message: "This email is already registered on this device. Please log in.",
+      message:
+        "This email is already registered on this device. Please log in.",
     };
   }
 
@@ -249,6 +252,9 @@ export function setAuthToken(token) {
 /**
  * Store the signed-in user. Returns false if the browser refused to save it,
  * so the caller can show an error instead of silently "logging in".
+ *
+ * NOTE: if one account replaces another without signing out, call this BEFORE
+ * setAuthToken(), because the old account's token is removed here.
  */
 export function setAuthUser(user) {
   // If a DIFFERENT account is signing in on this browser, drop the previous
@@ -256,17 +262,18 @@ export function setAuthUser(user) {
   // same account keeps its cached data.
   const previous = getAuthUser();
   const isSameAccount = Boolean(
-    previous &&
-      user &&
-      previous.email &&
-      user.email &&
-      previous.email === user.email,
+    previous?.email &&
+    user?.email &&
+    normaliseEmail(previous.email) === normaliseEmail(user.email),
   );
+  // Only a token left by another signed-in account is stale. On a fresh
+  // login (no previous user) the token may have just been saved by the caller.
+  const switchedAccount = Boolean(previous) && !isSameAccount;
 
   if (!isSameAccount) {
-    // Includes the old account's auth token, which was previously left behind.
     ACCOUNT_SCOPED_KEYS.forEach((key) => {
       if (key === AUTH_STORAGE_KEY) return;
+      if (key === AUTH_TOKEN_KEY && !switchedAccount) return;
       try {
         localStorage.removeItem(key);
       } catch {
@@ -291,6 +298,12 @@ export function setAuthUser(user) {
 
   return true;
 }
+
+/**
+ * Sign out and drop every trace of the previous account from this browser.
+ * Any in-memory listeners are notified so open components re-render empty
+ * rather than briefly showing the old account's figures.
+ */
 export function clearAuthUser() {
   ACCOUNT_SCOPED_KEYS.forEach((key) => {
     try {
