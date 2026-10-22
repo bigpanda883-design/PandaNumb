@@ -28,7 +28,7 @@ const moreItems = [
   ["Deposit", "/deposit", FiCreditCard],
   ["Notifications", "/notifications", FiBell],
   ["Help Center", "/help-center", FiHelpCircle],
-  ["Active SMS", "/active-sms", FiMessageSquare],
+  ["Active Logs", "/active-logs", FiMessageSquare],
   ["Security", "/security", FiShield],
 ];
 

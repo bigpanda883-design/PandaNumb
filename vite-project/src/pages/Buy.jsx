@@ -39,6 +39,7 @@ function Buy() {
     catalogue,
     isLoading: isLoadingCatalogue,
     error: catalogueError,
+    isWarmingUp,
     retry: retryCatalogue,
   } = useCatalogue();
 
@@ -298,9 +299,12 @@ function Buy() {
       addActivation({
         activationId: number.id,
         phone: number.number,
+        number: number.number,
+        countryCode: number.countryCode || countryCode,
+        countryName: number.countryName || selectedCountry.name,
         service: number.service,
-        country: number.countryName,
         price: number.priceValue ?? purchasePrice,
+        orderId: number.orderId,
       });
 
       const purchasedNumber = {
@@ -348,7 +352,26 @@ function Buy() {
   };
 
   if (isLoadingCatalogue) {
-    return <BuySkeleton />;
+    // The first load can take up to a minute while the server builds its
+    // cached copy of the catalogue. Say so, otherwise it reads as a hung page.
+    return isWarmingUp ? (
+      <section className="buy-flow-container">
+        <div className="buy-step-content">
+          <div className="purchase-error-card" role="status" aria-live="polite">
+            <div className="insufficient-header">
+              <FiLoader className="spinner-icon" />
+              <h3>Preparing the price catalogue</h3>
+            </div>
+            <p className="insufficient-text">
+              This only happens the first time. Prices are being loaded from the
+              provider - it can take up to a minute.
+            </p>
+          </div>
+        </div>
+      </section>
+    ) : (
+      <BuySkeleton />
+    );
   }
 
   if (catalogueError) {

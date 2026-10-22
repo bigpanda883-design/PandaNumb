@@ -53,7 +53,6 @@ export class ApiError extends Error {
   }
 }
 
-
 /**
  * True when a failure means "there is no API server reachable", as opposed to
  * the server answering with a real error.
@@ -115,49 +114,58 @@ export async function readJson(response) {
   }
 }
 
-
 /**
  * Build the user-facing message for a failed request.
  *
  * The wording is deliberately non-technical: the person reading it is on a
  * phone, not at a terminal.
  */
-function describeFailure({ kind, status, data }) {
+function describeFailure({ kind, status, data, operation = "" }) {
   const serverMessage =
     typeof data?.message === "string" && data.message.trim()
       ? data.message.trim()
       : "";
 
+  // Every message ends with the operation name (when the caller supplied one),
+  // so a failure is never an anonymous "Request failed (500).".
+  const withOperation = (message) =>
+    operation ? `${operation}: ${message}` : message;
+
   if (kind === "network") {
-    return (
+    return withOperation(
       serverMessage ||
-      "Cannot reach the server. Check your internet connection and try again."
+        "Cannot reach the server. Check your internet connection and try again.",
     );
   }
 
   if (kind === "timeout") {
-    return (
-      serverMessage || "The server took too long to respond. Please try again."
+    return withOperation(
+      serverMessage || "The server took too long to respond. Please try again.",
     );
   }
 
   if (kind === "parse") {
     // A 404/405 from a static host means the request hit the wrong server.
     if (status === 404 || status === 405) {
-      return (
-        "The app is not connected to its server yet. Please try again in a moment."
+      return withOperation(
+        "The app is not connected to its server yet. Please try again in a moment.",
       );
     }
-    return (
-      serverMessage || "The server sent an unexpected response. Please try again."
+    return withOperation(
+      serverMessage ||
+        "The server sent an unexpected response. Please try again.",
     );
   }
 
   if (status === 429) {
-    return serverMessage || "Too many attempts. Please wait and try again.";
+    return withOperation(
+      serverMessage || "Too many attempts. Please wait and try again.",
+    );
   }
 
-  return serverMessage || `Request failed (${status || "unknown"}).`;
+  return withOperation(
+    serverMessage || `Request failed (${status || "unknown"}).`,
+  );
 }
 
 /**
@@ -173,6 +181,9 @@ export async function requestJson(path, options = {}) {
     headers = {},
     signal,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    // The caller's name for this call. Appended to every failure message so a
+    // "Request failed (500)." still says which operation it was.
+    operation = "",
   } = options;
 
   const baseUrl = getApiBaseUrl();
@@ -210,16 +221,14 @@ export async function requestJson(path, options = {}) {
         ...(hasBody ? { "Content-Type": "application/json" } : {}),
         ...headers,
       },
-      ...(hasBody
-        ? { body: isRawBody ? body : JSON.stringify(body) }
-        : {}),
+      ...(hasBody ? { body: isRawBody ? body : JSON.stringify(body) } : {}),
       signal: controller.signal,
     });
   } catch (error) {
     // An abort the caller asked for is theirs to handle; do not relabel it.
     if (signal?.aborted) throw error;
     const kind = timedOut ? "timeout" : "network";
-    throw new ApiError(describeFailure({ kind }), { kind });
+    throw new ApiError(describeFailure({ kind, operation }), { kind });
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener?.("abort", abortFromCaller);
@@ -229,7 +238,12 @@ export async function requestJson(path, options = {}) {
   if (response.status === 204) {
     if (!response.ok) {
       throw new ApiError(
-        describeFailure({ kind: "http", status: response.status, data: null }),
+        describeFailure({
+          kind: "http",
+          status: response.status,
+          data: null,
+          operation,
+        }),
         { kind: "http", status: response.status },
       );
     }
@@ -240,7 +254,12 @@ export async function requestJson(path, options = {}) {
 
   if (!response.ok) {
     throw new ApiError(
-      describeFailure({ kind: "http", status: response.status, data }),
+      describeFailure({
+        kind: "http",
+        status: response.status,
+        data,
+        operation,
+      }),
       {
         kind: "http",
         status: response.status,
@@ -253,7 +272,12 @@ export async function requestJson(path, options = {}) {
     // 2xx with an unreadable body: the app is pointed at something that is not
     // our API. Never let this reach the caller as a parser error.
     throw new ApiError(
-      describeFailure({ kind: "parse", status: response.status, data: null }),
+      describeFailure({
+        kind: "parse",
+        status: response.status,
+        data: null,
+        operation,
+      }),
       { kind: "parse", status: response.status },
     );
   }

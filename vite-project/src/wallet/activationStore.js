@@ -1,14 +1,3 @@
-/**
- * Panda Numbers - activated numbers store
- * -------------------------------------------------
- * Records the numbers this user has actually been issued by the SMS provider,
- * keyed by the provider's activation id. That id is what keeps a purchase and
- * its verification session connected, and it is what getStatus/setStatus need.
- *
- * Only real provider data is stored here - a number appears only after the
- * provider issued one.
- */
-
 const ACTIVATIONS_STORAGE_KEY = "panda-numbers-activations";
 
 /** Lifecycle of an activation, mirroring the provider's own statuses. */
@@ -54,17 +43,33 @@ export function addActivation({
   service,
   country,
   price,
+  // Values the My Numbers list renders directly. Kept on the stored record so
+  // the list never has to guess: `phone`/`country` are what the provider call
+  // used, while `number`/`countryCode`/`countryName` are what the UI displays.
+  number,
+  countryCode,
+  countryName,
+  orderId,
   status = NUMBER_STATUS.WAITING,
 }) {
   if (!activationId || !phone) return null;
 
   const now = new Date();
+  const displayPhone = number || phone;
+  const displayCountryCode = String(countryCode || country || "").toLowerCase();
   const activation = {
     activationId,
+    // `id` mirrors activationId so a record coming from either the local store
+    // or GET /api/numbers has the same shape when the list renders it.
+    id: activationId,
     phone,
-    service,
+    number: displayPhone,
     country,
+    countryCode: displayCountryCode,
+    countryName: countryName || String(country || "").toUpperCase(),
+    service,
     price,
+    orderId: orderId || activationId,
     status,
     code: null,
     receivedAt: null,

@@ -1,5 +1,5 @@
-import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -21,12 +21,20 @@ export default defineConfig({
       // Forward SMS calls to OUR OWN backend (server/index.js), which holds the
       // provider API key. The browser never talks to the provider directly and
       // never sees the key.
-      '/api': {
+      "/api": {
         target: `http://127.0.0.1:${process.env.PORT || 8787}`,
         changeOrigin: true,
-        // A phone on flaky mobile data needs the request to fail fast rather
-        // than hang, so the UI can show a real message.
-        timeout: 20000,
+        // The price catalogue is ~8.6 MB and the very first request has to be
+        // fetched from upstream, which takes ~50s. A 20s cutoff aborted that
+        // request before it could be served, and a browser fetch() that is
+        // cut off rejects as a "network" error - the Buy page then showed
+        // "Could not reach the price catalogue" even though the API was up.
+        // Keep this below the client's 30s budget so the client always gets a
+        // real HTTP status instead of a silent socket close.
+        // NOTE: also `proxyTimeout` - Vite/http-proxy applies that to the
+        // upstream socket, and a static-file route must wait for the full body.
+        timeout: 25000,
+        proxyTimeout: 25000,
       },
     },
   },
@@ -37,4 +45,4 @@ export default defineConfig({
     allowedHosts: true,
     port: 4173,
   },
-})
+});

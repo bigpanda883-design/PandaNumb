@@ -645,9 +645,35 @@
 }
 
 .balance-error-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   font-size: 15px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
+}
+
+/* Retry the balance fetch without leaving the dashboard. */
+.balance-retry-btn {
+  padding: 6px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.balance-retry-btn:hover,
+.balance-retry-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.9);
+  outline: none;
 }
 
 /* Small note shown when the rate request failed and a cached rate is in use. */

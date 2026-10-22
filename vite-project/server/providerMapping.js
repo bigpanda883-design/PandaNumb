@@ -42,7 +42,8 @@ export const YANKEE_SERVICE_MAP = {
 /**
  * Resolve the provider's service code for a catalogue service id.
  *
- * @param {string} serviceId  catalogue id, e.g. "whatsapp" or "whatsapp_virtual8"
+ * @param {string} serviceId  catalogue id, e.g. "whatsapp" or a catalogue
+ *                            variant id such as "whatsapp_virtual34"
  * @returns {{providerService:string, displayName:string}|null}
  *          null when the mapping is unknown - the caller must reject the purchase.
  */
@@ -51,10 +52,6 @@ export function resolveProviderService(serviceId) {
 
   const key = String(serviceId).trim().toLowerCase();
 
-  // The catalogue sometimes hands us a composite id ("whatsapp_virtual8"); the
-  // service name is the part before the first separator.
-  const base = key.split(/[_:]/)[0];
-
   const direct = YANKEE_SERVICE_MAP[key];
   if (direct)
     return {
@@ -62,6 +59,9 @@ export function resolveProviderService(serviceId) {
       displayName: direct.displayName,
     };
 
+  // `whatsapp_virtual34` -> `whatsapp`. Only a trailing VARIANT is stripped; a
+  // bare service name is handled by the lookup above.
+  const base = key.split(/[_:]/)[0];
   const mapped = YANKEE_SERVICE_MAP[base];
   if (mapped)
     return {
@@ -72,4 +72,48 @@ export function resolveProviderService(serviceId) {
   return null;
 }
 
-export default { YANKEE_SERVICE_MAP, resolveProviderService };
+/**
+ * Alpha-2 codes for the catalogue's own country names/aliases.
+ *
+ * The Buy page already resolves this from src/config/countryCatalog.js and sends
+ * the ISO-2 code as `countryCode`, so a normal purchase needs nothing here. This
+ * is the fallback for a caller that instead passes the catalogue slug (e.g. the
+ * raw "usa" key), which the provider would reject.
+ */
+const ISO_BY_CATALOGUE_SLUG = {
+  usa: "US",
+  uk: "GB",
+  england: "GB",
+  uae: "AE",
+  drc: "CD",
+  congo: "CG",
+  southkorea: "KR",
+  northkorea: "KP",
+  czechia: "CZ",
+  ivorycoast: "CI",
+};
+
+/**
+ * Resolve the provider's country identifier (ISO-2) from whatever the caller has.
+ * A value that is already ISO-2 is returned upper-cased; anything unrecognised
+ * is returned as-is so the provider - not a guess - decides whether it is valid.
+ */
+export function resolveProviderCountry(country) {
+  const value = String(country || "").trim();
+  if (!value) return "";
+
+  const key = value.toLowerCase().replace(/[^a-z]/g, "");
+  if (/^[a-z]{2}$/.test(key)) return key.toUpperCase();
+
+  if (ISO_BY_CATALOGUE_SLUG[key]) return ISO_BY_CATALOGUE_SLUG[key];
+  if (YANKEE_COUNTRY_MAP[key]) return YANKEE_COUNTRY_MAP[key];
+
+  return value;
+}
+
+export default {
+  YANKEE_SERVICE_MAP,
+  YANKEE_COUNTRY_MAP,
+  resolveProviderService,
+  resolveProviderCountry,
+};
