@@ -31,7 +31,7 @@ function DashboardHome() {
 
   // Balance comes from the shared wallet store (never a literal), and the USD
   // figure is derived from the freshly fetched rate.
-  const { balance, animatedBalance, isLoading, error } = useBalance();
+  const { animatedBalance, isLoading, error, retry } = useBalance();
   const {
     rate,
     isLoading: rateLoading,
@@ -55,12 +55,22 @@ function DashboardHome() {
     return `$${(value / rate).toFixed(2)}`;
   };
 
-  // Show the full-page skeleton until the balance has resolved. Keyed on
-  // `balance` (the authoritative value) rather than the animated count, because
-  // the animation starts at 0 and would otherwise look like "not loaded".
-  if (isLoading || balance === null) {
+  // Show the skeleton only while the first fetch is genuinely in flight.
+  //
+  // This used to also wait for `balance === null`. The fetch sets that to null
+  // when the balance endpoint is missing or unreachable (which is exactly what
+  // happens on a static host or a phone on flaky mobile data), so the skeleton
+  // never went away and the whole dashboard was stuck loading. `useBalance`
+  // always settles `isLoading` to false, and a missing balance is rendered as
+  // an explicit 0 / "unavailable" below rather than hanging the page.
+  if (isLoading) {
     return <DashboardHomeSkeleton />;
   }
+
+  // `animatedBalance` can still be 0 for a frame after loading ends (the
+  // count-up animation); the displayed money value below uses it, so guard
+  // against a null balance reading as NaN.
+  const displayBalance = Number.isFinite(animatedBalance) ? animatedBalance : 0;
 
   return (
     <div className="dashboard-home-wrapper">
@@ -97,17 +107,18 @@ function DashboardHome() {
 
           {/* BALANCE DISPLAY */}
           <div className="balance-amount-display">
-            {error && !isLoading ? (
+            {error ? (
               /* API failure - say so rather than showing a fake figure. */
-              <span className="balance-error-text">
-                Balance unavailable. Pull to retry.
-              </span>
-            ) : isLoading && animatedBalance === 0 ? (
-              <span
-                className="balance-loading-bar"
-                role="status"
-                aria-label="Loading balance"
-              />
+              <div className="balance-error-text">
+                <span>Balance unavailable right now.</span>
+                <button
+                  type="button"
+                  className="balance-retry-btn"
+                  onClick={retry}
+                >
+                  Retry
+                </button>
+              </div>
             ) : hideBalance ? (
               <div className="masked-dots">
                 <span></span>
@@ -119,10 +130,10 @@ function DashboardHome() {
             ) : (
               <span className="balance-text">
                 {currency === "NGN"
-                  ? formatNaira(animatedBalance)
+                  ? formatNaira(displayBalance)
                   : rateLoading
                     ? "Loading rate…"
-                    : (formatUsd(animatedBalance) ?? "Rate unavailable")}
+                    : (formatUsd(displayBalance) ?? "Rate unavailable")}
               </span>
             )}
           </div>
@@ -176,7 +187,10 @@ function DashboardHome() {
               <FiCheckCircle />
             </div>
             <div className="stat-value">
-              {allTransactions.filter((tx) => tx.status === "SUCCESSFUL").length}
+              {
+                allTransactions.filter((tx) => tx.status === "SUCCESSFUL")
+                  .length
+              }
             </div>
             <div className="stat-label">Completed activities</div>
           </div>
@@ -185,7 +199,7 @@ function DashboardHome() {
             <div className="stat-icon-circle wallet-blue">
               <FiCreditCard />
             </div>
-            <div className="stat-value">{formatNaira(animatedBalance)}</div>
+            <div className="stat-value">{formatNaira(displayBalance)}</div>
             <div className="stat-label">Wallet balance</div>
           </div>
         </section>
@@ -311,16 +325,18 @@ function ServiceCard({ name, subtext, brandClass, Icon, onClick }) {
 
 function TransactionRow({ title, date, amount, status }) {
   const isDeposit = amount >= 0;
-  const displayAmount = `${
-    isDeposit ? "+" : "-"
-  }₦${Math.abs(amount).toLocaleString("en-NG", {
+  const displayAmount = `${isDeposit ? "+" : "-"}₦${Math.abs(
+    amount,
+  ).toLocaleString("en-NG", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 
   return (
     <article className="transaction-row">
-      <span className={`transaction-icon ${isDeposit ? "deposit" : "purchase"}`}>
+      <span
+        className={`transaction-icon ${isDeposit ? "deposit" : "purchase"}`}
+      >
         {isDeposit ? <FiArrowDownLeft /> : <FiArrowUpRight />}
       </span>
       <div className="transaction-copy">

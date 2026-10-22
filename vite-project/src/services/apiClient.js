@@ -1,11 +1,10 @@
-import { getAuthToken } from "../auth/authStorage";
+import { getAuthToken } from "../auth/authStorage.js";
 import { ApiError, getApiBaseUrl, requestJson } from "./httpClient.js";
 
 // Re-exported so existing importers keep a single source of truth for the
 // configured base URL and the shared error type.
 export { getApiBaseUrl };
 export { ApiError };
-
 
 /**
  * Panda Numbers - API contract

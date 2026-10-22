@@ -1,30 +1,43 @@
-/**
- * Panda Numbers - numbers API
- *
- * The purchase and verification-code operations MUST come from the backend:
- * a number allocated to a user and the SMS code it receives are server-owned
- * facts. There is no client-side fallback that invents either.
- *
- * Until the endpoints in services/apiClient.js are implemented, these throw
- * MissingEndpointError, and the UI surfaces that instead of showing a made-up
- * number or code.
- */
 import { apiRequest, MissingEndpointError } from "./apiClient";
 import { getAuthToken } from "../auth/authStorage";
 
-/** All numbers belonging to the authenticated user. */
+/** Auth header, or a clear error instead of sending "Bearer null". */
+function authHeaders(extra = {}) {
+  const token = getAuthToken();
+  if (!token) {
+    const error = new Error("You are signed out. Please log in again.");
+    error.code = "NOT_AUTHENTICATED";
+    throw error;
+  }
+  return { Authorization: `Bearer ${token}`, ...extra };
+}
+
+/** Fail early on a bad id instead of calling /api/numbers/undefined/verify. */
+function requireId(id, label) {
+  if (id === undefined || id === null || String(id).trim() === "") {
+    throw new Error(`Missing ${label}.`);
+  }
+  return encodeURIComponent(String(id));
+}
+
 export async function fetchMyNumbers({ signal } = {}) {
   const data = await apiRequest("/api/numbers", {
     signal,
     operation: "list purchased numbers",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers: authHeaders(),
   });
   return data?.numbers ?? [];
 }
 
 /**
- * Buy a number. The server allocates the real number from the provider, debits
- * the balance, records the transaction and returns all three.
+ * Buy a number.
+ *
+ * `price` is sent for display/logging only. The server MUST look up the real
+ * price itself and ignore this value, because anything from the browser can be
+ * edited by the user.
+ *
+ * The Idempotency-Key lets the server treat a double-click or a retry as the
+ * same purchase. Pass the same `idempotencyKey` when retrying one attempt.
  */
 export async function purchaseNumber({
   serviceId,
@@ -32,8 +45,14 @@ export async function purchaseNumber({
   serviceName,
   countryName,
   price,
+  idempotencyKey,
   signal,
 } = {}) {
+  if (!serviceId) throw new Error("Missing service.");
+  if (!countryCode) throw new Error("Missing country.");
+
+  const key = idempotencyKey || globalThis.crypto?.randomUUID?.() || undefined;
+
   const data = await apiRequest("/api/numbers/purchase", {
     method: "POST",
     body: JSON.stringify({
@@ -45,8 +64,9 @@ export async function purchaseNumber({
     }),
     signal,
     operation: "purchase a number",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers: authHeaders(key ? { "Idempotency-Key": key } : {}),
   });
+
   return {
     number: data?.number,
     balance: data?.balance,
@@ -54,24 +74,28 @@ export async function purchaseNumber({
   };
 }
 
-/** Ask the backend for the verification code for a purchased number. */
 export async function requestVerificationCode(numberId, { signal } = {}) {
-  const data = await apiRequest(`/api/numbers/${numberId}/verify`, {
+  const id = requireId(numberId, "number id");
+  const data = await apiRequest(`/api/numbers/${id}/verify`, {
     method: "POST",
     signal,
     operation: "request a verification code",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers: authHeaders(),
   });
-  return { status: data?.status, code: data?.code, receivedAt: data?.receivedAt };
+  return {
+    status: data?.status,
+    code: data?.code,
+    receivedAt: data?.receivedAt,
+  };
 }
 
-/** Cancel a purchased number and release it with the provider. */
 export async function cancelNumber(numberId, { signal } = {}) {
-  const data = await apiRequest(`/api/numbers/${numberId}/cancel`, {
+  const id = requireId(numberId, "number id");
+  const data = await apiRequest(`/api/numbers/${id}/cancel`, {
     method: "POST",
     signal,
     operation: "cancel a number",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers: authHeaders(),
   });
   return data;
 }

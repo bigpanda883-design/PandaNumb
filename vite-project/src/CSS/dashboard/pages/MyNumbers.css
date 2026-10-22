@@ -57,6 +57,31 @@
   gap: 16px;
 }
 
+/* Empty / error / no-results panel inside the numbers list. */
+.numbers-cards-flex .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 40px 24px;
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 20px;
+  text-align: center;
+  color: #64748b;
+}
+
+.numbers-cards-flex .empty-state strong {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.numbers-cards-flex .empty-state span {
+  font-size: 14px;
+}
+
 .number-item-card {
   width: 100%;
   min-width: 0;

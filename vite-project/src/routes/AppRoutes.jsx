@@ -38,7 +38,13 @@ function AppRoutes() {
             <Route path="/deposit" element={<Deposit />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/help-center" element={<HelpCenter />} />
-            <Route path="/active-sms" element={<ActiveSMS />} />
+            {/* Renamed from "Active SMS" to "Active Logs". The old path keeps
+                working via a redirect so existing links never hit a 404. */}
+            <Route path="/active-logs" element={<ActiveSMS />} />
+            <Route
+              path="/active-sms"
+              element={<Navigate to="/active-logs" replace />}
+            />
             <Route path="/security" element={<Security />} />
           </Route>
         </Route>

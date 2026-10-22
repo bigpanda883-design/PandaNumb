@@ -1,190 +1,396 @@
 /**
- * Panda Numbers - ACC Numbers price catalogue
- * ===========================================
- * Source of truth for the Buy Number catalogue (which services exist, their
- * cost and their stock per country).
- *
- * REAL RESPONSE SHAPE (fetched and inspected, not guessed).
- *
- * There are FOUR levels, not three:
- *
- *   countrySlug -> serviceId -> VARIANT -> { cost, count, rate... }
- *
- *   {
- *     "usa": {
- *       "whatsapp": {
- *         "virtual28": { "cost": 3938, "count": 21504, "rate": 53.19 },
- *         "virtual51": { "cost": 1838, "count": 0 },
- *         "virtual8":  { "cost": 1741, "count": 8251, "rate": 1.75 }
- *       }
- *     },
- *     "nigeria": {
- *       "whatsapp": { "virtual2": {...}, "virtual34": {...,"count":1207607} }
- *     }
- *   }
- *
- * - The top level is keyed by COUNTRY SLUG (155 of them).
- * - Level 2 keys are SERVICE IDs - real readable names ("whatsapp", "3fun").
- * - Level 3 keys are VARIANTS ("virtual28", "virtual51"). The variant id is
- *   per country for the same service: usa.whatsapp has virtual28/51/63/8,
- *   nigeria.whatsapp has virtual2/34. Of 155 countries, 152 expose more than
- *   one variant and NO country uses a single shared id. These ACC IDs are kept
- *   intact, but are not assumed to match another provider's service identifiers.
- *
- * Only { cost, count, rate* } appear inside a variant. Every one of the 54,452
- * service entries nests variants - there is no flat form to fall back to.
- *
- * Nothing here invents a service, a price or a stock figure. If the request
- * fails, callers get an error and are expected to show an error state - there is
- * deliberately no fallback catalogue.
+ * Panda Numbers - ACC Numbers Price Catalogue
  */
-import { useEffect, useState } from "react";
 
-// Must be a SAME-ORIGIN path, never the ACC host directly. The ACC endpoint
-// returns no Access-Control-Allow-Origin header, so a browser fetch straight to
-// it fails CORS before any of the handling below runs. /api/prices is served by
-// server/index.js, which does the cross-origin call server-side.
-const PRICES_URL = import.meta.env?.VITE_ACC_PRICES_URL || "/api/prices";
+import { useCallback, useEffect, useState } from "react";
+import { getApiBaseUrl } from "./httpClient.js";
 
-if (import.meta.env?.DEV && /^https?:/i.test(PRICES_URL)) {
-  console.warn(
-    `[accPrices] VITE_ACC_PRICES_URL points at ${PRICES_URL}. Unless that host ` +
-      "sends CORS headers, the browser will block it. Use /api/prices.",
-  );
+const PRICES_PATH = import.meta.env?.VITE_ACC_PRICES_URL || "/api/prices";
+
+function resolvePricesUrl() {
+  const path = PRICES_PATH.trim();
+
+  if (/^https?:\/\//i.test(path)) {
+    return path.replace(/\/+$/, "");
+  }
+
+  const base = (getApiBaseUrl() || "").replace(/\/+$/, "");
+  const normalizedPath = `/${path.replace(/^\/+/, "")}`;
+
+  return `${base}${normalizedPath}`;
 }
 
-// The catalogue is large (~1 MB) and changes slowly; cache it in memory for the
-// session so switching country/service does not refetch.
+const PRICES_URL = resolvePricesUrl();
+const PRICES_STATUS_URL = `${PRICES_URL}/status`;
+
+const FETCH_TIMEOUT_MS = 90 * 1000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
 let cache = null;
 
 /**
- * Fetch and normalize the catalogue.
- *
- * @returns {Promise<{
- *   countries: Record<string, {id:string, label:string, services: Record<string, {id:string, cost:number, count:number}>}>,
- *   serviceIds: string[]
- * }>}
+ * Check whether the backend is building the catalogue.
  */
-export async function fetchCatalogue({ signal, force = false } = {}) {
-  if (!force && cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
-    return cache.data;
+export async function fetchCatalogueStatus({ signal } = {}) {
+  try {
+    const response = await fetch(PRICES_STATUS_URL, {
+      signal,
+      headers: {
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[accPrices] Status endpoint returned HTTP ${response.status}`,
+      );
+      return null;
+    }
+
+    const status = await response.json();
+
+    if (!status || typeof status !== "object") {
+      return null;
+    }
+
+    return status;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw error;
+    }
+
+    console.warn(
+      "[accPrices] Could not check catalogue status:",
+      error?.message || error,
+    );
+
+    return null;
+  }
+}
+
+/**
+ * Check whether the URL points to another origin.
+ */
+function isCrossOrigin(url) {
+  try {
+    if (typeof window === "undefined") return false;
+
+    return (
+      new URL(url, window.location.origin).origin !== window.location.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
+const PRICES_IS_CROSS_ORIGIN = isCrossOrigin(PRICES_URL);
+
+if (import.meta.env?.DEV && PRICES_IS_CROSS_ORIGIN) {
+  console.warn(
+    `[accPrices] VITE_ACC_PRICES_URL points at ${PRICES_URL}. ` +
+      "Ensure the backend supports CORS. Prefer /api/prices.",
+  );
+}
+
+/**
+ * Return the cached catalogue if it is still fresh.
+ */
+export function getCachedCatalogue() {
+  if (!cache) return null;
+
+  const age = Date.now() - cache.fetchedAt;
+  const isFresh = age >= 0 && age < CACHE_TTL_MS;
+
+  if (isFresh) return cache.data;
+
+  cache = null;
+  return null;
+}
+
+/**
+ * Parse a valid number without treating missing values as zero.
+ */
+function toFiniteNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
   }
 
+  if (typeof value === "string" && /^\s*[+-]?\d+(?:\.\d+)?\s*$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+/**
+ * Extract the longest stated holding duration from rateNN keys.
+ */
+function toHoldHours(info) {
+  let hold = null;
+
+  for (const key of Object.keys(info)) {
+    const match = /^rate(\d+)$/.exec(key);
+
+    if (!match || Number(match[1]) <= 0) continue;
+
+    const hours = Number(match[1]);
+
+    if (hold === null || hours > hold) {
+      hold = hours;
+    }
+  }
+
+  return hold;
+}
+
+const ACRONYMS = new Set(["usa", "uk", "uae", "drc"]);
+const SMALL_WORDS = new Set(["and", "of", "the"]);
+
+/**
+ * Convert a country slug into a readable label.
+ * Example: south-africa -> South Africa.
+ */
+function labelFromSlug(slug) {
+  return slug
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part, index) => {
+      const lower = part.toLowerCase();
+
+      if (ACRONYMS.has(lower)) {
+        return lower.toUpperCase();
+      }
+
+      if (index > 0 && SMALL_WORDS.has(lower)) {
+        return lower;
+      }
+
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+/**
+ * Fetch and normalize the real ACC catalogue through our backend.
+ */
+async function fetchFresh(signal, force = false) {
   let response;
+
   try {
     response = await fetch(PRICES_URL, {
       signal,
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+      },
+      cache: force ? "reload" : "default",
     });
   } catch (error) {
-    // Aborting is a normal teardown, not a failure - re-throw so the hook's
-    // AbortError check keeps working rather than reporting it as a real error.
-    if (error?.name === "AbortError") throw error;
-    throw new Error(
-      "Could not reach the price catalogue. Check your connection and try again.",
+    if (error?.name === "AbortError") {
+      throw error;
+    }
+
+    const networkError = new Error(
+      PRICES_IS_CROSS_ORIGIN
+        ? "Could not reach the price catalogue. Check your connection and ensure the request goes through the backend API. Direct provider requests may be blocked by CORS."
+        : "Could not reach the price catalogue. Check your connection and try again.",
       { cause: error },
     );
+
+    networkError.retryable = true;
+    throw networkError;
   }
 
-  // A 429 or 5xx is the catalogue's own problem and is usually temporary, so it
-  // is worth a retry; a 4xx means the request itself is wrong and is not.
   if (!response.ok) {
-    const retryable = response.status === 429 || response.status >= 500;
-    const error = new Error(
-      response.status === 429
-        ? "The price catalogue is rate-limiting requests. Please try again in a moment."
-        : `Price catalogue request failed (${response.status}).`,
-    );
+    const retryable =
+      response.status === 404 ||
+      response.status === 429 ||
+      response.status >= 500;
+
+    let message;
+
+    if (response.status === 404) {
+      message =
+        "The price catalogue endpoint was not found (404). Check the backend API URL and route.";
+    } else if (response.status === 429) {
+      message =
+        "The price catalogue is rate-limiting requests. Please try again shortly.";
+    } else {
+      message = `Price catalogue request failed (${response.status}).`;
+    }
+
+    const error = new Error(message);
     error.status = response.status;
     error.retryable = retryable;
+
     throw error;
   }
 
   let raw;
+
   try {
     raw = await response.json();
-  } catch {
-    // A 200 carrying HTML (captive portal, proxy error page) lands here. Saying
-    // "unexpected shape" would describe a parsed value that never existed.
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw error;
+    }
+
     throw new Error(
       "The price catalogue returned a response that is not valid JSON.",
+      { cause: error },
     );
   }
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(
-      `The price catalogue returned an unexpected shape (expected an object of countries, got ${
+      `The price catalogue returned an unexpected shape. Expected an object, received ${
         Array.isArray(raw) ? "an array" : typeof raw
-      }).`,
+      }.`,
     );
   }
 
-  // Normalize country -> service -> variant into a flat list while preserving
-  // the original ACC identifiers for matching and diagnostics.
-  const countries = {};
+  const countries = Object.create(null);
   const serviceIds = new Set();
 
   for (const [countrySlug, services] of Object.entries(raw)) {
-    if (!services || typeof services !== "object") continue;
+    if (!services || typeof services !== "object" || Array.isArray(services)) {
+      continue;
+    }
 
-    const normalizedServices = {};
+    const normalizedServices = Object.create(null);
 
     for (const [serviceId, variants] of Object.entries(services)) {
-      if (!variants || typeof variants !== "object") continue;
+      if (
+        !variants ||
+        typeof variants !== "object" ||
+        Array.isArray(variants)
+      ) {
+        continue;
+      }
 
       for (const [variantId, info] of Object.entries(variants)) {
-        // A variant holding anything other than an object cannot carry a cost
-        // and a stock count, so it is not a buyable entry.
-        if (!info || typeof info !== "object") continue;
+        if (!info || typeof info !== "object" || Array.isArray(info)) {
+          continue;
+        }
 
-        const cost = Number(info.cost);
-        const count = Number(info.count);
+        const cost = toFiniteNumber(info.cost);
+        const count = toFiniteNumber(info.count);
 
-        // An unusable variant is DROPPED rather than defaulted. Reporting a
-        // missing count as 0 would hide a real number as "unavailable", and
-        // reporting a missing cost as 0 would offer it as free.
-        if (!Number.isFinite(cost) || !Number.isFinite(count)) continue;
+        // Never invent a price or stock figure.
+        if (cost === null || cost <= 0) continue;
+        if (count === null || count < 0) continue;
 
+        const holdHours = toHoldHours(info);
         const id = `${serviceId}_${variantId}`;
+
         normalizedServices[id] = {
           id,
-          // The bare service name, for display and for grouping.
           serviceId,
           variantId,
           cost,
           count,
+          holdHours,
         };
+
         serviceIds.add(id);
       }
     }
 
     countries[countrySlug] = {
       id: countrySlug,
+      label: labelFromSlug(countrySlug),
       services: normalizedServices,
     };
   }
 
+  if (serviceIds.size === 0) {
+    const error = new Error(
+      "The price catalogue did not contain any usable entries. Please try again.",
+    );
+
+    error.retryable = true;
+    throw error;
+  }
+
+  const fetchedAt = Date.now();
+
   const data = {
     countries,
     serviceIds: [...serviceIds].sort(),
-    fetchedAt: Date.now(),
+    fetchedAt,
   };
 
-  cache = { data, fetchedAt: Date.now() };
+  cache = {
+    data,
+    fetchedAt,
+  };
+
   return data;
 }
 
-/** Look up one service within one country. */
+/**
+ * Fetch the catalogue with timeout and cache support.
+ */
+export async function fetchCatalogue({ signal, force = false } = {}) {
+  if (!force) {
+    const cached = getCachedCatalogue();
+
+    if (cached) return cached;
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, FETCH_TIMEOUT_MS);
+
+  const onCallerAbort = () => controller.abort();
+
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener("abort", onCallerAbort, {
+        once: true,
+      });
+    }
+  }
+
+  try {
+    return await fetchFresh(controller.signal, force);
+  } catch (error) {
+    if (error?.name === "AbortError" && timedOut) {
+      const timeoutError = new Error(
+        "The price catalogue took too long to respond. Please try again.",
+      );
+
+      timeoutError.retryable = true;
+      throw timeoutError;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onCallerAbort);
+  }
+}
+
+/**
+ * Get one service entry for a specific country.
+ */
 export function getServiceForCountry(catalogue, countrySlug, serviceId) {
-  if (!catalogue || !countrySlug || !serviceId) return null;
+  if (!catalogue || !countrySlug || !serviceId) {
+    return null;
+  }
+
   return catalogue.countries?.[countrySlug]?.services?.[serviceId] ?? null;
 }
 
 /**
- * All services available in a country, as display-ready entries.
- *
- * `stocked` filters to entries the provider actually has in stock.
+ * Get all services for a country.
  */
 export function getCountryServices(
   catalogue,
@@ -192,50 +398,134 @@ export function getCountryServices(
   { stocked = false } = {},
 ) {
   const country = catalogue?.countries?.[countrySlug];
+
   if (!country) return [];
 
   const entries = Object.values(country.services);
-  return stocked ? entries.filter((s) => s.count > 0) : entries;
+
+  return stocked ? entries.filter((service) => service.count > 0) : entries;
 }
 
-/** Clear the in-memory cache (used by "Try again"). */
+/**
+ * Get available offers for one service in one country,
+ * sorted by lowest real price.
+ */
+export function getServiceOffers(
+  catalogue,
+  countrySlug,
+  serviceId,
+  { limit = 2 } = {},
+) {
+  const services = catalogue?.countries?.[countrySlug]?.services;
+
+  if (!services || !serviceId) return [];
+
+  const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 2;
+
+  return Object.values(services)
+    .filter((entry) => entry.serviceId === serviceId && entry.count > 0)
+    .sort((left, right) => left.cost - right.cost || right.count - left.count)
+    .slice(0, safeLimit)
+    .map((entry, index) => ({
+      id: entry.id,
+      label: index === 0 ? "Lowest price" : "Next tier",
+      cost: entry.cost,
+      count: entry.count,
+      variantId: entry.variantId,
+      holdHours: entry.holdHours,
+    }));
+}
+
+/**
+ * Clear the in-memory catalogue cache.
+ */
 export function clearCatalogueCache() {
   cache = null;
 }
 
-/** React hook: load the catalogue with loading/error/retry state. */
+/**
+ * React hook for catalogue loading, errors, warming-up status,
+ * and retry functionality.
+ */
 export function useCatalogue() {
-  const [catalogue, setCatalogue] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [catalogue, setCatalogue] = useState(getCachedCatalogue);
+
+  const [isLoading, setIsLoading] = useState(() => !getCachedCatalogue());
+
   const [error, setError] = useState(null);
+  const [isWarmingUp, setIsWarmingUp] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    fetchCatalogue({ signal: controller.signal, force: reloadToken > 0 })
+    let pollTimer = null;
+    let cancelled = false;
+
+    async function pollStatus() {
+      if (cancelled) return;
+
+      const status = await fetchCatalogueStatus({
+        signal: controller.signal,
+      }).catch(() => null);
+
+      if (cancelled) return;
+
+      if (status?.loading && !status?.ready) {
+        setIsWarmingUp(true);
+        pollTimer = setTimeout(pollStatus, 2000);
+      } else {
+        setIsWarmingUp(false);
+      }
+    }
+
+    pollStatus();
+
+    fetchCatalogue({
+      signal: controller.signal,
+      force: reloadToken > 0,
+    })
       .then((data) => {
         if (controller.signal.aborted) return;
+
         setCatalogue(data);
+        setError(null);
         setIsLoading(false);
+        setIsWarmingUp(false);
       })
       .catch((err) => {
-        if (controller.signal.aborted || err?.name === "AbortError") return;
+        if (controller.signal.aborted || err?.name === "AbortError") {
+          return;
+        }
+
         setError(err);
         setIsLoading(false);
+        setIsWarmingUp(false);
       });
 
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+      }
+
+      controller.abort();
+    };
   }, [reloadToken]);
 
-  // Retry resets the visible state BEFORE bumping the token. `isLoading` starts
-  // as true, so the first load needs no reset - only a retry does.
-  const retry = () => {
+  const retry = useCallback(() => {
     clearCatalogueCache();
     setIsLoading(true);
     setError(null);
     setReloadToken((n) => n + 1);
-  };
+  }, []);
 
-  return { catalogue, isLoading, error, retry };
+  return {
+    catalogue,
+    isLoading,
+    error,
+    isWarmingUp,
+    retry,
+  };
 }

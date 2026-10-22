@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FiChevronLeft,
   FiChevronRight,
@@ -14,6 +14,7 @@ import { pushNotification } from "../notifications/notificationStore";
 import { useVerificationCode } from "../hooks/useVerificationCode";
 import { fetchMyNumbers } from "../services/numbersApi";
 import {
+  addActivation,
   getActivations,
   recordCode,
   updateActivationStatus,
@@ -38,6 +39,33 @@ function MyNumbers() {
   const [numbersList, setNumbersList] = useState(getActivations);
   const [listError, setListError] = useState(null);
 
+  // Normalise a stored/server record to one shape for the list and the detail
+  // view.
+  //
+  // The activation store keeps `phone`/`country` (what the provider call used),
+  // while GET /api/numbers returns `number`/`countryCode`/`countryName`. Reading
+  // the wrong field made the list render "undefined" for a locally-stored
+  // purchase, so both names are accepted and mapped here.
+  const numbers = useMemo(
+    () =>
+      numbersList.map((item) => ({
+        ...item,
+        id: item.id ?? item.activationId,
+        number: item.number ?? item.phone,
+        countryCode: String(item.countryCode || item.country || ""),
+        countryName: item.countryName || item.country || "",
+        price:
+          typeof item.price === "number"
+            ? new Intl.NumberFormat("en-NG", {
+                style: "currency",
+                currency: "NGN",
+                minimumFractionDigits: 2,
+              }).format(item.price)
+            : item.price,
+      })),
+    [numbersList],
+  );
+
   // Hydrate from the backend so a user's numbers survive a new device/session.
   // The local activation store stays the immediate source for the UI; the server
   // list is the durable one and is merged in on load.
@@ -48,24 +76,37 @@ function MyNumbers() {
         if (controller.signal.aborted) return;
         if (!Array.isArray(serverNumbers)) return;
         const local = getActivations();
-        const known = new Set(local.map((a) => a.activationId));
+        const known = new Set(local.map((a) => a.activationId).filter(Boolean));
         const missing = serverNumbers
           .filter((n) => n?.id && !known.has(n.id))
           .map((n) => ({
+            // Keep the same shape the store writes, so the list renders a
+            // server-hydrated number exactly like a locally-bought one.
+            id: n.id,
             activationId: n.id,
             phone: n.number,
+            number: n.number,
             service: n.service,
             country: n.countryName,
+            countryCode: n.countryCode,
+            countryName: n.countryName,
             price: n.priceValue,
+            orderId: n.orderId,
             status: n.status,
             code: n.code || null,
+            codeReceived: Boolean(n.code),
             receivedAt: n.receivedAt || null,
             dateStr: n.dateStr,
             createdAt: n.createdAt
               ? new Date(n.createdAt).getTime()
               : Date.now(),
           }));
-        if (missing.length > 0) setNumbersList([...missing, ...local]);
+        if (missing.length > 0) {
+          // Persist the merge so a reload does not have to refetch (and so the
+          // number survives if the network drops afterwards).
+          missing.forEach((entry) => addActivation(entry));
+          setNumbersList([...missing, ...local]);
+        }
       })
       .catch((error) => {
         if (controller.signal.aborted || error?.name === "AbortError") return;
@@ -83,10 +124,21 @@ function MyNumbers() {
   // When opening a specific number card
   const handleSelectNumber = (item) => {
     setSelectedNumber(item);
-    if (item.codeReceived) {
+    // A record carries its code in `code` (and the time in `receivedAt`); the
+    // old field names never existed, so a stored code never opened.
+    if (item.code) {
       setVerificationCode({
-        code: item.verificationCode,
-        receivedTime: item.codeReceivedTime,
+        code: item.code,
+        receivedTime: item.receivedAt
+          ? new Date(item.receivedAt).toLocaleString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })
+          : "",
       });
     } else {
       setVerificationCode(null);
@@ -244,7 +296,7 @@ function MyNumbers() {
                   <strong>Could not load your numbers</strong>
                   <span>{listError.message}</span>
                 </div>
-              ) : numbersList.length === 0 ? (
+              ) : numbers.length === 0 ? (
                 <div className="empty-state">
                   <strong>No numbers yet</strong>
                   <span>
@@ -253,43 +305,43 @@ function MyNumbers() {
                   </span>
                 </div>
               ) : (
-                numbersList.map((item) => (
+                numbers.map((item) => (
                   <div
-                  key={item.id}
-                  className="number-item-card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleSelectNumber(item)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleSelectNumber(item);
-                    }
-                  }}
-                >
-                  <div className="item-card-left">
-                    <div className="country-circle-badge">
-                      {item.countryCode.toUpperCase()}
-                    </div>
-                    <div className="item-info">
-                      <div className="phone-number-title">{item.number}</div>
-                      <div className="phone-details-sub">
-                        {item.countryName} · {item.service} · {item.dateStr}
+                    key={item.id}
+                    className="number-item-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectNumber(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleSelectNumber(item);
+                      }
+                    }}
+                  >
+                    <div className="item-card-left">
+                      <div className="country-circle-badge">
+                        {String(item.countryCode || "").toUpperCase()}
                       </div>
-                      <div className="status-tag-row">
-                        <span className="badge-code-received-light">
-                          CODE RECEIVED
-                        </span>
+                      <div className="item-info">
+                        <div className="phone-number-title">{item.number}</div>
+                        <div className="phone-details-sub">
+                          {item.countryName} · {item.service} · {item.dateStr}
+                        </div>
+                        <div className="status-tag-row">
+                          <span className="badge-code-received-light">
+                            CODE RECEIVED
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="item-card-right">
-                    <div className="item-price">{item.price}</div>
-                    <div className="status-pill-completed">{item.status}</div>
-                    <FiChevronRight className="chevron-icon" />
+                    <div className="item-card-right">
+                      <div className="item-price">{item.price}</div>
+                      <div className="status-pill-completed">{item.status}</div>
+                      <FiChevronRight className="chevron-icon" />
+                    </div>
                   </div>
-                </div>
                 ))
               )}
             </div>
