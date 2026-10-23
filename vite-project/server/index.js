@@ -8,22 +8,34 @@ import {
   appendUserTransaction,
   createUser,
   createPasswordResetCode,
+  createPasswordResetToken,
   createSession,
   deleteAllSessionsForUser,
   deleteSessionByToken,
   getLatestPasswordResetCode,
+  getPasswordResetTokenByHash,
   getSessionFromToken,
   getUserByEmail,
   getUserById,
   getUserByPhone,
+  hashToken,
   incrementPasswordResetAttempts,
+  invalidatePasswordResetCodesForUser,
+  invalidatePasswordResetTokensForUser,
+  markPasswordResetCodeVerified,
+  markPasswordResetTokenUsed,
   markPasswordResetUsed,
   safeUser,
   updateUserNumber,
   updateUserPassword,
   updateUserWalletBalance,
 } from "./db.js";
-import { sendPasswordResetEmail } from "./emailService.js";
+import {
+  RESET_CODE_TTL_MINUTES,
+  isEmailConfigured,
+  sendLoginNotificationEmail,
+  sendPasswordResetEmail,
+} from "./emailService.js";
 import {
   getYankeeBalance,
   getYankeeNumbersStatus,
@@ -49,6 +61,9 @@ const PRICES_URL =
 
 const loginRateMap = new Map();
 const resetRateMap = new Map();
+// Codes are short (six digits), so guessing must be throttled separately from
+// requesting them. Keyed by "verify:<ip>:<email>".
+const resetCodeVerifyRateMap = new Map();
 
 app.use(
   cors({
@@ -136,6 +151,9 @@ app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
     providerConfigured: Boolean(API_KEY),
+    // Whether login/reset emails can be sent. Reports only the boolean - never
+    // the host, user or password.
+    emailConfigured: isEmailConfigured(),
     pricing,
   });
 });
@@ -287,6 +305,21 @@ app.post("/api/auth/login", async (req, res) => {
   const token = generateToken();
   createSession({ userId: user.id, token });
 
+  // Credentials are verified and the session exists - only now is the
+  // notification sent. Every failure path above returns before this line, so a
+  // wrong password or unknown email can never trigger a "successful login"
+  // email. Delivery is NOT awaited: a slow or unreachable mailbox must not delay
+  // the sign-in, and its failure must never turn a successful login into an
+  // error (see sendLoginNotificationEmail, which never throws).
+  sendLoginNotificationEmail({ email: user.email, name: user.name }).catch(
+    (error) => {
+      console.error(
+        "[auth] login notification error:",
+        error?.message || error,
+      );
+    },
+  );
+
   return res.json({
     user: safeUser(user),
     token,
@@ -436,11 +469,12 @@ async function quotePurchasePrice({ countrySlug, serviceId, variantId }) {
 
   if (!payload) {
     return {
-      error: fail(
-        503,
-        "PRICES_UNAVAILABLE",
-        "Prices are temporarily unavailable. Please try again in a moment.",
-      ),
+      error: {
+        status: 503,
+        code: "PRICES_UNAVAILABLE",
+        message:
+          "Prices are temporarily unavailable. Please try again in a moment.",
+      },
     };
   }
 
@@ -452,22 +486,24 @@ async function quotePurchasePrice({ countrySlug, serviceId, variantId }) {
   );
   if (!variant) {
     return {
-      error: fail(
-        409,
-        "OFFER_UNAVAILABLE",
-        "That offer is no longer available. Please go back and choose again.",
-      ),
+      error: {
+        status: 409,
+        code: "OFFER_UNAVAILABLE",
+        message:
+          "That offer is no longer available. Please go back and choose again.",
+      },
     };
   }
 
   const price = getSellingPrice(variant.cost);
   if (price === null) {
     return {
-      error: fail(
-        409,
-        "OFFER_UNAVAILABLE",
-        "That offer has no usable price right now. Please choose another.",
-      ),
+      error: {
+        status: 409,
+        code: "OFFER_UNAVAILABLE",
+        message:
+          "That offer has no usable price right now. Please choose another.",
+      },
     };
   }
 
@@ -641,7 +677,14 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
     serviceId,
     variantId,
   });
-  if (quote.error) return quote.error;
+  if (quote.error) {
+    return fail(
+      res,
+      quote.error.status,
+      quote.error.code,
+      quote.error.message,
+    );
+  }
   const chargePrice = quote.price;
 
   // The body's price is display-only, but a page still showing a different
@@ -1009,31 +1052,55 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
   const user = getUserByEmail(email);
 
-  if (!user) {
-    return res.json({
+  // Same answer whether or not the address is registered. Returning "no such
+  // account" would let anyone test which emails have a Panda Number account.
+  const genericResponse = () =>
+    res.json({
       message:
         "If an account exists for this email, a verification code has been sent.",
     });
-  }
 
-  const code = String(crypto.randomInt(100000, 999999));
+  if (!user) return genericResponse();
+
+  // Six digits from the CSPRNG. crypto.randomInt is uniform, unlike
+  // Math.random()-based codes, and the value is never logged or returned.
+  const code = String(crypto.randomInt(100000, 1000000));
   const codeHash = await bcrypt.hash(code, 12);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
+  const expiresAt = new Date(
+    Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000,
+  ).toISOString();
   createPasswordResetCode({ userId: user.id, codeHash, expiresAt });
 
+  // The email is the only place the code appears. If delivery fails the user is
+  // told the generic message and can request a new code; the failure is logged
+  // server-side only, so an SMTP outage cannot confirm which emails exist.
   await sendPasswordResetEmail(email, code);
 
-  return res.json({
-    message:
-      "If an account exists for this email, a verification code has been sent.",
-  });
+  return genericResponse();
 });
 
+/**
+ * Step C - check the six-digit code.
+ *
+ * On success a SHORT-LIVED SINGLE-USE TOKEN is issued. The code itself is then
+ * spent: knowing six digits must not be permanent permission to set a new
+ * password, and the token can be invalidated the moment it is used.
+ */
 app.post("/api/auth/verify-reset-code", async (req, res) => {
   const email = String(req.body.email || "")
     .trim()
     .toLowerCase();
   const code = String(req.body.code || "").trim();
+  const key = `verify:${rateLimitKey(req.ip, email)}`;
+
+  if (applyRateLimit(resetCodeVerifyRateMap, key, 10, 60_000)) {
+    return fail(
+      res,
+      429,
+      "TOO_MANY_ATTEMPTS",
+      "Too many code attempts. Please wait a minute and try again.",
+    );
+  }
 
   if (!validateEmail(email)) {
     return fail(
@@ -1053,37 +1120,48 @@ app.post("/api/auth/verify-reset-code", async (req, res) => {
     );
   }
 
-  const user = getUserByEmail(email);
-  if (!user) {
-    return fail(
-      res,
-      404,
-      "ACCOUNT_NOT_FOUND",
-      "No account was found for this email.",
-    );
-  }
-
-  const resetRecord = getLatestPasswordResetCode(user.id);
-  if (!resetRecord) {
-    return fail(
+  // Deliberately the same message for "unknown email" and "no code": the
+  // caller already knows the address they typed, and a different answer would
+  // reveal whether it is registered.
+  const invalidCode = () =>
+    fail(
       res,
       400,
       "INVALID_CODE",
-      "No reset code was found for this account.",
+      "The verification code is incorrect or has expired.",
     );
-  }
+
+  const user = getUserByEmail(email);
+  if (!user) return invalidCode();
+
+  const resetRecord = getLatestPasswordResetCode(user.id);
+  if (!resetRecord) return invalidCode();
 
   if (resetRecord.used_at) {
     return fail(
       res,
       400,
       "CODE_ALREADY_USED",
-      "This reset code has already been used.",
+      "This reset code has already been used. Request a new one.",
+    );
+  }
+
+  if (resetRecord.verified_at) {
+    return fail(
+      res,
+      400,
+      "CODE_ALREADY_USED",
+      "This reset code has already been verified. Request a new one.",
     );
   }
 
   if (new Date(resetRecord.expires_at).getTime() < Date.now()) {
-    return fail(res, 400, "CODE_EXPIRED", "This reset code has expired.");
+    return fail(
+      res,
+      400,
+      "CODE_EXPIRED",
+      "This reset code has expired. Please request a new one.",
+    );
   }
 
   if (Number(resetRecord.attempts || 0) >= 5) {
@@ -1091,7 +1169,7 @@ app.post("/api/auth/verify-reset-code", async (req, res) => {
       res,
       400,
       "CODE_LOCKED",
-      "Too many failed reset attempts. Request a new code.",
+      "Too many failed attempts. Please request a new code.",
     );
   }
 
@@ -1102,47 +1180,119 @@ app.post("/api/auth/verify-reset-code", async (req, res) => {
       res,
       400,
       "INVALID_CODE",
-      "The verification code is incorrect.",
+      "The verification code is incorrect or has expired.",
     );
   }
 
+  // 15 minutes is enough to type a new password, and short enough that a leaked
+  // token is of little use.
+  const resetToken = generateToken();
+  const tokenRecord = createPasswordResetToken({
+    userId: user.id,
+    tokenHash: hashToken(resetToken),
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  });
+  markPasswordResetCodeVerified(resetRecord.id, tokenRecord.id);
+
   return res.json({
     valid: true,
+    // Handed to the browser ONCE, and only after a correct code. It is stored
+    // hashed, so the value in the database cannot be used to reset anything.
+    resetToken,
     message: "Reset code verified successfully.",
   });
 });
 
+/**
+ * Steps D + E - set the new password.
+ *
+ * Authentication here is the reset TOKEN, never the six-digit code: the code
+ * was already exchanged for the token in verify-reset-code.
+ *
+ * Accepts either:
+ *   { resetToken, newPassword }
+ *   { email, code, newPassword }   (verified server-side in one step)
+ * The second form exists so a client that skipped the explicit verify step
+ * still cannot change a password with only a code - the code is checked here,
+ * spent, and exchanged for the same one-time path.
+ */
 app.post("/api/auth/reset-password", async (req, res) => {
+  const resetToken = String(req.body.resetToken || "").trim();
   const email = String(req.body.email || "")
     .trim()
     .toLowerCase();
   const code = String(req.body.code || "").trim();
   const newPassword = String(req.body.newPassword || "");
 
-  if (!validateEmail(email)) {
-    return fail(
-      res,
-      400,
-      "INVALID_EMAIL",
-      "Please enter a valid email address.",
-    );
-  }
-
-  if (!/^\d{6}$/.test(code)) {
-    return fail(
-      res,
-      400,
-      "INVALID_CODE",
-      "Reset code must be a 6-digit number.",
-    );
-  }
-
   if (!validatePassword(newPassword)) {
     return fail(
       res,
       400,
       "WEAK_PASSWORD",
-      "New password must contain uppercase, lowercase, number and special character.",
+      "Password must contain uppercase, lowercase, number and special character.",
+    );
+  }
+
+  if (!resetToken && (!email || !code)) {
+    return fail(
+      res,
+      400,
+      "INVALID_REQUEST",
+      "A verification session is required. Please verify your code again.",
+    );
+  }
+
+  // ---- Path 1: the token from verify-reset-code -------------------------
+  if (resetToken) {
+    const record = getPasswordResetTokenByHash(hashToken(resetToken));
+
+    if (!record) {
+      return fail(
+        res,
+        400,
+        "INVALID_TOKEN",
+        "This reset link is not valid. Please start again.",
+      );
+    }
+
+    if (record.used_at) {
+      return fail(
+        res,
+        400,
+        "TOKEN_ALREADY_USED",
+        "This reset session has already been used. Please start again.",
+      );
+    }
+
+    if (new Date(record.expires_at).getTime() < Date.now()) {
+      return fail(
+        res,
+        400,
+        "TOKEN_EXPIRED",
+        "This reset session has expired. Please request a new code.",
+      );
+    }
+
+    const user = getUserById(record.user_id);
+    if (!user) {
+      return fail(
+        res,
+        400,
+        "INVALID_TOKEN",
+        "This reset link is not valid. Please start again.",
+      );
+    }
+
+    return applyNewPassword(res, user, newPassword, record.id);
+  }
+
+  // ---- Path 2: email + code, verified here ------------------------------
+  if (!validateEmail(email) || !/^\d{6}$/.test(code)) {
+    return fail(
+      res,
+      400,
+      "INVALID_CODE",
+      "The verification code is incorrect or has expired.",
     );
   }
 
@@ -1150,33 +1300,48 @@ app.post("/api/auth/reset-password", async (req, res) => {
   if (!user) {
     return fail(
       res,
-      404,
-      "ACCOUNT_NOT_FOUND",
-      "No account was found for this email.",
+      400,
+      "INVALID_CODE",
+      "The verification code is incorrect or has expired.",
     );
   }
 
   const resetRecord = getLatestPasswordResetCode(user.id);
-  if (!resetRecord) {
+  if (!resetRecord || resetRecord.used_at) {
     return fail(
       res,
       400,
       "INVALID_CODE",
-      "No reset code was found for this account.",
-    );
-  }
-
-  if (resetRecord.used_at) {
-    return fail(
-      res,
-      400,
-      "CODE_ALREADY_USED",
-      "This reset code has already been used.",
+      "The verification code is incorrect or has expired.",
     );
   }
 
   if (new Date(resetRecord.expires_at).getTime() < Date.now()) {
-    return fail(res, 400, "CODE_EXPIRED", "This reset code has expired.");
+    return fail(
+      res,
+      400,
+      "CODE_EXPIRED",
+      "This reset code has expired. Please request a new one.",
+    );
+  }
+
+  if (Number(resetRecord.attempts || 0) >= 5) {
+    return fail(
+      res,
+      400,
+      "CODE_LOCKED",
+      "Too many failed attempts. Please request a new code.",
+    );
+  }
+
+  // A code already exchanged for a token may not be replayed here.
+  if (resetRecord.verified_at) {
+    return fail(
+      res,
+      400,
+      "CODE_ALREADY_USED",
+      "This reset code has already been used. Request a new one.",
+    );
   }
 
   const isValid = await bcrypt.compare(code, resetRecord.code_hash);
@@ -1186,13 +1351,38 @@ app.post("/api/auth/reset-password", async (req, res) => {
       res,
       400,
       "INVALID_CODE",
-      "The verification code is incorrect.",
+      "The verification code is incorrect or has expired.",
     );
   }
 
+  return applyNewPassword(res, user, newPassword, null, resetRecord.id);
+});
+
+/**
+ * Save the new password and close every other way into the account.
+ *
+ * The token/code is marked used BEFORE the password is written, so a failure
+ * part-way through cannot leave a reusable reset path behind.
+ */
+async function applyNewPassword(
+  res,
+  user,
+  newPassword,
+  resetTokenId = null,
+  resetCodeId = null,
+) {
+  if (resetTokenId) markPasswordResetTokenUsed(resetTokenId);
+  if (resetCodeId) markPasswordResetUsed(resetCodeId);
+
   const passwordHash = await bcrypt.hash(newPassword, 12);
   updateUserPassword(user.id, passwordHash);
-  markPasswordResetUsed(resetRecord.id);
+
+  // No older code or token may survive a completed reset, and every existing
+  // session is dropped so anyone already signed in must use the new password.
+  // The token just used is kept (marked used) so a replay gets TOKEN_ALREADY_USED
+  // rather than looking like a token that never existed.
+  invalidatePasswordResetCodesForUser(user.id);
+  invalidatePasswordResetTokensForUser(user.id, resetTokenId);
   deleteAllSessionsForUser(user.id);
 
   const token = generateToken();
@@ -1204,7 +1394,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
     token,
     message: "Password reset was successful.",
   });
-});
+}
 
 // Proxy routes for the SMS provider and ACC catalogue.
 const ROUTES = {
@@ -1329,6 +1519,18 @@ app.get("/api/prices", async (req, res) => {
   // page shows exactly what the purchase route will charge. The cached payload
   // is never mutated, and this is applied on every response so a pricing-config
   // change takes effect without refetching the upstream catalogue.
+  //
+  // SIZE MATTERS HERE. The upstream catalogue is ~10.7 MB uncompressed (170k
+  // variants) and the Buy page could show nothing until all of it had arrived
+  // and been JSON-parsed on the phone. Two things shrink it without changing
+  // what the page can offer:
+  //   - the provider's `rate`/`rateNN` hold-time fields are not read by the
+  //     client catalogue (only `cost`, `count`, `price` and `variantId` are), so
+  //     they are not forwarded;
+  //   - variants with zero stock are dropped. The Buy page only asks whether a
+  //     service exists for a country, and purchasing re-quotes from the server's
+  //     cached copy, so an omitted out-of-stock variant cannot be bought by
+  //     accident - and it was 112k of the 170k entries.
   const withPrices = (payload) => {
     const pricing = getPricingConfig();
     const countries = Object.create(null);
@@ -1346,21 +1548,60 @@ app.get("/api/prices", async (req, res) => {
         }
         const pricedVariants = Object.create(null);
         for (const [variantId, info] of Object.entries(variants)) {
-          pricedVariants[variantId] =
-            info && typeof info === "object"
-              ? { ...info, price: getSellingPrice(info.cost, pricing) }
-              : info;
+          if (!info || typeof info !== "object") continue;
+          // No stock means nothing to offer; see the note above.
+          if (!(Number(info.count) > 0)) continue;
+          pricedVariants[variantId] = {
+            cost: info.cost,
+            count: info.count,
+            price: getSellingPrice(info.cost, pricing),
+          };
         }
-        pricedServices[serviceId] = pricedVariants;
+        // Drop services left with no purchasable variant. Keeping an empty
+        // object would still make the Buy page list a country for a service
+        // that cannot actually be bought there.
+        if (Object.keys(pricedVariants).length > 0) {
+          pricedServices[serviceId] = pricedVariants;
+        }
       }
-      countries[slug] = pricedServices;
+      if (Object.keys(pricedServices).length > 0) {
+        countries[slug] = pricedServices;
+      }
     }
 
     return countries;
   };
 
   if (isFresh) {
-    res.set("Cache-Control", "no-store");
+    // `private` keeps the priced copy out of any shared cache, `max-age` lets
+    // the browser reuse it for the same window the server considers it fresh,
+    // so coming back to the Buy page inside that window costs no download and
+    // no JSON.parse at all. A stale entry is served by the server below, so
+    // `must-revalidate` is left off deliberately.
+    res.set("Cache-Control", "private, max-age=600");
+    return res.json(withPrices(pricesCache.payload));
+  }
+
+  // STALE, BUT PRESENT. The previous version fell through to `await loadPrices()`
+  // here, so every request after the 10-minute window blocked on a full upstream
+  // refetch (~10s, and up to 180s when the upstream is slow). The browser's own
+  // timeout fired first and it aborted the request, which is why the Buy page sat
+  // on the loading skeleton forever.
+  //
+  // Serve the copy we already have immediately and refresh in the BACKGROUND.
+  // Prices and stock drift slowly, so a minutes-old catalogue is far better than
+  // a page that never loads; the response is stale only by our own TTL, not by
+  // the upstream's.
+  if (pricesCache.payload !== null) {
+    // Kick off the refresh without awaiting it. loadPrices() collapses
+    // concurrent callers, so this schedules at most one upstream fetch.
+    if (pricesCache.inflight === null) {
+      loadPrices().catch(() => {
+        // The stale copy stays in use; the error is already recorded in
+        // pricesCache.lastError and surfaced by /api/prices/status.
+      });
+    }
+    res.set("Cache-Control", "private, max-age=60");
     return res.json(withPrices(pricesCache.payload));
   }
 
@@ -1368,12 +1609,12 @@ app.get("/api/prices", async (req, res) => {
     // Collapse concurrent misses into ONE upstream request: several users (or
     // the same user reloading) must not each trigger a 100-second fetch.
     const payload = await loadPrices();
-    res.set("Cache-Control", "no-store");
+    res.set("Cache-Control", "private, max-age=600");
     return res.json(withPrices(payload));
   } catch (error) {
     // A stale copy beats no catalogue at all while the upstream is down.
     if (pricesCache.payload !== null) {
-      res.set("Cache-Control", "no-store");
+      res.set("Cache-Control", "private, max-age=60");
       return res.json(withPrices(pricesCache.payload));
     }
     const timedOut = error?.name === "AbortError";

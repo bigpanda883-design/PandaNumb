@@ -146,12 +146,85 @@ router.get(
 );
 
 // GET /api/sms/stock?country=US -> {"wa_0":"250344",...}
+//
+// CACHED for a few seconds. The provider answers this call in ~1.3 s every time
+// (its stock counts do not change that fast, and it rate-limits at 240 req/min),
+// and the Buy page asks for it on every country selection. Without a cache the
+// user stares at "Checking provider inventory..." for over a second even when
+// the same country was checked moments ago. A few seconds is short enough that
+// the number shown is still trustworthy and long enough to make repeat visits
+// instant. Concurrent callers share one upstream request (see below).
+//
+// Only SUCCESSFUL answers are cached: an error must never be replayed as a
+// stock reading, or a momentary provider failure would look like real data.
+const STOCK_CACHE_TTL_MS = 15_000;
+const STOCK_CACHE_MAX_ENTRIES = 200;
+const stockCache = new Map(); // country -> { text, expiresAt }
+
+function readStockCache(country) {
+  const entry = stockCache.get(country);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    stockCache.delete(country);
+    return null;
+  }
+  return entry.text;
+}
+
+function writeStockCache(country, text) {
+  // Bound the map: there are ~150 countries, but this keeps a hostile or buggy
+  // caller from growing it without limit.
+  if (stockCache.size >= STOCK_CACHE_MAX_ENTRIES) {
+    const oldest = stockCache.keys().next().value;
+    if (oldest !== undefined) stockCache.delete(oldest);
+  }
+  stockCache.set(country, {
+    text,
+    expiresAt: Date.now() + STOCK_CACHE_TTL_MS,
+  });
+}
+
+// One in-flight request per country, so ten buyers opening the same country at
+// once cost one provider call rather than ten.
+const stockInflight = new Map(); // country -> Promise<string>
+
 router.get(
   "/stock",
-  route((req) => {
+  route(async (req) => {
     const country = String(req.query.country || "").trim();
     if (!country) throw badRequest("country is required");
-    return callProvider("getNumbersStatus", { country });
+
+    const cached = readStockCache(country);
+    if (cached !== null) return cached;
+
+    let inflight = stockInflight.get(country);
+    if (!inflight) {
+      inflight = callProvider("getNumbersStatus", { country })
+        .then((text) => {
+          // A bare "ERROR" is what the provider sends for a country code it does
+          // not recognise (e.g. the catalogue slug "usa" instead of "US").
+          // Passing it on made the client report the whole SMTP-style
+          // "provider returned an unexpected response" error; surface it as the
+          // 400 the client already maps to WRONG_COUNTRY.
+          if (text === "ERROR") {
+            throw Object.assign(new Error("Unsupported country code."), {
+              status: 400,
+              code: "WRONG_COUNTRY",
+            });
+          }
+          // Never cache a provider error token as if it were stock.
+          if (text && !(text.startsWith("ERROR") || text.startsWith("NO_"))) {
+            writeStockCache(country, text);
+          }
+          return text;
+        })
+        .finally(() => {
+          stockInflight.delete(country);
+        });
+      stockInflight.set(country, inflight);
+    }
+
+    return inflight;
   }),
 );
 

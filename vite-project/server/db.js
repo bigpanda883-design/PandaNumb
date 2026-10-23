@@ -50,7 +50,47 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  -- Step F of the reset flow: after a code is verified, the user may change the
+  -- password once, using this token. Only a SHA-256 hash is stored, so reading
+  -- the database does not hand out working reset links. Optional columns are
+  -- added below for databases created before this table existed.
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
+
+/**
+ * Minimal forward-only migration.
+ *
+ * `CREATE TABLE IF NOT EXISTS` above does not add columns to a table that a
+ * previous deployment already created, so new columns are added here. Each
+ * check reads the live schema instead of keeping a version number, which keeps
+ * this safe to run on every start.
+ */
+function hasColumn(table, column) {
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((row) => row.name === column);
+}
+
+if (!hasColumn("password_reset_codes", "verified_at")) {
+  // Set when the six-digit code has been checked and accepted. A verified code
+  // can no longer be used on its own to change the password - see
+  // getVerifiedPasswordResetCode().
+  db.exec("ALTER TABLE password_reset_codes ADD COLUMN verified_at TEXT");
+}
+
+if (!hasColumn("password_reset_codes", "token_id")) {
+  db.exec("ALTER TABLE password_reset_codes ADD COLUMN token_id TEXT");
+}
 
 export function nowIso() {
   return new Date().toISOString();
@@ -367,3 +407,105 @@ export function getPasswordResetAttempts(codeId) {
 }
 
 export default db;
+
+/* ------------------------------------------------------------------ *
+ * Password reset: verified-code state and single-use reset tokens
+ * ------------------------------------------------------------------ */
+
+/**
+ * Mark a reset code as verified and attach the token issued for it.
+ *
+ * Once this is set the code itself is spent: a repeated attempt to verify it,
+ * or to reset with it, is refused. The short-lived token is the only proof that
+ * can change the password.
+ */
+export function markPasswordResetCodeVerified(codeId, tokenId) {
+  db.prepare(
+    `
+      UPDATE password_reset_codes
+      SET verified_at = ?, token_id = ?
+      WHERE id = ?
+    `,
+  ).run(nowIso(), tokenId, codeId);
+}
+
+/**
+ * The newest code for this user that was verified but not yet used, together
+ * with the token id it issued. Null when there is no such code.
+ *
+ * Expiry of the token itself is checked by the caller, which needs the token
+ * row anyway.
+ */
+export function getVerifiedPasswordResetCode(userId) {
+  const row = db
+    .prepare(
+      `
+        SELECT * FROM password_reset_codes
+        WHERE user_id = ? AND verified_at IS NOT NULL AND used_at IS NULL
+        ORDER BY verified_at DESC
+        LIMIT 1
+      `,
+    )
+    .get(userId);
+
+  return row || null;
+}
+
+/**
+ * Invalidate every reset code a user still has outstanding.
+ *
+ * Called when a password is changed (or a new code is issued for the same
+ * account would be too aggressive - new codes simply supersede older ones by
+ * being newer), so no older code can be replayed afterwards.
+ */
+export function invalidatePasswordResetCodesForUser(userId) {
+  db.prepare(
+    `
+      UPDATE password_reset_codes
+      SET used_at = ?
+      WHERE user_id = ? AND used_at IS NULL
+    `,
+  ).run(nowIso(), userId);
+}
+
+/** Delete every reset token a user holds, EXCEPT one that must survive.
+ *
+ * On a completed reset the used token row is deliberately kept: it is what
+ * lets a replay of the same token be recognised ("already used") instead of
+ * looking like a token that never existed. */
+export function invalidatePasswordResetTokensForUser(userId, keepTokenId = null) {
+  if (keepTokenId) {
+    db.prepare(
+      "DELETE FROM password_reset_tokens WHERE user_id = ? AND id <> ?",
+    ).run(userId, keepTokenId);
+    return;
+  }
+  db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(userId);
+}
+
+export function createPasswordResetToken({ userId, tokenHash, expiresAt }) {
+  const id = crypto.randomUUID();
+
+  db.prepare(
+    `
+      INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used_at, created_at)
+      VALUES (@id, @userId, @tokenHash, @expiresAt, NULL, @createdAt)
+    `,
+  ).run({ id, userId, tokenHash, expiresAt, createdAt: nowIso() });
+
+  return { id, expiresAt };
+}
+
+export function getPasswordResetTokenByHash(tokenHash) {
+  return (
+    db
+      .prepare("SELECT * FROM password_reset_tokens WHERE token_hash = ?")
+      .get(String(tokenHash || "")) || null
+  );
+}
+
+export function markPasswordResetTokenUsed(tokenId) {
+  db.prepare(
+    "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?",
+  ).run(nowIso(), tokenId);
+}

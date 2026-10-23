@@ -42,6 +42,13 @@ export async function fetchMyNumbers({ signal } = {}) {
 export async function purchaseNumber({
   serviceId,
   countryCode,
+  // The catalogue keys a country by its own slug (e.g. "usa"), which is not
+  // always the ISO-2 code sent to the provider ("US"). The server quotes from
+  // the catalogue, so it needs the slug to find the offer.
+  countrySlug,
+  // Which catalogue price tier the user picked (e.g. "virtual8"). Omitted means
+  // the server charges the cheapest in-stock variant.
+  variantId,
   serviceName,
   countryName,
   price,
@@ -58,6 +65,8 @@ export async function purchaseNumber({
     body: JSON.stringify({
       serviceId,
       countryCode,
+      countrySlug,
+      variantId,
       serviceName,
       countryName,
       price,
