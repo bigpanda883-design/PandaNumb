@@ -287,6 +287,14 @@ async function request(
       code = "SERVICE_UNAVAILABLE";
     }
 
+    // The provider answered "ERROR" to a country code it does not recognise.
+    // Without this, the 400 fell through to PROVIDER_HTTP_ERROR and the Buy page
+    // said "The verification provider sent a response that could not be read",
+    // which describes a parse failure rather than a bad country code.
+    if (response.status === 400 && code === "WRONG_COUNTRY") {
+      code = "PROVIDER_STOCK_ERROR";
+    }
+
     const message =
       response.status === 503
         ? ""

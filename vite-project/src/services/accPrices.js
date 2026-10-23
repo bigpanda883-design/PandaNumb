@@ -184,6 +184,10 @@ async function fetchFresh(signal, force = false) {
       headers: {
         Accept: "application/json",
       },
+      // NOT "reload". The 10 MB catalogue is served with a short max-age, so a
+      // normal request can be answered by the HTTP cache - a re-opening of the
+      // Buy page then costs no download and no JSON.parse. "reload" bypassed
+      // that cache on every mount, which is why the page was slow each time.
       cache: force ? "reload" : "default",
     });
   } catch (error) {

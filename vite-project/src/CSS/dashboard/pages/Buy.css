@@ -231,6 +231,62 @@
   transform: scale(0.98);
 }
 
+/* Placeholder cards shown while the catalogue is still loading. They reuse the
+   real card geometry so the grid does not jump when the data arrives. */
+.buy-flow-container .service-card-skeleton {
+  cursor: default;
+  pointer-events: none;
+  opacity: 1;
+  animation: none;
+}
+
+.buy-flow-container .service-card-skeleton:hover,
+.buy-flow-container .service-card-skeleton:active {
+  border-color: #f1f5f9;
+  transform: none;
+}
+
+.buy-flow-container .skeleton-block {
+  display: block;
+  background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 37%, #eef2f7 63%);
+  background-size: 400% 100%;
+  border-radius: 8px;
+  animation: skeletonShimmer 1.4s ease infinite;
+}
+
+.buy-flow-container .skeleton-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  margin-bottom: 16px;
+}
+
+.buy-flow-container .skeleton-line {
+  height: 12px;
+  width: 80%;
+  margin-bottom: 6px;
+}
+
+.buy-flow-container .skeleton-line.short {
+  width: 52%;
+  height: 10px;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buy-flow-container .skeleton-block {
+    animation: none;
+  }
+}
+
 .buy-flow-container .service-icon-wrapper {
   width: 38px;
   height: 38px;
@@ -552,6 +608,14 @@ button.country-card:disabled {
 .no-results {
   text-align: center;
   padding: 30px;
+  color: #64748b;
+}
+
+/* Explains that the service list is intentionally shortened and searchable. */
+.buy-flow-container .service-more-hint {
+  margin: 12px 2px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: #64748b;
 }
 

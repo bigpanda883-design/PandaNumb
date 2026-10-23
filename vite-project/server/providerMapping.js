@@ -1,10 +1,17 @@
+import { YANKEE_COUNTRY_MAP } from "./yankeeService.js";
+
 /**
  * Panda Numbers - provider service mapping
  * ========================================
  * The Buy catalogue is keyed by ACC Numbers service ids (e.g. "whatsapp",
  * "3fun"), but the number provider (Yankee Verify) issues numbers under its OWN
- * service codes (e.g. "wa", "tg"). This module is the single place that bridges
- * the two.
+ * service codes. This module is the single place that bridges the two.
+ *
+ * VERIFIED against the live provider via the getNumbersStatus payload
+ * (GET .../handler_api.php?action=getNumbersStatus&country=US), which keys
+ * services as "whatsapp_0", "telegram_0", etc. The provider therefore expects
+ * the service NAME ("whatsapp"), not a short code ("wa"). Using "wa" returns
+ * NO_NUMBERS even when stock exists, which looks exactly like "out of stock".
  *
  * IMPORTANT: a mapping is only used when it is unambiguous. When we do NOT know
  * the provider's code for a service we return null, and the caller MUST refuse
@@ -14,16 +21,16 @@
 
 /** Provider codes we are confident about (verified against the provider docs). */
 export const YANKEE_SERVICE_MAP = {
-  whatsapp: { displayName: "WhatsApp", yankeeService: "wa" },
-  telegram: { displayName: "Telegram", yankeeService: "tg" },
-  facebook: { displayName: "Facebook", yankeeService: "fb" },
-  instagram: { displayName: "Instagram", yankeeService: "ig" },
+  whatsapp: { displayName: "WhatsApp", yankeeService: "whatsapp" },
+  telegram: { displayName: "Telegram", yankeeService: "telegram" },
+  facebook: { displayName: "Facebook", yankeeService: "facebook" },
+  instagram: { displayName: "Instagram", yankeeService: "instagram" },
   // Common aliases the catalogue may use for the same brands.
-  wa: { displayName: "WhatsApp", yankeeService: "wa" },
-  tg: { displayName: "Telegram", yankeeService: "tg" },
-  fb: { displayName: "Facebook", yankeeService: "fb" },
-  ig: { displayName: "Instagram", yankeeService: "ig" },
-  messenger: { displayName: "Messenger", yankeeService: "fb" },
+  wa: { displayName: "WhatsApp", yankeeService: "whatsapp" },
+  tg: { displayName: "Telegram", yankeeService: "telegram" },
+  fb: { displayName: "Facebook", yankeeService: "facebook" },
+  ig: { displayName: "Instagram", yankeeService: "instagram" },
+  messenger: { displayName: "Messenger", yankeeService: "facebook" },
   google: { displayName: "Google", yankeeService: "go" },
   gmail: { displayName: "Gmail", yankeeService: "go" },
   twitter: { displayName: "X (Twitter)", yankeeService: "tw" },

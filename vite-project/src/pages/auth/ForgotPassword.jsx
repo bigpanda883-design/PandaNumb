@@ -30,6 +30,10 @@ function ForgotPassword() {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [step, setStep] = useState("email");
+  // Proof that the six-digit code was verified. Kept in memory only: it is not
+  // written to localStorage or sent in a URL, and a page reload asks the user to
+  // verify again rather than leaving a usable reset session lying around.
+  const [resetToken, setResetToken] = useState("");
   const [toast, setToast] = useState({
     show: false,
     message: "",
@@ -143,13 +147,24 @@ function ForgotPassword() {
 
     setIsSubmitting(true);
     try {
-      await requestJson("/api/auth/verify-reset-code", {
+      const payload = await requestJson("/api/auth/verify-reset-code", {
         method: "POST",
         body: {
           email: values.email.trim(),
           code: values.code.trim(),
         },
       });
+
+      // The six-digit code is exchanged for a short-lived, single-use token.
+      // Only the token can change the password, so the code is never re-sent at
+      // the reset step. It stays in memory for this flow only (not in
+      // localStorage), so closing the page ends the reset session.
+      if (!payload?.resetToken) {
+        throw new Error(
+          "The code was verified, but no reset session was issued. Please try again.",
+        );
+      }
+      setResetToken(payload.resetToken);
 
       setStep("reset");
       triggerToast("Code verified. Create your new password.", "success");
@@ -162,6 +177,14 @@ function ForgotPassword() {
 
   const handleResetPassword = async (event) => {
     event.preventDefault();
+
+    // Without a verified session there is nothing to authorise the change.
+    if (!resetToken) {
+      setStep("code");
+      triggerToast("Please verify your code again to continue.", "error");
+      return;
+    }
+
     const nextErrors = validateReset();
 
     if (Object.keys(nextErrors).length > 0) {
@@ -175,8 +198,7 @@ function ForgotPassword() {
       const payload = await requestJson("/api/auth/reset-password", {
         method: "POST",
         body: {
-          email: values.email.trim(),
-          code: values.code.trim(),
+          resetToken,
           newPassword: values.newPassword,
         },
       });

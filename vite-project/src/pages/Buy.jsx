@@ -20,16 +20,48 @@ import { useCatalogue } from "../services/accPrices";
 import { getAppIdentity } from "../config/appCatalog";
 import { buildCountryList } from "../config/countryCatalog";
 import { useBalance } from "../hooks/useBalance";
-import { BuySkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/Buy.css";
 
 function getProviderStockCount(stock, serviceId) {
   if (!stock || typeof stock !== "object" || !serviceId) return null;
-  if (!Object.hasOwn(stock, serviceId)) return null;
 
-  const count = Number(stock[serviceId]);
-  return Number.isFinite(count) && count >= 0 ? count : null;
+  // The provider keys stock by service AND its own variant suffix, e.g.
+  // "whatsapp_0", "whatsapp_canada_0", "telegram_0". Comparing against the
+  // plain id ("whatsapp") or a local offer id ("voucher", "all-countries")
+  // never matched, so the page always reported "No stock data" even though
+  // numbers were available.
+  if (Object.hasOwn(stock, serviceId)) {
+    const exact = Number(stock[serviceId]);
+    return Number.isFinite(exact) && exact >= 0 ? exact : null;
+  }
+
+  // Sum every variant of this service: the user is buying "a number for this
+  // service in this country", and any variant can serve that.
+  const prefix = `${serviceId.toLowerCase()}_`;
+  let total = 0;
+  let matched = false;
+
+  for (const [key, value] of Object.entries(stock)) {
+    if (!key.toLowerCase().startsWith(prefix)) continue;
+    const count = Number(value);
+    if (!Number.isFinite(count) || count < 0) continue;
+    total += count;
+    matched = true;
+  }
+
+  return matched ? total : null;
 }
+
+/**
+ * How many service cards are shown before the user types a search.
+ *
+ * The catalogue contains 1,300+ service ids, most sold in one or two countries.
+ * Rendering them all (each with an inline SVG icon) took tens of seconds on a
+ * phone. The most widely-sold services are listed first and every service stays
+ * reachable by search, so this is a cut in what is *shown*, not in what is
+ * available - the search always filters the complete list.
+ */
+const VISIBLE_SERVICE_LIMIT = 24;
 
 function Buy() {
   const navigate = useNavigate();
@@ -58,48 +90,67 @@ function Buy() {
   const allCountries = useMemo(() => buildCountryList(catalogue), [catalogue]);
   const canBuyAtAll = true;
 
-  const SERVICE_OFFER_OPTIONS = {
-    whatsapp: [
-      {
-        id: "voucher",
-        label: "Voucher",
-        sellingPrice: 3200,
-        providerProductId: "voucher",
-      },
-      {
-        id: "all-countries",
-        label: "All Countries",
-        sellingPrice: 4200,
-        providerProductId: "all-countries",
-      },
-    ],
-    telegram: [
-      {
-        id: "fresh",
-        label: "Fresh / New",
-        sellingPrice: 3000,
-        providerProductId: "fresh",
-      },
-      {
-        id: "used",
-        label: "Used / Open",
-        sellingPrice: 5715,
-        providerProductId: "used",
-      },
-    ],
-  };
+  /**
+   * Offers for the chosen service in the chosen country, taken from the REAL
+   * catalogue.
+   *
+   * These used to be two hardcoded WhatsApp tiers ("Voucher" ₦3,200, "All
+   * Countries" ₦4,200) that exist nowhere in the provider's data. The provider
+   * sells ONE product per service+country ("whatsapp" in "US"), so those ids
+   * never matched the stock payload - the page showed "No stock data" while
+   * claiming a price the server would never charge. Reading the catalogue here
+   * means the price shown is the price the purchase route quotes.
+   *
+   * The cheapest in-stock variant is listed first, matching what the server
+   * buys when no variant id is sent.
+   */
+  const serviceOptions = useMemo(() => {
+    const country = catalogue?.countries?.[selectedCountry?.slug];
+    if (!country || !selectedAppService?.id) return [];
+
+    return Object.values(country.services || {})
+      .filter(
+        (entry) =>
+          entry.serviceId === selectedAppService.id && Number(entry.count) > 0,
+      )
+      .sort((a, b) => a.cost - b.cost || b.count - a.count)
+      .slice(0, 2)
+      .map((entry, index) => ({
+        id: entry.id,
+        label: index === 0 ? "Lowest price" : "Next tier",
+        sellingPrice: entry.price ?? entry.cost,
+        // The catalogue variant. Sent so the server charges exactly this tier
+        // rather than re-picking the cheapest one.
+        variantId: entry.variantId,
+        count: entry.count,
+      }));
+  }, [catalogue, selectedCountry, selectedAppService]);
 
   const catalogueServices = useMemo(() => {
     if (!catalogue?.countries) return [];
-    const serviceIds = new Set();
+    // Count how many countries each service is sold in. The catalogue has well
+    // over a thousand service ids, most offered in one or two countries: putting
+    // every one on screen meant ~1,330 cards, each with an inline SVG icon, and
+    // took tens of seconds to render on a phone. The list below shows the
+    // widely-sold services up front and keeps the rest reachable by search, so
+    // nothing is hidden - it is sorted, not truncated, until a search is typed.
+    const countryCounts = new Map();
     Object.values(catalogue.countries).forEach((country) => {
+      const seen = new Set();
       Object.values(country.services || {}).forEach((entry) => {
-        if (entry.serviceId) serviceIds.add(entry.serviceId);
+        if (entry.serviceId) seen.add(entry.serviceId);
+      });
+      seen.forEach((id) => {
+        countryCounts.set(id, (countryCounts.get(id) || 0) + 1);
       });
     });
 
-    return [...serviceIds]
-      .map((id) => ({ id, ...getAppIdentity(id) }))
+    return [...countryCounts.keys()]
+      .map((id) => ({
+        id,
+        ...getAppIdentity(id),
+        countryCount: countryCounts.get(id) || 0,
+      }))
       .sort((left, right) => {
         const priority = ["whatsapp", "facebook", "telegram", "instagram"];
         const leftRank = priority.indexOf(left.id);
@@ -107,7 +158,11 @@ function Buy() {
         const rankDifference =
           (leftRank < 0 ? Number.MAX_SAFE_INTEGER : leftRank) -
           (rightRank < 0 ? Number.MAX_SAFE_INTEGER : rightRank);
-        return rankDifference || left.label.localeCompare(right.label);
+        return (
+          rankDifference ||
+          right.countryCount - left.countryCount ||
+          left.label.localeCompare(right.label)
+        );
       });
   }, [catalogue]);
 
@@ -134,15 +189,17 @@ function Buy() {
 
   const filteredServices = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return catalogueServices;
+    if (!q) return catalogueServices.slice(0, VISIBLE_SERVICE_LIMIT);
     return catalogueServices.filter((service) =>
       service.label.toLowerCase().includes(q),
     );
   }, [catalogueServices, searchQuery]);
 
-  const serviceOptions = selectedAppService?.id
-    ? SERVICE_OFFER_OPTIONS[selectedAppService.id] || []
-    : [];
+  // Only meaningful while browsing (not searching): says how many services are
+  // still reachable by typing.
+  const hiddenServiceCount = searchQuery.trim()
+    ? 0
+    : Math.max(0, catalogueServices.length - VISIBLE_SERVICE_LIMIT);
 
   useEffect(() => {
     if (!selectedAppService) {
@@ -201,8 +258,11 @@ function Buy() {
   const hasKnownPrice = Number.isFinite(purchasePrice) && purchasePrice > 0;
   const hasInsufficientFunds = hasKnownPrice && shortfall > 0;
 
-  const providerStockKey =
-    selectedOffer?.providerProductId || selectedAppService?.id;
+  // Stock is keyed by the SERVICE (whatsapp -> whatsapp_0, whatsapp_canada_0).
+  // The offer ids ("voucher", "all-countries", "fresh", "used") are display
+  // tiers that do not exist in the provider payload, so they must not be used
+  // as the lookup key or every offer would read as out of stock.
+  const providerStockKey = selectedAppService?.id || null;
   const providerCount = providerStockKey
     ? getProviderStockCount(providerStock, providerStockKey)
     : null;
@@ -284,6 +344,12 @@ function Buy() {
       const { number, balance, transaction } = await purchaseNumber({
         serviceId: selectedAppService.id,
         countryCode,
+        // The server prices from the catalogue, which is keyed by the country
+        // slug ("usa"), not by the ISO-2 code sent to the provider ("US").
+        countrySlug: selectedCountry.slug,
+        // The catalogue variant the user chose ("Lowest price" / "Next tier"),
+        // so the server charges exactly that tier instead of re-picking.
+        variantId: selectedOffer.variantId,
         serviceName: selectedAppService.label,
         countryName: selectedCountry.name,
         price: purchasePrice,
@@ -352,25 +418,63 @@ function Buy() {
   };
 
   if (isLoadingCatalogue) {
-    // The first load can take up to a minute while the server builds its
-    // cached copy of the catalogue. Say so, otherwise it reads as a hung page.
-    return isWarmingUp ? (
+    // The first load can take a moment while the 10 MB catalogue is fetched and
+    // parsed. Do not hold the whole page behind it: step 1 only needs the
+    // service list, which comes from the catalogue, so show the heading and a
+    // skeleton grid instead of a blank screen with a spinner. Searching still
+    // works as soon as the data lands.
+    return (
       <section className="buy-flow-container">
-        <div className="buy-step-content">
-          <div className="purchase-error-card" role="status" aria-live="polite">
-            <div className="insufficient-header">
-              <FiLoader className="spinner-icon" />
-              <h3>Preparing the price catalogue</h3>
+        <header className="buy-header">
+          <div className="buy-header-left">
+            <div className="buy-title-group">
+              <h1 className="buy-main-title">Buy a number</h1>
+              <span className="buy-step-indicator">
+                Step 1 of 3 · Service
+              </span>
             </div>
-            <p className="insufficient-text">
-              This only happens the first time. Prices are being loaded from the
-              provider - it can take up to a minute.
-            </p>
+          </div>
+        </header>
+
+        <div className="buy-step-content">
+          <h2 className="step-subtitle">Choose a service</h2>
+
+          <div className="country-search-bar" aria-hidden="true">
+            <FiSearch className="search-icon" />
+            <input
+              type="search"
+              placeholder="Loading services..."
+              disabled
+              readOnly
+            />
+          </div>
+
+          {isWarmingUp && (
+            <div className="purchase-error-card" role="status" aria-live="polite">
+              <div className="insufficient-header">
+                <FiLoader className="spinner-icon" />
+                <h3>Preparing the price catalogue</h3>
+              </div>
+              <p className="insufficient-text">
+                This only happens the first time. Prices are being loaded from
+                the provider.
+              </p>
+            </div>
+          )}
+
+          <div className="services-grid" aria-busy="true">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div className="service-card service-card-skeleton" key={index}>
+                <span className="skeleton-block skeleton-icon" />
+                <span className="service-details">
+                  <span className="skeleton-block skeleton-line" />
+                  <span className="skeleton-block skeleton-line short" />
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </section>
-    ) : (
-      <BuySkeleton />
     );
   }
 
@@ -467,7 +571,7 @@ function Buy() {
                   <span className="service-details">
                     <span className="service-name">{service.label}</span>
                     <span className="service-countries-count">
-                      Select to choose a country
+                      {service.countryCount} countries
                     </span>
                   </span>
                 </button>
@@ -480,6 +584,13 @@ function Buy() {
               </div>
             )}
           </div>
+
+          {hiddenServiceCount > 0 && (
+            <p className="service-more-hint">
+              Showing the {VISIBLE_SERVICE_LIMIT} most widely available services.
+              Search to find {hiddenServiceCount.toLocaleString()} more.
+            </p>
+          )}
         </div>
       )}
 

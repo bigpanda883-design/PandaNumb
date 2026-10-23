@@ -19,7 +19,16 @@ export function useVerificationCode(numberId) {
   const [error, setError] = useState(null);
   const timerRef = useRef(0);
 
+  const pollRef = useRef(null);
+
+  // Bumped by every stopPolling(). A poll loop reads the value it started with
+  // and refuses to schedule another check once they differ, so a loop that is
+  // still awaiting its HTTP response cannot come back to life after the user
+  // cancelled, the code arrived, or the number changed.
+  const generationRef = useRef(0);
+
   const stopPolling = useCallback(() => {
+    generationRef.current += 1;
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
       timerRef.current = 0;
@@ -27,16 +36,11 @@ export function useVerificationCode(numberId) {
     setIsPolling(false);
   }, []);
 
-  // `pollRef` breaks the self-reference: `poll` schedules the next call, so it
-  // cannot close over itself. The ref always points at the latest `poll` for the
-  // current number, and the effect below keeps it assigned on every render.
-  const pollRef = useRef(null);
-
   const poll = useCallback(
-    async (signal) => {
+    async (signal, generation) => {
       try {
         const result = await requestVerificationCode(numberId, { signal });
-        if (signal?.aborted) return;
+        if (signal?.aborted || generation !== generationRef.current) return;
 
         if (result.status === "CODE_RECEIVED" && result.code) {
           setCode(result.code);
@@ -47,24 +51,28 @@ export function useVerificationCode(numberId) {
           return;
         }
 
-        if (result.status === "CANCELLED") {
-          setIsPolling(false);
+        // A closed activation will never text again: stop instead of polling a
+        // dead number every few seconds until the component unmounts.
+        if (result.status === "CANCELLED" || result.status === "EXPIRED") {
+          stopPolling();
           return;
         }
 
         // Still waiting - schedule the next check through the ref, not `poll`
-        // itself, so this callback never reads its own declaration.
+        // itself, so this callback never reads its own declaration. The
+        // generation passed on keeps the chain belonging to this one run.
         timerRef.current = window.setTimeout(
-          () => pollRef.current?.(signal),
+          () => pollRef.current?.(signal, generation),
           POLL_INTERVAL,
         );
       } catch (err) {
         if (signal?.aborted || err?.name === "AbortError") return;
+        if (generation !== generationRef.current) return;
         setError(err);
         setIsPolling(false);
       }
     },
-    [numberId],
+    [numberId, stopPolling],
   );
 
   useEffect(() => {
@@ -75,8 +83,10 @@ export function useVerificationCode(numberId) {
     if (!numberId) return;
     stopPolling();
     setError(null);
+    setCode(null);
+    setReceivedAt(null);
     setIsPolling(true);
-    poll();
+    poll(undefined, generationRef.current);
   }, [numberId, poll, stopPolling]);
 
   // Clean up any in-flight timer on unmount or when the activation changes.
@@ -98,8 +108,6 @@ export function useVerificationCode(numberId) {
   /** Ask the provider for a fresh SMS on the same number. */
   const requestAnotherCode = useCallback(async () => {
     if (!numberId) return null;
-    setCode(null);
-    setError(null);
     startPolling();
     return true;
   }, [numberId, startPolling]);
