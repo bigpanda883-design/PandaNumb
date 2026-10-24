@@ -11,7 +11,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
-import { setAuthToken, setAuthUser } from "../../auth/authStorage";
+import { saveSession } from "../../auth/authStorage";
 import { useTheme } from "../../context/themeStore";
 import { requestJson } from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
@@ -119,21 +119,41 @@ function ForgotPassword() {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      await requestJson("/api/auth/forgot-password", {
-        method: "POST",
-        body: { email: values.email.trim() },
-      });
+      setIsSubmitting(true);
+      try {
+        const payload = await requestJson("/api/auth/forgot-password", {
+          method: "POST",
+          operation: "send reset code",
+          body: { email: values.email.trim().toLowerCase() },
+        });
 
-      setStep("code");
-      triggerToast("A reset code has been sent to your email.", "success");
-    } catch (error) {
-      triggerToast(error?.message || "Could not send reset code.", "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+        // Advance ONLY when the backend actually answered 2xx. The old code
+        // moved to the code step and announced "code sent" for any response that
+        // parsed as JSON - including an HTML page from the frontend host, which
+        // is exactly what a phone hitting the Vercel rewrite sees. Now a failed
+        // request (including a 503 from an unconfigured mail server) keeps the
+        // user on this step with the server's own message.
+        if (!payload || typeof payload !== "object") {
+          throw new Error(
+            "The server did not confirm the request. No code was sent. Please try again.",
+          );
+        }
+
+        setStep("code");
+        triggerToast(
+          payload.message || "A reset code has been sent to your email.",
+          "success",
+        );
+      } catch (error) {
+        // Never claim delivery when the request failed.
+        triggerToast(
+          error?.message || "Could not send reset code. Please try again.",
+          "error",
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
 
   const handleVerifyCode = async (event) => {
     event.preventDefault();
@@ -149,8 +169,9 @@ function ForgotPassword() {
     try {
       const payload = await requestJson("/api/auth/verify-reset-code", {
         method: "POST",
+        operation: "verify reset code",
         body: {
-          email: values.email.trim(),
+          email: values.email.trim().toLowerCase(),
           code: values.code.trim(),
         },
       });
@@ -197,32 +218,49 @@ function ForgotPassword() {
     try {
       const payload = await requestJson("/api/auth/reset-password", {
         method: "POST",
+        operation: "reset password",
         body: {
           resetToken,
           newPassword: values.newPassword,
         },
       });
 
-      if (payload?.token) {
-        setAuthToken(payload.token);
+      // Only a server that accepted the new password may sign the user back
+      // in. requestJson already threw on a non-2xx, so reaching here means the
+      // password really changed.
+      if (!payload || typeof payload !== "object") {
+        throw new Error(
+          "The password change was not confirmed by the server. Please try again.",
+        );
       }
 
       if (payload.user) {
-        setAuthUser({
-          fullName:
-            payload.user.fullName ||
-            payload.user.name ||
-            values.email.split("@")[0],
-          email: payload.user.email || values.email.trim(),
-          phone: payload.user.phone || "",
-          initials: (
-            payload.user.fullName ||
-            payload.user.name ||
-            values.email.split("@")[0]
-          )
-            .slice(0, 2)
-            .toUpperCase(),
-        });
+        // User + token are written together, in that order. The old code wrote
+        // the token FIRST; when another account had been signed in on this
+        // browser, setAuthUser() then cleared the account's storage - including
+        // that just-saved token - leaving a signed-in user with no session.
+        const fullName =
+          payload.user.fullName ||
+          payload.user.name ||
+          values.email.split("@")[0];
+        saveSession(
+          {
+            fullName,
+            email: payload.user.email || values.email.trim(),
+            phone: payload.user.phone || "",
+            initials: fullName.slice(0, 2).toUpperCase(),
+          },
+          payload.token || "",
+        );
+      } else if (payload.token) {
+        // The password changed but no user record came back: the user must log
+        // in with the NEW password rather than being half-signed-in.
+        triggerToast(
+          "Password changed. Please log in with your new password.",
+          "success",
+        );
+        navigate("/login", { replace: true });
+        return;
       }
 
       triggerToast("Password reset successful. Redirecting...", "success");
@@ -231,7 +269,10 @@ function ForgotPassword() {
         navigate("/dashboard", { replace: true });
       }, 600);
     } catch (error) {
-      triggerToast(error?.message || "Password reset failed.", "error");
+      triggerToast(
+        error?.message || "Password reset failed. Please try again.",
+        "error",
+      );
     } finally {
       setIsSubmitting(false);
     }

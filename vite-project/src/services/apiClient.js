@@ -100,6 +100,18 @@ export async function apiRequest(path, options = {}) {
   }
 }
 
+/**
+ * `Authorization` header for a protected call, or `{}` when signed out.
+ *
+ * A missing token must NOT be sent as `Bearer undefined`: the server answers
+ * 401 for a bare header anyway, but "Bearer " looks like a corrupt token in
+ * logs and made the real reason (signed out) impossible to see.
+ */
+function authHeaders() {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function loginUser({ email, password }, { signal } = {}) {
   const payload = await apiRequest("/api/auth/login", {
     method: "POST",
@@ -132,20 +144,32 @@ export async function signUpUser(
 }
 
 export async function fetchCurrentUser({ signal } = {}) {
+  // THE BUG: this call used to send no Authorization header, so /api/auth/me
+  // always answered 401 and a user who had just logged in was reported as
+  // "not recognised" on the next load. The stored token is attached here now,
+  // from the same place every other protected call reads it.
   const payload = await apiRequest("/api/auth/me", {
+    method: "GET",
     signal,
     operation: "load current user",
+    headers: authHeaders(),
   });
 
   return payload?.user ?? null;
 }
 
 export async function logoutUser({ signal } = {}) {
+  // The server needs the token to delete the session row. Without a token there
+  // is no server session to end, so this succeeds locally instead of calling
+  // the API with a header the server would reject.
+  const headers = authHeaders();
+  if (!headers.Authorization) return;
+
   await apiRequest("/api/auth/logout", {
     method: "POST",
     signal,
     operation: "logout",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers,
   });
 }
 
@@ -153,7 +177,7 @@ export async function fetchWalletBalance({ signal } = {}) {
   const payload = await apiRequest("/api/wallet/balance", {
     signal,
     operation: "load wallet balance",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers: authHeaders(),
   });
 
   return typeof payload?.balance === "number" ? payload.balance : 0;
@@ -164,7 +188,7 @@ export async function depositToWallet(amount, { signal } = {}) {
     method: "POST",
     signal,
     operation: "deposit to wallet",
-    headers: { Authorization: `Bearer ${getAuthToken()}` },
+    headers: authHeaders(),
     body: JSON.stringify({ amount }),
   });
 

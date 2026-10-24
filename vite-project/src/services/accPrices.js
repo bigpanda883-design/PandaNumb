@@ -254,17 +254,33 @@ async function fetchFresh(signal, force = false) {
     );
   }
 
+  // The backend answers { countries, sold, catalogueServiceByCard,
+  // serviceStatus, pricedAt }, where `countries[slug][cardId]` holds the priced
+  // variants of one Buy card. A bare country map is still accepted so an older
+  // deploy keeps working.
+  const countryMap =
+    raw.countries && typeof raw.countries === "object" ? raw.countries : raw;
+
+  const catalogueServiceByCard =
+    raw.catalogueServiceByCard &&
+    typeof raw.catalogueServiceByCard === "object" &&
+    !Array.isArray(raw.catalogueServiceByCard)
+      ? raw.catalogueServiceByCard
+      : Object.create(null);
+
   const countries = Object.create(null);
   const serviceIds = new Set();
 
-  for (const [countrySlug, services] of Object.entries(raw)) {
+  for (const [countrySlug, services] of Object.entries(countryMap)) {
+    if (countrySlug === "sold" || countrySlug === "serviceStatus") continue;
     if (!services || typeof services !== "object" || Array.isArray(services)) {
       continue;
     }
 
+    // Two levels: cardId -> variants (a card is one service on the Buy page).
     const normalizedServices = Object.create(null);
 
-    for (const [serviceId, variants] of Object.entries(services)) {
+    for (const [cardId, variants] of Object.entries(services)) {
       if (
         !variants ||
         typeof variants !== "object" ||
@@ -273,6 +289,11 @@ async function fetchFresh(signal, force = false) {
         continue;
       }
 
+      // A card whose variants live in another catalogue service ("gmail" ->
+      // "google"). The purchase route resolves this the same way on the server;
+      // this copy is only used for display and offer ids.
+      const catalogueService = catalogueServiceByCard[cardId] || cardId;
+
       for (const [variantId, info] of Object.entries(variants)) {
         if (!info || typeof info !== "object" || Array.isArray(info)) {
           continue;
@@ -280,21 +301,30 @@ async function fetchFresh(signal, force = false) {
 
         const cost = toFiniteNumber(info.cost);
         const count = toFiniteNumber(info.count);
+        const price = toFiniteNumber(info.price);
 
         // Never invent a price or stock figure.
         if (cost === null || cost <= 0) continue;
         if (count === null || count < 0) continue;
 
         const holdHours = toHoldHours(info);
-        const id = `${serviceId}_${variantId}`;
+        const id = `${cardId}_${variantId}`;
 
         normalizedServices[id] = {
           id,
-          serviceId,
+          serviceId: cardId,
+          catalogueService,
           variantId,
           cost,
           count,
           holdHours,
+          // The SELLING price from the backend. null means this variant cannot
+          // be sold profitably right now (see `blocked`), so it is never shown
+          // as available and never falls back to the provider cost.
+          price: price !== null && price > 0 ? price : null,
+          profit: toFiniteNumber(info.profit),
+          tier: typeof info.tier === "string" ? info.tier : null,
+          blocked: typeof info.blocked === "string" ? info.blocked : null,
         };
 
         serviceIds.add(id);
@@ -317,10 +347,25 @@ async function fetchFresh(signal, force = false) {
     throw error;
   }
 
+  const sold =
+    raw.sold && typeof raw.sold === "object" && !Array.isArray(raw.sold)
+      ? raw.sold
+      : Object.create(null);
+
+  const serviceStatus =
+    raw.serviceStatus &&
+    typeof raw.serviceStatus === "object" &&
+    !Array.isArray(raw.serviceStatus)
+      ? raw.serviceStatus
+      : Object.create(null);
+
   const fetchedAt = Date.now();
 
   const data = {
     countries,
+    sold,
+    catalogueServiceByCard,
+    serviceStatus,
     serviceIds: [...serviceIds].sort(),
     fetchedAt,
   };
@@ -412,7 +457,10 @@ export function getCountryServices(
 
 /**
  * Get available offers for one service in one country,
- * sorted by lowest real price.
+ * sorted by lowest real selling price.
+ *
+ * A variant without a usable selling price is left out: it is priced by the
+ * backend and `price: null` means it must not be offered.
  */
 export function getServiceOffers(
   catalogue,
@@ -427,12 +475,24 @@ export function getServiceOffers(
   const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 2;
 
   return Object.values(services)
-    .filter((entry) => entry.serviceId === serviceId && entry.count > 0)
-    .sort((left, right) => left.cost - right.cost || right.count - left.count)
+    .filter(
+      (entry) =>
+        entry.serviceId === serviceId &&
+        entry.count > 0 &&
+        Number.isFinite(entry.price) &&
+        entry.price > 0,
+    )
+    .sort(
+      (left, right) =>
+        left.price - right.price ||
+        left.cost - right.cost ||
+        right.count - left.count,
+    )
     .slice(0, safeLimit)
     .map((entry, index) => ({
       id: entry.id,
       label: index === 0 ? "Lowest price" : "Next tier",
+      price: entry.price,
       cost: entry.cost,
       count: entry.count,
       variantId: entry.variantId,

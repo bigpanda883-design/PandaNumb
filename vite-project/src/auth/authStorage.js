@@ -254,7 +254,8 @@ export function setAuthToken(token) {
  * so the caller can show an error instead of silently "logging in".
  *
  * NOTE: if one account replaces another without signing out, call this BEFORE
- * setAuthToken(), because the old account's token is removed here.
+ * setAuthToken(), because the old account's token is removed here. For a normal
+ * login/signup, prefer {@link saveSession}, which does both in the right order.
  */
 export function setAuthUser(user) {
   // If a DIFFERENT account is signing in on this browser, drop the previous
@@ -297,6 +298,42 @@ export function setAuthUser(user) {
   }
 
   return true;
+}
+
+/**
+ * Store a user AND their session token together, as one step.
+ *
+ * THE BUG THIS FIXES
+ * ------------------
+ * Login and signup used to call setAuthUser() and then setAuthToken(). When a
+ * different account had previously been signed in on that browser/phone,
+ * setAuthUser() treats this as an account switch and deletes the old account's
+ * token - but it runs BEFORE the new token is written, and the pages wrote the
+ * token after. So the order was safe... except for the OTHER order in a few
+ * places (forgot-password stored the token first). On a phone, where people
+ * switch between family accounts far more often, that left the app with a
+ * logged-in user and NO token, so every protected call answered 401 and the
+ * app "lost the session".
+ *
+ * Doing both here removes the ordering trap entirely: previous account data is
+ * cleared first, then the new user and the new token are written.
+ *
+ * @returns {boolean} false when localStorage refused the write.
+ */
+export function saveSession(user, token) {
+  const saved = setAuthUser(user);
+  if (!saved) return false;
+  setAuthToken(token || "");
+  return true;
+}
+
+/**
+ * A 401 from the API means the server no longer knows this token (expired,
+ * revoked, or the server restarted with a fresh database). Drop the local
+ * session so the UI shows the login page instead of a half-signed-in state.
+ */
+export function handleSessionExpired() {
+  clearAuthUser();
 }
 
 /**

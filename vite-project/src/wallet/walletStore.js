@@ -10,6 +10,8 @@
  * keeps this dependency-free and in sync across components and tabs.
  */
 
+import { getApiBaseUrl } from "../services/httpClient";
+
 const WALLET_STORAGE_KEY = "panda-numbers-wallet";
 
 /** Current balance in kobo-safe naira, or null when never fetched. */
@@ -105,11 +107,15 @@ export function debitBalance(amount, source = "purchase") {
  * @returns {Promise<number>} the authoritative balance
  */
 export async function fetchBalance({ signal } = {}) {
-  const endpoint =
-    import.meta.env?.VITE_BALANCE_ENDPOINT ||
-    (typeof window !== "undefined" && window.location.origin
-      ? `${window.location.origin}/api/wallet/balance`
-      : "");
+  // Resolve the endpoint the SAME way every other API call does.
+  //
+  // THE BUG: this used to build `${window.location.origin}/api/wallet/balance`,
+  // which is the FRONTEND host. On Vercel that is a static rewrite, so the
+  // dashboard balance 404'd on a phone while working on the laptop (where the
+  // Vite proxy forwards /api to Express). Using getApiBaseUrl() puts it on the
+  // configured backend - the same host login and signup use.
+  const endpoint = import.meta.env?.VITE_BALANCE_ENDPOINT ||
+    `${getApiBaseUrl()}/api/wallet/balance`;
 
   // A real network request has latency; a localStorage read does not. Without
   // this floor the loading state would resolve within a single frame and the

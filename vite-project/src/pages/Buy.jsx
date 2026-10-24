@@ -22,6 +22,30 @@ import { buildCountryList } from "../config/countryCatalog";
 import { useBalance } from "../hooks/useBalance";
 import "../CSS/dashboard/pages/Buy.css";
 
+/**
+ * Purchase failures that a second click cannot fix.
+ *
+ * These come from the provider's ACCOUNT, not from stock or the network:
+ *   NO_BALANCE  - the provider wallet has no credit (pay Yankee Verify)
+ *   BAD_KEY     - the key we send is invalid/inactive
+ *   BANNED      - the provider account is banned
+ *   PROVIDER_NOT_CONFIGURED - no key is installed on the server
+ * Everything else (NO_NUMBERS, timeouts, 5xx, network) may well succeed on a
+ * retry, so only these lose the Retry button.
+ */
+const NON_RETRYABLE_CODES = new Set([
+  "NO_BALANCE",
+  "BAD_KEY",
+  "BANNED",
+  "PROVIDER_NOT_CONFIGURED",
+  // Refusals that a second click cannot fix: the server has no price for this
+  // service, or the provider cost has risen above what we can charge for it.
+  "SERVICE_NOT_SUPPORTED",
+  "SERVICE_NOT_PRICED",
+  "SERVICE_NOT_AVAILABLE",
+  "PRICE_NOT_PROFITABLE",
+]);
+
 function getProviderStockCount(stock, serviceId) {
   if (!stock || typeof stock !== "object" || !serviceId) return null;
 
@@ -87,6 +111,11 @@ function Buy() {
   const [providerStockError, setProviderStockError] = useState(null);
   const [providerStockRefresh, setProviderStockRefresh] = useState(0);
 
+  // Stock is re-checked when either the country changes or the refresh counter
+  // is bumped, so the counter is read by the effect below even though nothing
+  // in this render assigns it again.
+  void setProviderStockRefresh;
+
   const allCountries = useMemo(() => buildCountryList(catalogue), [catalogue]);
   const canBuyAtAll = true;
 
@@ -94,65 +123,101 @@ function Buy() {
    * Offers for the chosen service in the chosen country, taken from the REAL
    * catalogue.
    *
-   * These used to be two hardcoded WhatsApp tiers ("Voucher" ₦3,200, "All
-   * Countries" ₦4,200) that exist nowhere in the provider's data. The provider
-   * sells ONE product per service+country ("whatsapp" in "US"), so those ids
-   * never matched the stock payload - the page showed "No stock data" while
-   * claiming a price the server would never charge. Reading the catalogue here
-   * means the price shown is the price the purchase route quotes.
+   * The provider sells ONE product per service+country, so the offers here are
+   * the catalogue's cheapest in-stock variants. The price shown is the SELLING
+   * price the backend attached (`entry.price`), never the provider cost: a
+   * variant the backend could not price profitably is omitted, not guessed.
    *
-   * The cheapest in-stock variant is listed first, matching what the server
-   * buys when no variant id is sent.
+   * Telegram is the exception: if a card ever has two priced variants AND the
+   * backend says they are the two Telegram products, they are labelled with
+   * their real names instead of "Lowest price"/"Next tier".
    */
   const serviceOptions = useMemo(() => {
     const country = catalogue?.countries?.[selectedCountry?.slug];
     if (!country || !selectedAppService?.id) return [];
 
-    return Object.values(country.services || {})
+    const telegramStatus = catalogue?.serviceStatus?.telegram;
+
+    const sellable = Object.values(country.services || {})
       .filter(
         (entry) =>
-          entry.serviceId === selectedAppService.id && Number(entry.count) > 0,
+          entry.serviceId === selectedAppService.id &&
+          Number(entry.count) > 0 &&
+          !entry.blocked &&
+          Number.isFinite(entry.price) &&
+          entry.price > 0,
       )
-      .sort((a, b) => a.cost - b.cost || b.count - a.count)
-      .slice(0, 2)
-      .map((entry, index) => ({
-        id: entry.id,
-        label: index === 0 ? "Lowest price" : "Next tier",
-        sellingPrice: entry.price ?? entry.cost,
-        // The catalogue variant. Sent so the server charges exactly this tier
-        // rather than re-picking the cheapest one.
-        variantId: entry.variantId,
-        count: entry.count,
-      }));
+      .sort((a, b) => a.price - b.price || a.cost - b.cost || b.count - a.count)
+      .slice(0, 2);
+
+    // Named Telegram products only when the backend says the two variants ARE
+    // the two products (fresh vs old). Several Telegram variants are all the
+    // same provider product at different costs, and must not claim to be
+    // "old / open" just because they are the second option.
+    const namedTelegram = Array.isArray(telegramStatus?.variantTiers)
+      ? telegramStatus.variantTiers.length > 1
+      : false;
+
+    return sellable.map((entry, index) => ({
+      id: entry.id,
+      label: namedTelegram
+        ? entry.tier === "telegram_old"
+          ? "Old / open"
+          : "Fresh / new"
+        : index === 0
+          ? "Lowest price"
+          : "Next tier",
+      sellingPrice: entry.price,
+      // The catalogue variant. Sent so the server charges exactly this tier
+      // rather than re-picking the cheapest one.
+      variantId: entry.variantId,
+      count: entry.count,
+    }));
   }, [catalogue, selectedCountry, selectedAppService]);
 
   const catalogueServices = useMemo(() => {
     if (!catalogue?.countries) return [];
-    // Count how many countries each service is sold in. The catalogue has well
-    // over a thousand service ids, most offered in one or two countries: putting
-    // every one on screen meant ~1,330 cards, each with an inline SVG icon, and
-    // took tens of seconds to render on a phone. The list below shows the
-    // widely-sold services up front and keeps the rest reachable by search, so
-    // nothing is hidden - it is sorted, not truncated, until a search is typed.
+    // Count how many countries each service is sold in. The backend only lists
+    // services that have a real selling price, so an entry here is buyable
+    // somewhere; services it blocked (no margin, no provider mapping) are
+    // filtered out below instead of being offered at no price.
     const countryCounts = new Map();
     Object.values(catalogue.countries).forEach((country) => {
       const seen = new Set();
       Object.values(country.services || {}).forEach((entry) => {
-        if (entry.serviceId) seen.add(entry.serviceId);
+        // A variant the backend priced as unprofitable is not availability.
+        if (entry.serviceId && !entry.blocked) seen.add(entry.serviceId);
       });
       seen.forEach((id) => {
         countryCounts.set(id, (countryCounts.get(id) || 0) + 1);
       });
     });
 
+    const status = catalogue.serviceStatus || {};
+
     return [...countryCounts.keys()]
-      .map((id) => ({
-        id,
-        ...getAppIdentity(id),
-        countryCount: countryCounts.get(id) || 0,
-      }))
+      .filter((id) => status[id]?.sellable !== false)
+      .map((id) => {
+        const sold = catalogue.sold?.[id] || null;
+        const meta = status[id] || {};
+        return {
+          id,
+          ...getAppIdentity(id),
+          countryCount: countryCounts.get(id) || 0,
+          // The configured starting price, for the card subtitle.
+          fromPrice: sold?.price ?? meta.priceFrom ?? null,
+          tierLabel: meta.tierLabel || sold?.tierLabel || null,
+        };
+      })
       .sort((left, right) => {
-        const priority = ["whatsapp", "facebook", "telegram", "instagram"];
+        const priority = [
+          "whatsapp",
+          "facebook",
+          "telegram",
+          "instagram",
+          "google",
+          "gmail",
+        ];
         const leftRank = priority.indexOf(left.id);
         const rightRank = priority.indexOf(right.id);
         const rankDifference =
@@ -170,8 +235,14 @@ function Buy() {
     if (!catalogue || !selectedAppService) return allCountries;
     return allCountries.filter((country) => {
       const services = catalogue.countries?.[country.slug]?.services || {};
+      // Only countries where this service has a priced, sellable variant are
+      // listed; a country whose only variants are unprofitable would open a
+      // confirm screen with no price.
       return Object.values(services).some(
-        (entry) => entry.serviceId === selectedAppService.id,
+        (entry) =>
+          entry.serviceId === selectedAppService.id &&
+          !entry.blocked &&
+          Number(entry.price) > 0,
       );
     });
   }, [allCountries, catalogue, selectedAppService]);
@@ -321,6 +392,11 @@ function Buy() {
 
   const mapProviderError = (error) => {
     if (!error) return "Failed to purchase number. Please try again.";
+    // The server's own explanation wins: for a refused service it names the
+    // reason (e.g. "Baidu is not sold...") or the real provider cost.
+    if (error.code === "PRICE_CHANGED") {
+      return error.message || "The price changed. Please review and confirm again.";
+    }
     return error.message || "Failed to purchase number. Please try again.";
   };
 
@@ -413,7 +489,13 @@ function Buy() {
       navigate("/my-numbers", { state: { openNumber: purchasedNumber } });
     } catch (error) {
       setIsSubmitting(false);
-      setPurchaseError({ message: mapProviderError(error) });
+      setPurchaseError({
+        message: mapProviderError(error),
+        // A refusal by the provider's ACCOUNT (no credit, bad key, banned) will
+        // fail identically on every retry. Stock, network and timeout failures
+        // may not, so those keep the Retry button.
+        retryable: !NON_RETRYABLE_CODES.has(error?.code),
+      });
     }
   };
 
@@ -570,6 +652,11 @@ function Buy() {
                   </span>
                   <span className="service-details">
                     <span className="service-name">{service.label}</span>
+                    {Number(service.fromPrice) > 0 && (
+                      <span className="service-price">
+                        from ₦{Number(service.fromPrice).toLocaleString()}
+                      </span>
+                    )}
                     <span className="service-countries-count">
                       {service.countryCount} countries
                     </span>
@@ -701,13 +788,17 @@ function Buy() {
             <div className="confirm-row">
               <span className="confirm-label">Available stock</span>
               <span className="confirm-value">
-                {isLoadingProviderStock
-                  ? "Checking provider inventory..."
-                  : providerStockError
-                    ? "Inventory unavailable"
-                    : providerCount === null
-                      ? "No stock data"
-                      : `${stockCount} numbers`}
+                {serviceOptions.length === 0
+                  ? isLoadingProviderStock
+                    ? "Checking availability..."
+                    : "Not available"
+                  : isLoadingProviderStock
+                    ? "Checking provider inventory..."
+                    : providerStockError
+                      ? "Inventory unavailable"
+                      : providerCount === null
+                        ? "No stock data"
+                        : `${stockCount} numbers`}
               </span>
             </div>
 
@@ -716,7 +807,9 @@ function Buy() {
             <div className="confirm-row">
               <span className="confirm-label">Total</span>
               <span className="confirm-price">
-                ₦{purchasePrice.toLocaleString()}
+                {hasKnownPrice
+                  ? `₦${purchasePrice.toLocaleString()}`
+                  : "Not available"}
               </span>
             </div>
 
@@ -731,6 +824,17 @@ function Buy() {
               </span>
             </div>
           </div>
+
+          {serviceOptions.length === 0 && (
+            <div className="purchase-error-card" role="alert">
+              <p className="insufficient-text">
+                {selectedAppService?.label} is not available in{" "}
+                {selectedCountry.name} right now: there is no current price for
+                this service, so nothing can be charged. Other services are
+                still available.
+              </p>
+            </div>
+          )}
 
           {providerStockError && (
             <div className="purchase-error-card" role="alert">
@@ -790,27 +894,41 @@ function Buy() {
                 <h3>Could not complete the purchase</h3>
               </div>
               <p className="insufficient-text">{purchaseError.message}</p>
-              <button
-                type="button"
-                className="insufficient-fund-btn"
-                onClick={handleConfirmPurchase}
-              >
-                Retry
-              </button>
+              {/* Only useful when retrying could actually help. A provider-credit
+                  or account-configuration refusal is not fixed by clicking again,
+                  so a Retry button there just burns the user's patience. */}
+              {!purchaseError.retryable && (
+                <p className="insufficient-text">
+                  Nothing was charged. Contact support if this continues.
+                </p>
+              )}
+              {purchaseError.retryable !== false && (
+                <button
+                  type="button"
+                  className="insufficient-fund-btn"
+                  onClick={handleConfirmPurchase}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
 
-          {!hasInsufficientFunds && hasKnownPrice && purchasePrice > 0 && (
+          {/* The confirm button stays visible even when the wallet is short:
+              the insufficient-funds card above explains the gap and offers
+              "Fund wallet", and a button that vanishes reads as a broken page.
+              It is simply disabled until there is enough balance. */}
+          {hasKnownPrice && selectedOffer && (
             <button
               type="button"
               className="confirm-submit-btn"
               disabled={
+                hasInsufficientFunds ||
                 isSubmitting ||
                 isLoadingProviderStock ||
                 Boolean(providerStockError) ||
                 isOutOfStock ||
                 !canBuyAtAll ||
-                !selectedOffer ||
                 (!selectedCountry?.providerId && !selectedCountry?.iso)
               }
               onClick={handleConfirmPurchase}
@@ -824,7 +942,9 @@ function Buy() {
                 <>
                   <FiCheck className="check-icon" />
                   <span>
-                    Confirm purchase · ₦{purchasePrice.toLocaleString()}
+                    {hasInsufficientFunds
+                      ? `Confirm purchase · ₦${purchasePrice.toLocaleString()} (add funds)`
+                      : `Confirm purchase · ₦${purchasePrice.toLocaleString()}`}
                   </span>
                 </>
               )}

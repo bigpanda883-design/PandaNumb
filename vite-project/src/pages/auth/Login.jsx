@@ -11,11 +11,15 @@ import {
   FiX,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
-import { setAuthToken, setAuthUser } from "../../auth/authStorage";
+import { saveSession } from "../../auth/authStorage";
 import { authenticateLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
-import { isBackendUnavailable, requestJson } from "../../services/httpClient";
+import {
+  isApiOnFrontendHost,
+  isBackendUnavailable,
+  requestJson,
+} from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
 
 const initialValues = {
@@ -114,8 +118,13 @@ function Login() {
         // Prefer the real server. requestJson reads the body defensively, so an
         // empty response (proxy down, offline phone, static host) produces a
         // readable message instead of "Unexpected end of JSON input".
+        //
+        // `operation` names the call in the failure text, and the request goes
+        // to the CONFIGURED API host (VITE_API_BASE_URL -> Render in
+        // production), never to the static frontend host.
         const payload = await requestJson("/api/auth/login", {
           method: "POST",
+          operation: "login",
           body: {
             email: values.email.trim(),
             password: values.password,
@@ -126,12 +135,35 @@ function Login() {
           throw new Error("The server returned an invalid login response.");
         }
 
+        // A server session without a token cannot authenticate anything; the
+        // next page load would look signed out, which is the "session lost"
+        // symptom. Treat it as a failed login instead of a half-session.
+        if (!payload.token) {
+          throw new Error(
+            "The server did not return a session token. Please try again.",
+          );
+        }
+
         user = payload.user;
-        token = payload.token || "";
+        token = payload.token;
       } catch (error) {
-        // No server answered (the site is deployed without a backend). Check the
-        // account book this browser holds instead of dead-ending the user.
-        if (!isBackendUnavailable(error)) throw error;
+        // Only a backend that is genuinely unreachable or not our API may use
+        // the on-device account book. A real 401 (wrong password) or 429 stays
+        // an error, and a deployment pointed at the FRONTEND host is reported as
+        // such instead of silently signing in from stale local data - that
+        // "local login" is why a phone could appear to log in while talking to
+        // no server at all.
+        if (!isBackendUnavailable(error) || isApiOnFrontendHost()) {
+          // A mis-pointed API is a deployment fault, not a rejected password:
+          // say which host was called so the fix (VITE_API_BASE_URL) is obvious.
+          if (isApiOnFrontendHost() && isBackendUnavailable(error)) {
+            throw new Error(
+              "This app is not connected to its server (the login request went to the website host instead of the API). Please try again later.",
+              { cause: error },
+            );
+          }
+          throw error;
+        }
 
         const local = await authenticateLocalAccount({
           email: values.email.trim(),
@@ -139,7 +171,7 @@ function Login() {
         });
 
         if (!local.ok) {
-          throw new Error(local.message);
+          throw new Error(local.message, { cause: error });
         }
 
         user = local.user;
@@ -153,14 +185,23 @@ function Login() {
       const email = user.email || values.email.trim();
       const phone = user.phone || "";
 
-      setAuthUser({
-        fullName,
-        email,
-        phone,
-        initials: fullName.slice(0, 2).toUpperCase(),
-      });
-      if (token) {
-        setAuthToken(token);
+      // The user record and the token are written together, so a browser that
+      // had a different account signed in cannot end up "logged in without a
+      // token" (which made every protected request fail with 401).
+      const saved = saveSession(
+        {
+          fullName,
+          email,
+          phone,
+          initials: fullName.slice(0, 2).toUpperCase(),
+        },
+        token,
+      );
+
+      if (!saved) {
+        throw new Error(
+          "This browser is blocking site data, so the session cannot be saved. Enable site data and try again.",
+        );
       }
 
       pushNotification({
