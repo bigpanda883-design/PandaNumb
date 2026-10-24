@@ -45,12 +45,24 @@ import {
   getYankeeApiKey,
 } from "./yankeeService.js";
 import {
+  resolveProviderCountry,
   resolveProviderService,
   YANKEE_SERVICE_MAP,
 } from "./providerMapping.js";
 import smsProxyRouter from "./smsProxy.js";
 import smsRouter from "./smsRouter.js";
-import { getPricingConfig, getSellingPrice } from "./pricing.js";
+import {
+  BLOCKED_SERVICES,
+  getBlockedReason,
+  getCardTiers,
+  getPricingConfig,
+  getTierConfig,
+  priceVariant,
+  resolveCatalogueService,
+  resolveTierKey,
+  PRICE_TIERS,
+  SELLABLE_SERVICES,
+} from "./pricing.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8787;
@@ -65,14 +77,83 @@ const resetRateMap = new Map();
 // requesting them. Keyed by "verify:<ip>:<email>".
 const resetCodeVerifyRateMap = new Map();
 
+// Browser origins allowed to call this API with credentials. Vercel preview
+// deployments are allowed by suffix so a PR preview is not blocked either.
+//
+// `origin: true` used to reflect ANY origin. CORS itself is not the security
+// boundary here (auth is a Bearer token, not an ambient cookie), but echoing
+// every origin plus `credentials: true` is what makes a mis-pointed frontend
+// look like it "worked" while phone traffic went elsewhere. An explicit list
+// makes a wrong API URL fail loudly and visibly instead of silently.
+const ALLOWED_ORIGINS = String(
+  process.env.FRONTEND_ORIGINS ||
+    "https://pandanumbers.vercel.app,https://panda-numb.vercel.app,https://*.vercel.app,http://localhost:5173,http://localhost:4173",
+)
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // curl, health checks, same-origin server calls
+  let host;
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  // Wildcard entries are matched against the HOST, so "https://*.vercel.app"
+  // covers every preview URL without listing them.
+  return ALLOWED_ORIGINS.some((allowed) => {
+    if (allowed.startsWith("*") || allowed.includes("://*.")) {
+      const suffix = allowed.slice(allowed.indexOf("*.") + 2);
+      return host === suffix || host.endsWith(`.${suffix}`);
+    }
+    try {
+      return new URL(allowed).host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  });
+}
+
 app.use(
   cors({
-    origin: true,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      // No error: answer WITHOUT CORS headers, so the browser blocks it and the
+      // request never reaches the handlers. The status stays a normal 403 with
+      // a JSON body so a non-browser caller still gets a readable answer.
+      return callback(null, false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
+    maxAge: 86400,
   }),
 );
 app.use(express.json({ limit: "1mb" }));
+
+// A browser request from an origin that is not allow-listed is refused HERE,
+// before any route runs. It writes its JSON directly instead of calling fail():
+// this middleware is registered before fail() is defined, and depending on that
+// ordering silently disabled the check once (the request fell through to the
+// route and the cors package still echoed the origin).
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !isAllowedOrigin(origin)) {
+    return res.status(403).json({
+      error: "ORIGIN_NOT_ALLOWED",
+      message: `The origin ${origin} is not allowed to call this API. Add it to FRONTEND_ORIGINS.`,
+    });
+  }
+  return next();
+});
+
+// Health must never need a database or an API key: it is the probe that tells a
+// deployment whether the process is alive and reachable at all. It sits AFTER
+// the origin check, so an unlisted origin is still refused here.
+app.get("/api/health", (req, res) => res.json({ ok: true }));
+
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   next();
@@ -146,11 +227,37 @@ async function authMiddleware(req, res, next) {
   next();
 }
 
-app.get("/api/health", (req, res) => {
+app.get("/api/health/detail", async (req, res) => {
   const pricing = getPricingConfig();
+
+  // The provider's OWN wallet balance, read live. This is the number that
+  // decides whether a purchase can succeed: the provider answers NO_BALANCE
+  // when its account has no credit, and no amount of credit in a USER's wallet
+  // can change that. Exposing it here means the operator can tell "out of
+  // provider credit" apart from "out of stock" or "provider key wrong" without
+  // reading server logs. Read-only - it never buys anything.
+  let providerBalance = null;
+  let providerBalanceError = null;
+  if (API_KEY) {
+    try {
+      providerBalance = await getYankeeBalance();
+    } catch (error) {
+      providerBalanceError = String(
+        error?.code || error?.message || "PROVIDER_ERROR",
+      );
+    }
+  }
+
   res.json({
     ok: true,
     providerConfigured: Boolean(API_KEY),
+    // Whole currency units (see getProviderBalance in smsProvider.js for why a
+    // bare integer is treated as minor units). null = could not be read.
+    providerBalance,
+    providerBalanceError,
+    // A purchase will be refused by the provider while this is <= 0.
+    providerCanIssueNumbers:
+      typeof providerBalance === "number" ? providerBalance > 0 : null,
     // Whether login/reset emails can be sent. Reports only the boolean - never
     // the host, user or password.
     emailConfigured: isEmailConfigured(),
@@ -448,11 +555,20 @@ function findCatalogueVariant(payload, countrySlug, serviceId, variantId) {
 }
 
 /**
- * Resolve the price to charge, from the provider catalogue - never from the
- * request body. The browser's `price` is only compared against this to detect a
- * stale page, so a user can neither underpay nor be surprised by a new price.
+ * Resolve the price to charge for one variant, from the provider catalogue and
+ * server/pricing.js - never from the request body.
+ *
+ * The browser's `price` is only compared against the result (PRICE_CHANGED) so
+ * a user can neither underpay nor be surprised by a new price. A variant whose
+ * cost leaves no profit is refused by name, with the actual cost, instead of
+ * silently charging a different amount.
  */
-async function quotePurchasePrice({ countrySlug, serviceId, variantId }) {
+async function quotePurchasePrice({
+  countrySlug,
+  serviceId,
+  variantId,
+  providerService,
+}) {
   let payload = pricesCache.payload;
   if (
     payload === null ||
@@ -478,10 +594,14 @@ async function quotePurchasePrice({ countrySlug, serviceId, variantId }) {
     };
   }
 
+  // Variants live under the card's CATALOGUE service: "gmail" is sold from the
+  // google_* variants because ACC has no gmail entry, so looking up the body's
+  // id directly would report every Gmail offer as unavailable.
+  const catalogueService = resolveCatalogueService(serviceId) || serviceId;
   const variant = findCatalogueVariant(
     payload,
     countrySlug,
-    serviceId,
+    catalogueService,
     variantId,
   );
   if (!variant) {
@@ -495,8 +615,12 @@ async function quotePurchasePrice({ countrySlug, serviceId, variantId }) {
     };
   }
 
-  const price = getSellingPrice(variant.cost);
-  if (price === null) {
+  const priced = priceVariant({
+    cost: variant.cost,
+    serviceId,
+    variantId: variant.variantId,
+  });
+  if (!priced) {
     return {
       error: {
         status: 409,
@@ -507,7 +631,75 @@ async function quotePurchasePrice({ countrySlug, serviceId, variantId }) {
     };
   }
 
-  return { price, variant };
+  // Profit = price - provider cost - fees. A sale that does not reach the
+  // configured minimum profit is refused LOUDLY (and reported on
+  // /api/prices/audit) rather than being sold at a loss or re-priced silently.
+  if (priced.status === "below-min-profit") {
+    console.warn(
+      `[pricing] refusing purchase: ${serviceId}/${variant.variantId} in ${countrySlug} ` +
+        `costs ₦${priced.cost} but would sell at ₦${priced.price} (profit ₦${priced.profit}).`,
+    );
+    return {
+      error: {
+        status: 409,
+        code: "PRICE_NOT_PROFITABLE",
+        message:
+          `This number can no longer be sold: the provider now charges ₦${priced.cost.toLocaleString()}. ` +
+          "Please choose another service.",
+      },
+    };
+  }
+
+  // The provider may not know the mapped service code at all. Checking here
+  // costs nothing (the stock payload is already cached upstream) and replaces
+  // a confusing NO_NUMBERS after the balance check with a clear answer.
+  if (providerService) {
+    const offered = await providerOffersService(countrySlug, providerService);
+    if (offered === false) {
+      return {
+        error: {
+          status: 409,
+          code: "SERVICE_NOT_AVAILABLE",
+          message:
+            "The provider does not offer this service for that country yet. Please choose another.",
+        },
+      };
+    }
+  }
+
+  return { price: priced.price, variant, priced };
+}
+
+/**
+ * Does the provider's stock payload for this country contain a variant of this
+ * service code? `true` / `false` when the payload was readable, `null` when it
+ * could not be checked (in which case the purchase is NOT blocked: the provider
+ * still has the final say).
+ */
+async function providerOffersService(countrySlug, providerService) {
+  const code = String(providerService || "").toLowerCase();
+  if (!code) return null;
+
+  const iso = (() => {
+    try {
+      return resolveProviderCountry(countrySlug);
+    } catch {
+      return countrySlug;
+    }
+  })();
+  if (!iso) return null;
+
+  try {
+    const stock = await getYankeeNumbersStatus(iso);
+    const keys = Object.keys(stock || {});
+    if (keys.length === 0) return null;
+    return keys.some((key) => {
+      const base = key.toLowerCase().replace(/_\d+$/, "");
+      return base === code || base.startsWith(`${code}_`);
+    });
+  } catch {
+    return null;
+  }
 }
 
 // A purchase is not idempotent upstream, so two requests carrying the same
@@ -546,6 +738,7 @@ function recordPurchase({
   allocation,
   idempotencyKey,
   chargePrice,
+  providerCost,
   baseBalance,
   countryCode,
   countrySlug,
@@ -558,6 +751,12 @@ function recordPurchase({
   const nextBalance = baseBalance - chargePrice;
   const now = new Date();
   const displayService = serviceName || mapping.displayName || serviceId;
+  // Audit trail: what the number cost us vs. what was charged. Kept on the
+  // user's own record (no provider cost is ever sent to a different user).
+  const margin =
+    Number.isFinite(Number(providerCost)) && Number(providerCost) > 0
+      ? chargePrice - Number(providerCost)
+      : null;
 
   const purchasedNumber = {
     id: allocation.activationId,
@@ -571,6 +770,8 @@ function recordPurchase({
     providerService: mapping.providerService,
     price: `₦${chargePrice.toLocaleString()}`,
     priceValue: chargePrice,
+    providerCost: margin === null ? null : Number(providerCost),
+    profit: margin,
     orderId: allocation.activationId,
     status: "WAITING",
     // Set when the provider stops listening for this activation.
@@ -663,19 +864,35 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
   // for the wrong service.
   const mapping = resolveProviderService(serviceId);
   if (!mapping) {
+    const blocked = getBlockedReason(serviceId);
     return fail(
       res,
       400,
       "SERVICE_NOT_SUPPORTED",
-      `The provider does not have a verified mapping for "${serviceId}", so a number cannot be issued for it yet.`,
+      blocked ||
+        `The provider does not have a verified mapping for "${serviceId}", so a number cannot be issued for it yet.`,
     );
   }
 
-  // The charge comes from the provider catalogue, NEVER from the body.
+  // A service without a configured tier has no selling price; never fall back
+  // to the provider cost for it.
+  if (!resolveTierKey(serviceId, variantId)) {
+    return fail(
+      res,
+      400,
+      "SERVICE_NOT_PRICED",
+      getBlockedReason(serviceId) ||
+        `"${serviceId}" does not have a selling price configured, so it cannot be bought yet.`,
+    );
+  }
+
+  // The charge comes from the provider catalogue + our price tiers, NEVER from
+  // the body.
   const quote = await quotePurchasePrice({
     countrySlug,
     serviceId,
     variantId,
+    providerService: mapping.providerService,
   });
   if (quote.error) {
     return fail(
@@ -685,7 +902,11 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
       quote.error.message,
     );
   }
+  // Every figure the customer sees comes from this quote: the debit below uses
+  // chargePrice (never the body), and it is the same number GET /api/prices
+  // attaches to the variant.
   const chargePrice = quote.price;
+  const providerCost = quote.priced.cost;
 
   // The body's price is display-only, but a page still showing a different
   // figure must be corrected before anything is bought or charged.
@@ -791,6 +1012,7 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
     allocation,
     idempotencyKey,
     chargePrice,
+    providerCost,
     baseBalance: currentBalance,
     countryCode,
     countrySlug,
@@ -1013,16 +1235,47 @@ app.post("/api/numbers/:id/cancel", authMiddleware, async (req, res) => {
     );
   }
 
-  const refunded = updateUserNumber(user.id, activationId, {
+  const cancelledAt = new Date().toISOString();
+  const charged = Number(record.priceValue ?? 0);
+
+  // The provider accepted the release and refunded ITS OWN balance, so the
+  // customer is refunded the exact amount they were charged for this number
+  // (the recorded priceValue, not today's catalogue price). Before this, the
+  // number was closed as CANCELLED but the wallet was never credited.
+  const existingBalance = Number(getUserById(user.id)?.walletBalance || 0);
+  const nextBalance =
+    Number.isFinite(charged) && charged > 0
+      ? existingBalance + charged
+      : existingBalance;
+
+  updateUserWalletBalance(user.id, nextBalance);
+
+  if (Number.isFinite(charged) && charged > 0) {
+    appendUserTransaction(user.id, {
+      id: `refund-${activationId}`,
+      type: "refund",
+      title: `Refund - ${record.service || "Number"} ${record.number || ""}`.trim(),
+      amount: charged,
+      status: "SUCCESSFUL",
+      path: "/my-numbers",
+      reference: activationId,
+      date: formatTransactionDate(new Date(cancelledAt)),
+      createdAt: Date.now(),
+    });
+  }
+
+  const updated = updateUserNumber(user.id, activationId, {
     status: "CANCELLED",
     closedReason: "CANCELLED",
-    cancelledAt: new Date().toISOString(),
+    cancelledAt,
+    refundedAmount: Number.isFinite(charged) ? charged : 0,
   });
 
   return res.json({
     ok: true,
     status: "CANCELLED",
-    balance: Number(refunded?.walletBalance || 0),
+    refunded: Number.isFinite(charged) ? charged : 0,
+    balance: Number(updated?.walletBalance ?? nextBalance),
   });
 });
 
@@ -1508,17 +1761,134 @@ app.get("/api/prices/status", (req, res) => {
   });
 });
 
+// Price audit: what each sold service costs us, what we charge, and the margin.
+// Read-only, no keys or provider secrets. `problems` lists every service whose
+// provider cost is above the configured price so the operator can see exactly
+// what cannot be sold and why (never a silent re-price).
+//
+// `?full=1&limit=N` includes the per-country variant breakdown. The summary is
+// small enough to read by hand; the breakdown is for spot checks.
+app.get("/api/prices/audit", (req, res) => {
+  const payload = pricesCache.payload;
+  if (!payload) {
+    return fail(
+      res,
+      503,
+      "PRICES_NOT_READY",
+      "The price catalogue is still loading. Try again in a moment.",
+    );
+  }
+
+  const pricing = getPricingConfig();
+  const limit = Math.min(Number(req.query.limit) || 20, 200);
+  const full = req.query.full === "1" || req.query.full === "true";
+
+  const services = [];
+  const problems = [];
+
+  for (const [serviceId, entry] of Object.entries(SELLABLE_SERVICES)) {
+    const tier = getTierConfig(entry.tier);
+    const catalogueService = entry.catalogueService || serviceId;
+    const rows = [];
+
+    for (const [slug, catalogueServices] of Object.entries(payload)) {
+      const variants = catalogueServices?.[catalogueService];
+      if (!variants || typeof variants !== "object") continue;
+      for (const [variantId, info] of Object.entries(variants)) {
+        if (!info || typeof info !== "object") continue;
+        if (!(Number(info.count) > 0)) continue;
+        const priced = priceVariant(
+          { cost: info.cost, serviceId, variantId },
+          pricing,
+        );
+        if (!priced) continue;
+        rows.push({
+          country: slug,
+          variantId,
+          providerCost: priced.cost,
+          sellingPrice: priced.price,
+          profit: priced.profit,
+          status: priced.status,
+          note: priced.note,
+        });
+      }
+    }
+
+    const inStock = rows.filter((row) => row.status !== "below-min-profit");
+    const cheapest = inStock.length
+      ? inStock.reduce((a, b) => (a.providerCost <= b.providerCost ? a : b))
+      : null;
+    const dearest = rows.length
+      ? rows.reduce((a, b) => (a.providerCost >= b.providerCost ? a : b))
+      : null;
+    const blocked = rows.filter((row) => row.status === "below-min-profit");
+
+    services.push({
+      serviceId,
+      displayName: entry.displayName,
+      providerService: entry.provider,
+      catalogueService,
+      tier: entry.tier,
+      tierLabel: tier?.label ?? null,
+      mode: tier?.mode ?? null,
+      priceWindow: { min: tier?.min ?? null, max: tier?.max ?? null },
+      countriesWithStock: new Set(rows.map((row) => row.country)).size,
+      variantsInStock: rows.length,
+      sellableVariants: inStock.length,
+      blockedVariants: blocked.length,
+      cheapest: cheapest
+        ? { country: cheapest.country, cost: cheapest.providerCost, price: cheapest.sellingPrice, profit: cheapest.profit }
+        : null,
+      dearest: dearest
+        ? { country: dearest.country, cost: dearest.providerCost, price: dearest.sellingPrice, profit: dearest.profit }
+        : null,
+    });
+
+    blocked.slice(0, limit).forEach((row) => {
+      problems.push({
+        serviceId,
+        country: row.country,
+        variantId: row.variantId,
+        providerCost: row.providerCost,
+        requestedPrice: row.sellingPrice,
+        profit: row.profit,
+        note: row.note,
+      });
+    });
+
+    if (full) services[services.length - 1].variants = rows.slice(0, limit);
+  }
+
+  return res.json({
+    pricing: {
+      feeNaira: pricing.feeNaira,
+      minProfitNaira: pricing.minProfitNaira,
+      overCeilingMarkupPercent: pricing.overCeilingMarkupPercent,
+    },
+    tiers: Object.fromEntries(
+      Object.keys(PRICE_TIERS).map((key) => [key, getTierConfig(key)]),
+    ),
+    blockedServices: Object.fromEntries(
+      Object.entries(BLOCKED_SERVICES).map(([id, entry]) => [id, entry.reason]),
+    ),
+    services,
+    problems: problems.slice(0, limit),
+    problemCount: problems.length,
+    auditedAt: new Date().toISOString(),
+  });
+});
+
 app.get("/api/prices", async (req, res) => {
   const now = Date.now();
   const isFresh =
     pricesCache.payload !== null &&
     now - pricesCache.fetchedAt < PRICES_CACHE_TTL_MS;
 
-  // The catalogue carries the provider's COST. The price we charge is derived
-  // from it (server/pricing.js) and attached to each variant here, so the Buy
-  // page shows exactly what the purchase route will charge. The cached payload
-  // is never mutated, and this is applied on every response so a pricing-config
-  // change takes effect without refetching the upstream catalogue.
+  // The catalogue carries the provider's COST. The price we charge comes from
+  // server/pricing.js and is attached to each variant here, so the Buy page
+  // shows exactly what the purchase route will charge. The cached payload is
+  // never mutated, and this runs on every response so a pricing-config change
+  // takes effect without refetching the upstream catalogue.
   //
   // SIZE MATTERS HERE. The upstream catalogue is ~10.7 MB uncompressed (170k
   // variants) and the Buy page could show nothing until all of it had arrived
@@ -1530,46 +1900,137 @@ app.get("/api/prices", async (req, res) => {
   //   - variants with zero stock are dropped. The Buy page only asks whether a
   //     service exists for a country, and purchasing re-quotes from the server's
   //     cached copy, so an omitted out-of-stock variant cannot be bought by
-  //     accident - and it was 112k of the 170k entries.
+  //     accident - and it was 112k of the 170k entries;
+  //   - a service without a configured tier (or blocked by name) is left out
+  //     entirely, so nothing is listed without a real selling price.
+  //
+  // Every variant carries `price`, `cost` and `profit`. A variant that cannot
+  // be sold profitably keeps `price: null` and a `blocked` reason (with the real
+  // cost) so the Buy page can say WHY, instead of showing a fake price.
   const withPrices = (payload) => {
     const pricing = getPricingConfig();
-    const countries = Object.create(null);
+    const cards = Object.entries(SELLABLE_SERVICES);
+
+    // country -> card -> variant -> priced entry. Cards borrow the catalogue
+    // service that holds their variants ("gmail" -> "google"), and each card is
+    // priced by ITS OWN tiers so two cards never show the same price by accident.
+    const priced = Object.create(null);
 
     for (const [slug, services] of Object.entries(payload || {})) {
-      if (!services || typeof services !== "object") {
-        countries[slug] = services;
-        continue;
-      }
-      const pricedServices = Object.create(null);
-      for (const [serviceId, variants] of Object.entries(services)) {
-        if (!variants || typeof variants !== "object") {
-          pricedServices[serviceId] = variants;
-          continue;
-        }
-        const pricedVariants = Object.create(null);
+      if (!services || typeof services !== "object") continue;
+
+      for (const [cardId, entry] of cards) {
+        const catalogueService = entry.catalogueService || cardId;
+        const variants = services[catalogueService];
+        if (!variants || typeof variants !== "object") continue;
+
         for (const [variantId, info] of Object.entries(variants)) {
           if (!info || typeof info !== "object") continue;
           // No stock means nothing to offer; see the note above.
           if (!(Number(info.count) > 0)) continue;
-          pricedVariants[variantId] = {
+
+          const quote = priceVariant(
+            { cost: info.cost, serviceId: cardId, variantId },
+            pricing,
+          );
+          // Not sellable here (unpriced card, or cost too high). There is no
+          // honest price to show, so no price is invented.
+          if (!quote) continue;
+
+          const sellable = quote.status !== "below-min-profit";
+          const bucket = (priced[slug] ||= Object.create(null));
+          const card = (bucket[cardId] ||= Object.create(null));
+          card[variantId] = {
             cost: info.cost,
             count: info.count,
-            price: getSellingPrice(info.cost, pricing),
+            price: sellable ? quote.price : null,
+            profit: sellable ? quote.profit : null,
+            tier: quote.tierKey,
+            blocked: sellable ? null : quote.note,
           };
         }
-        // Drop services left with no purchasable variant. Keeping an empty
-        // object would still make the Buy page list a country for a service
-        // that cannot actually be bought there.
-        if (Object.keys(pricedVariants).length > 0) {
-          pricedServices[serviceId] = pricedVariants;
-        }
-      }
-      if (Object.keys(pricedServices).length > 0) {
-        countries[slug] = pricedServices;
       }
     }
 
-    return countries;
+    // The catalogue service that holds a card's variants, so the purchase route
+    // can look up the cost/variant that was charged.
+    const catalogueServiceByCard = Object.fromEntries(
+      cards.map(([cardId, entry]) => [cardId, entry.catalogueService || cardId]),
+    );
+
+    // The lowest price each card can actually be bought at, anywhere.
+    const sold = Object.create(null);
+    for (const bucket of Object.values(priced)) {
+      for (const [cardId, variants] of Object.entries(bucket)) {
+        for (const variant of Object.values(variants)) {
+          if (variant.blocked) continue;
+          const current = sold[cardId];
+          if (!current || variant.price < current.price) {
+            sold[cardId] = {
+              price: variant.price,
+              tier: variant.tier,
+              tierLabel: getTierConfig(variant.tier)?.label ?? null,
+            };
+          }
+        }
+      }
+    }
+
+    for (const cardId of Object.keys(sold)) {
+      sold[cardId].catalogueService = catalogueServiceByCard[cardId];
+    }
+
+    return { countries: priced, sold, catalogueServiceByCard };
+  };
+
+  // Services the Buy page can show a reason for. It is one small object, so it
+  // is sent with the catalogue instead of being guessed in the browser.
+  const serviceStatus = () => {
+    const status = Object.create(null);
+    for (const serviceId of Object.keys(BLOCKED_SERVICES)) {
+      status[serviceId] = {
+        sellable: false,
+        reason: BLOCKED_SERVICES[serviceId].reason,
+      };
+    }
+    for (const [serviceId, entry] of Object.entries(SELLABLE_SERVICES)) {
+      const tiers = getCardTiers(serviceId).map((key) => getTierConfig(key));
+      const from = tiers.reduce(
+        (low, tier) => (tier?.min != null && tier.min < low ? tier.min : low),
+        Number.MAX_SAFE_INTEGER,
+      );
+      const to = tiers.reduce(
+        (high, tier) => (tier?.max != null && tier.max > high ? tier.max : high),
+        0,
+      );
+      status[serviceId] = {
+        sellable: true,
+        tier: entry.tier,
+        label: entry.displayName,
+        providerService: entry.provider,
+        catalogueService: resolveCatalogueService(serviceId),
+        priceFrom: from === Number.MAX_SAFE_INTEGER ? null : from,
+        priceTo: to || null,
+        // The distinct tiers this card's variants are sold at. One entry means
+        // every variant is the same product (Telegram today), so the Buy page
+        // must not label them as different products.
+        variantTiers: getCardTiers(serviceId),
+        variants: entry.variants || null,
+      };
+    }
+    return status;
+  };
+
+  const respond = (payload, maxAge) => {
+    const { countries, sold, catalogueServiceByCard } = withPrices(payload);
+    res.set("Cache-Control", `private, max-age=${maxAge}`);
+    return res.json({
+      countries,
+      sold,
+      catalogueServiceByCard,
+      serviceStatus: serviceStatus(),
+      pricedAt: Date.now(),
+    });
   };
 
   if (isFresh) {
@@ -1578,8 +2039,7 @@ app.get("/api/prices", async (req, res) => {
     // so coming back to the Buy page inside that window costs no download and
     // no JSON.parse at all. A stale entry is served by the server below, so
     // `must-revalidate` is left off deliberately.
-    res.set("Cache-Control", "private, max-age=600");
-    return res.json(withPrices(pricesCache.payload));
+    return respond(pricesCache.payload, 600);
   }
 
   // STALE, BUT PRESENT. The previous version fell through to `await loadPrices()`
@@ -1601,21 +2061,18 @@ app.get("/api/prices", async (req, res) => {
         // pricesCache.lastError and surfaced by /api/prices/status.
       });
     }
-    res.set("Cache-Control", "private, max-age=60");
-    return res.json(withPrices(pricesCache.payload));
+    return respond(pricesCache.payload, 60);
   }
 
   try {
     // Collapse concurrent misses into ONE upstream request: several users (or
     // the same user reloading) must not each trigger a 100-second fetch.
     const payload = await loadPrices();
-    res.set("Cache-Control", "private, max-age=600");
-    return res.json(withPrices(payload));
+    return respond(payload, 600);
   } catch (error) {
     // A stale copy beats no catalogue at all while the upstream is down.
     if (pricesCache.payload !== null) {
-      res.set("Cache-Control", "private, max-age=60");
-      return res.json(withPrices(pricesCache.payload));
+      return respond(pricesCache.payload, 60);
     }
     const timedOut = error?.name === "AbortError";
     return fail(

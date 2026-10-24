@@ -27,12 +27,19 @@ const API_BASE = (import.meta.env?.VITE_SMS_API_BASE || "/api/sms").replace(
  * How long a request may stay open before the client gives up.
  *
  * This MUST stay below the dev-server proxy's `timeout`/`proxyTimeout`
- * (25000 in vite.config.js). The provider can take ~50s to wake from idle, and
- * when the proxy cut the socket first the fetch rejected as a network error, so
- * a slow-but-successful provider read was reported as "Could not reach the
- * verification provider". Timing out here first always gives a real answer.
+ * (25000 in vite.config.js) AND above the backend's own provider timeout
+ * (GET_TIMEOUT_MS = 60000 in server/smsRouter.js). The provider can take ~50s
+ * to wake from idle; giving up before the backend does reported a slow-but-NOT-
+ * timed-out provider read as "The verification provider timed out", and when
+ * the proxy cut the socket first a successful read was reported as a network
+ * error. The backend now owns that 60s budget and answers every call with a
+ * real result, so the client's ceiling only has to sit below the proxy's.
+ *
+ * That is why it cannot be below 60s: at 20s the client aborted reads the
+ * backend was still completing, which is exactly the false timeout this is
+ * meant to prevent. POST_TIMEOUT_MS is 120s, so the headroom is shared.
  */
-const GET_TIMEOUT_MS = 20000;
+const GET_TIMEOUT_MS = 24000;
 
 /**
  * Buying a number is a POST without a timeout: giving up client-side could leave

@@ -91,7 +91,11 @@ export function getYankeeBalance() {
         throw error;
       }
 
-      return value;
+      // The provider quotes integers in minor units in some deployments and
+      // whole naira in others. `getProviderBalance` in the client applies the
+      // same rule; health/detail reports the normalised value so an operator is
+      // not misled by a "2500" that means 25.00.
+      return match[1].includes(".") ? value : value / 100;
     })
     .catch((error) => {
       if (error?.code === "PROVIDER_NOT_CONFIGURED") throw error;

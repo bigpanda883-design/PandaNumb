@@ -11,11 +11,12 @@ import {
   FiX,
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
-import { setAuthToken, setAuthUser } from "../../auth/authStorage";
+import { saveSession } from "../../auth/authStorage";
 import { registerLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import {
+  isApiOnFrontendHost,
   isBackendUnavailable,
   requestJson,
 } from "../../services/httpClient";
@@ -146,39 +147,57 @@ function SignUp() {
         // Defensive body read: an empty/HTML response (offline phone, static
         // host, proxy down) becomes a readable message rather than
         // "Unexpected end of JSON input".
+        //
+        // The path is the backend's canonical route: server/index.js registers
+        // POST /api/auth/register (and /api/auth/signup as an alias). Both are
+        // session-bearing routes on the configured API host.
         const payload = await requestJson("/api/auth/register", {
           method: "POST",
+          operation: "sign up",
           body: {
             name: values.fullName.trim(),
             fullName: values.fullName.trim(),
-            email: values.email.trim(),
+            email: values.email.trim().toLowerCase(),
             phone: values.phone.trim(),
             password: values.password,
           },
         });
-
         if (!payload?.user) {
           throw new Error("The server returned an invalid sign-up response.");
         }
-
+        if (!payload.token) {
+          throw new Error(
+            "The account was created, but no session token came back. Please log in.",
+          );
+        }
         user = payload.user;
-        token = payload.token || "";
+        token = payload.token;
       } catch (error) {
-        // No server answered (the site is deployed without a backend). Keep the
-        // account in this browser so sign-in still works afterwards.
-        if (!isBackendUnavailable(error)) throw error;
-
+        // The on-device account book is a fallback for a backend that is absent,
+        // never for a real rejection (409 EMAIL_ALREADY_EXISTS, 400
+        // WEAK_PASSWORD...) and never when the app is pointed at the static
+        // frontend host - there a "successful" local signup would create an
+        // account that only exists in this one browser.
+        if (!isBackendUnavailable(error) || isApiOnFrontendHost()) {
+          // A mis-pointed API is a deployment fault, not a rejected form: say
+          // which host was called so the fix (VITE_API_BASE_URL) is obvious.
+          if (isApiOnFrontendHost() && isBackendUnavailable(error)) {
+            throw new Error(
+              "This app is not connected to its server (the sign-up request went to the website host instead of the API). Please try again later.",
+              { cause: error },
+            );
+          }
+          throw error;
+        }
         const local = await registerLocalAccount({
           fullName: values.fullName.trim(),
           email: values.email.trim(),
           phone: values.phone.trim(),
           password: values.password,
         });
-
         if (!local.ok) {
-          throw new Error(local.message);
+          throw new Error(local.message, { cause: error });
         }
-
         user = local.user;
       }
 
@@ -186,20 +205,29 @@ function SignUp() {
       const email = user.email || values.email.trim();
       const phone = user.phone || values.phone.trim();
 
-      setAuthUser({
-        fullName,
-        email,
-        phone,
-        initials: fullName
-          .split(/\s+/)
-          .map((part) => part[0])
-          .join("")
-          .slice(0, 2)
-          .toUpperCase(),
-      });
+      // User + token in one atomic step (see saveSession in authStorage.js):
+      // when a different account was signed in on this browser, its data is
+      // cleared first and the NEW token is written after, so the app can never
+      // end up with a signed-in user and a missing token.
+      const saved = saveSession(
+        {
+          fullName,
+          email,
+          phone,
+          initials: fullName
+            .split(/\s+/)
+            .map((part) => part[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase(),
+        },
+        token,
+      );
 
-      if (token) {
-        setAuthToken(token);
+      if (!saved) {
+        throw new Error(
+          "This browser is blocking site data, so the account session cannot be saved. Enable site data and try again.",
+        );
       }
 
       pushNotification({
