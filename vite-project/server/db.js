@@ -3,10 +3,14 @@ import path from "node:path";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
-const databaseDir = path.join(process.cwd(), "server", "data");
+const databaseDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(process.cwd(), "server", "data");
 fs.mkdirSync(databaseDir, { recursive: true });
 
-const db = new Database(path.join(databaseDir, "panda.db"));
+export const DATABASE_PATH = path.join(databaseDir, "panda.db");
+
+const db = new Database(DATABASE_PATH);
 db.pragma("journal_mode = WAL");
 
 db.exec(`

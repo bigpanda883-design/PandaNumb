@@ -10,6 +10,7 @@ import {
   createPasswordResetCode,
   createPasswordResetToken,
   createSession,
+  DATABASE_PATH,
   deleteAllSessionsForUser,
   deleteSessionByToken,
   getLatestPasswordResetCode,
@@ -36,6 +37,7 @@ import {
   sendLoginNotificationEmail,
   sendPasswordResetEmail,
 } from "./emailService.js";
+import db from "./db.js";
 import {
   getYankeeBalance,
   getYankeeNumbersStatus,
@@ -87,7 +89,7 @@ const resetCodeVerifyRateMap = new Map();
 // makes a wrong API URL fail loudly and visibly instead of silently.
 const ALLOWED_ORIGINS = String(
   process.env.FRONTEND_ORIGINS ||
-    "https://pandanumbers.vercel.app,https://panda-numb.vercel.app,https://*.vercel.app,http://localhost:5173,http://localhost:4173",
+    "https://pandanumbers.vercel.app,https://panda-numb.vercel.app,https://pandanumb.vercel.app,https://*.vercel.app,http://localhost:5173,http://localhost:4173",
 )
   .split(",")
   .map((value) => value.trim().toLowerCase())
@@ -149,10 +151,29 @@ app.use((req, res, next) => {
   return next();
 });
 
-// Health must never need a database or an API key: it is the probe that tells a
+// Health must never need a provider API key: it is the probe that tells a
 // deployment whether the process is alive and reachable at all. It sits AFTER
 // the origin check, so an unlisted origin is still refused here.
-app.get("/api/health", (req, res) => res.json({ ok: true }));
+//
+// `dbOk` / `accounts` are what tell "the backend is up" apart from "the backend
+// is up but looking at a different (or freshly emptied) database" - the exact
+// cause of "my account exists locally but not on the live site". Only a COUNT is
+// reported: no email address, hash or token is ever returned.
+app.get("/api/health", (req, res) => {
+  let dbOk = true;
+  let accounts = null;
+  try {
+    accounts = db.prepare("SELECT COUNT(*) AS c FROM users").get()?.c ?? 0;
+  } catch {
+    dbOk = false;
+  }
+  return res.json({
+    ok: true,
+    dbOk,
+    accounts,
+    persistentStorage: Boolean(process.env.DATA_DIR),
+  });
+});
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -446,6 +467,24 @@ app.get("/api/wallet/balance", authMiddleware, (req, res) => {
 });
 
 app.post("/api/wallet/deposit", authMiddleware, async (req, res) => {
+  // Payment integration is not complete yet. This endpoint used to CREDIT the
+  // wallet for free (the client calls it a "demo deposit"), which turned real
+  // money in the database into fiction: anyone could fund any amount without
+  // paying. It now refuses explicitly while no payment provider is wired, so no
+  // fake balance can be created.
+  //
+  // To finish it, verify the provider's webhook/charge server-side, then credit
+  // here with updateUserWalletBalance + appendUserTransaction - the existing
+  // `amount`, balance and transaction flow below is ready for that.
+  if (!process.env.PAYMENT_PROVIDER) {
+    return fail(
+      res,
+      503,
+      "PAYMENT_NOT_CONFIGURED",
+      "Card funding is not available yet. Your balance was not changed.",
+    );
+  }
+
   const amount = Number(req.body?.amount ?? req.body?.value ?? 0);
 
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -2268,6 +2307,30 @@ app.listen(PORT, "0.0.0.0", () => {
   );
   console.log("[panda-server] authentication and SMS routes are active");
 
+  // Where accounts are actually stored. A production login that "worked on the
+  // laptop" almost always means the browser is talking to a DIFFERENT database
+  // than the one the account was created in, so print the resolved path and the
+  // account count at every start (no email addresses, no password hashes).
+  // On Render, unless DATA_DIR points at a mounted disk (e.g. /var/data), this
+  // path lives in the container's ephemeral filesystem and is emptied on every
+  // deploy/restart - see DATA_DIR in the deployment notes.
+  {
+    let accountCount = "unknown";
+    try {
+      accountCount = db.prepare("SELECT COUNT(*) AS c FROM users").get()?.c ?? 0;
+    } catch {
+      // Leave "unknown": the database itself failed to open, which /api/health
+      // reports as dbOk:false.
+    }
+    console.log(
+      `[panda-server] database: ${DATABASE_PATH} (${accountCount} accounts, ${
+        process.env.DATA_DIR
+          ? "persistent DATA_DIR"
+          : "no DATA_DIR - ephemeral on Render"
+      })`,
+    );
+  }
+
   // Fail loudly at startup when the provider key is missing. Without this the
   // server looks healthy while every /api/sms request answers 503, and the UI
   // reports it as "temporarily unavailable" - which sends people into a retry
@@ -2279,4 +2342,12 @@ app.listen(PORT, "0.0.0.0", () => {
         "Check GET /api/sms/health (keyConfigured) to confirm.",
     );
   }
+
+  // The browser origins allowed to call this API. A frontend on a host that is
+  // not listed here gets 403 ORIGIN_NOT_ALLOWED for every request, which looks
+  // exactly like "login is broken in production". Printing the effective list
+  // (public information, no secret) makes that visible in the Render log.
+  console.log(
+    `[panda-server] allowed frontend origins: ${ALLOWED_ORIGINS.join(", ")}`,
+  );
 });
