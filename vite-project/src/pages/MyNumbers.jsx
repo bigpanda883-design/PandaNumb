@@ -22,6 +22,7 @@ import {
   subscribeToActivations,
 } from "../wallet/activationStore";
 import { usePageLoading } from "../hooks/usePageLoading";
+import { fetchBalance } from "../wallet/walletStore";
 import { MyNumbersSkeleton } from "../components/skeleton/PageSkeletons";
 import "../CSS/dashboard/pages/MyNumbers.css";
 
@@ -114,6 +115,15 @@ function MyNumbers() {
         // surface it when there is nothing else to show.
         if (getActivations().length === 0) setListError(error);
       });
+
+    // Hydrating the list also means asking the server, so this is the right
+    // place to restore a balance the server already knows about. `useBalance`
+    // only runs on the dashboard/Buy page; without this, opening My Numbers
+    // first showed a cached or zero balance even though the wallet had money.
+    fetchBalance().catch(() => {
+      // Offline / signed out: the cached wallet value stays on screen.
+    });
+
     return () => controller.abort();
   }, []);
 

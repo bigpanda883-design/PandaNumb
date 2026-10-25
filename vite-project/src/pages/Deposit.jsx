@@ -78,7 +78,8 @@ export default function Deposit() {
       setAmount(1000);
     } catch (depositError) {
       setError(
-        depositError?.message || "The demo deposit could not be processed.",
+        depositError?.message ||
+          "Card funding is not available yet. Your balance was not changed.",
       );
     } finally {
       setIsSubmitting(false);
@@ -179,7 +180,7 @@ export default function Deposit() {
         </div>
       )}
 
-      {/* STEP 2: LOCAL DEMO DEPOSIT */}
+      {/* STEP 2: PAYMENT PENDING */}
       {step === 2 && (
         <div className="deposit-card">
           <div className="card-top-nav">
@@ -190,22 +191,22 @@ export default function Deposit() {
             >
               <FiChevronLeft />
             </button>
-            <h3 className="card-title">Confirm demo deposit</h3>
+            <h3 className="card-title">Card payment not available yet</h3>
           </div>
           <div className="demo-banner" role="status">
             <FiAlertCircle className="demo-icon" aria-hidden="true" />
             <div className="demo-text">
-              <strong>Temporary local deposit API</strong>
+              <strong>Payment provider not connected</strong>
               <p>
-                This is a backend-only demo payment flow for testing the wallet
-                and purchase journey before the real payment provider is
-                connected.
+                Card funding is still being set up. Nothing will be charged and
+                your balance will not change. Buying a number needs wallet funds,
+                so number purchases stay unavailable until card funding is live.
               </p>
             </div>
           </div>
 
           <div className="deposit-confirm-amount">
-            Deposit amount: <strong>₦{Number(amount).toLocaleString()}</strong>
+            Amount you selected: <strong>₦{Number(amount).toLocaleString()}</strong>
           </div>
 
           <button
@@ -214,7 +215,7 @@ export default function Deposit() {
             onClick={handleConfirmDeposit}
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Processing deposit..." : "Confirm deposit"}
+            {isSubmitting ? "Checking payment status..." : "Continue"}
           </button>
 
           <button

@@ -36,16 +36,45 @@ const DEFAULT_TIMEOUT_MS = 20_000;
  *
  * Resolution order:
  *   1. `globalThis.__PANDA_API_BASE_URL__` - runtime override (tests, e2e).
- *   2. `VITE_API_BASE_URL` at build time - the Render URL in production.
- *   3. `VITE_BACKEND_URL` - alias kept so an existing project env still works.
- *   4. Same origin - correct in dev (Vite proxy) and when Render also serves
- *      the build.
+ *   2. `VITE_API_URL` / `VITE_API_BASE_URL` / `VITE_BACKEND_URL` at build time -
+ *      the Render URL in production. Any of the three names is accepted so an
+ *      existing Vercel variable is not silently ignored because it is spelled
+ *      differently.
+ *   3. A same-origin deployment that serves the API itself (Render also hosts
+ *      the build).
+ *   4. Only as a LAST resort on a deployed host with no configured base: the
+ *      production backend constant below.
  */
 const BUNDLED_API_BASE_URL =
   (typeof import.meta !== "undefined" &&
     import.meta.env &&
-    (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL)) ||
+    (import.meta.env.VITE_API_URL ||
+      import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_BACKEND_URL)) ||
   "";
+
+/**
+ * The deployed backend, used ONLY when no VITE_* variable made it into a build
+ * that is being served from a NON-LOCAL host.
+ *
+ * This is a PUBLIC URL (it appears in every request the browser makes anyway),
+ * not a secret. It exists because a Vercel Production variable only reaches a
+ * build created AFTER it is saved: a deploy made before that kept calling
+ * `/api/...` on the static Vercel host, which answers with index.html. That is
+ * the production-only login failure this removes.
+ *
+ * It is evaluated at RUNTIME and never on localhost, so `npm run dev`,
+ * `vite preview` and the Vite proxy behave exactly as before.
+ */
+const PRODUCTION_API_BASE_URL = "https://pandanumbers-api.onrender.com";
+
+/**
+ * True when the page is in a test runner (node), where a relative URL has no
+ * origin to resolve against. `import.meta.env.SSR` covers Vite builds.
+ */
+const IS_NON_BROWSER =
+  typeof window === "undefined" ||
+  Boolean(typeof import.meta !== "undefined" && import.meta.env?.SSR);
 
 let API_BASE_URL = BUNDLED_API_BASE_URL;
 
@@ -82,15 +111,70 @@ function pointsAtFrontendHost() {
   }
 }
 
-/**
- * Same-origin by default. `globalThis.__PANDA_API_BASE_URL__` is the runtime
- * override used by tests and by deployments that host the API separately.
- */
-export function getApiBaseUrl() {
-  return normaliseBaseUrl(
-    globalThis.__PANDA_API_BASE_URL__ ||
-      (globalThis.__PANDA_API_BASE_URL_LOCKED__ ? "" : API_BASE_URL),
+/** True when the page is being served from this machine (dev / preview). */
+function isLocalPage() {
+  if (typeof window === "undefined") return false;
+  const host = String(window.location.hostname || "").toLowerCase();
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.endsWith(".localhost")
   );
+}
+
+/**
+ * Decide which host the API lives on.
+ *
+ * - a configured base (VITE_API_URL / VITE_API_BASE_URL / VITE_BACKEND_URL) always
+ *   wins, on localhost and deployed alike;
+ * - otherwise localhost uses same-origin, which the Vite proxy forwards to the
+ *   local Express server;
+ * - otherwise (a deployed host with no configured base) the production backend
+ *   is used, because same-origin there is the static frontend, which has no
+ *   /api routes - that request would be answered with index.html;
+ * - in a non-browser (node tests) an empty base is kept relative, exactly as
+ *   before.
+ */
+function resolveApiBaseUrl() {
+  if (API_BASE_URL) return API_BASE_URL;
+  if (IS_NON_BROWSER || isLocalPage()) return "";
+  return PRODUCTION_API_BASE_URL;
+}
+
+/**
+ * Same-origin in development, the configured backend everywhere else.
+ * `globalThis.__PANDA_API_BASE_URL__` is the runtime override used by tests and
+ * by deployments that host the API separately.
+ *
+ * Printed ONCE at startup so the real base URL of a deployment is visible in the
+ * browser console without opening the Network tab. A bare relative path in a
+ * production build is the single most common cause of "works locally, fails
+ * live", so it is called out explicitly.
+ */
+let baseUrlLogged = false;
+
+export function getApiBaseUrl() {
+  const baseUrl = normaliseBaseUrl(
+    globalThis.__PANDA_API_BASE_URL__ ||
+      (globalThis.__PANDA_API_BASE_URL_LOCKED__ ? "" : resolveApiBaseUrl()),
+  );
+
+  if (!baseUrlLogged && typeof window !== "undefined" && !IS_NON_BROWSER) {
+    baseUrlLogged = true;
+    if (baseUrl) {
+      console.info(`[panda] API base URL: ${baseUrl}`);
+    } else {
+      console.info(
+        `[panda] API base URL: same origin (${window.location.origin}) - ` +
+          "dev/preview only; a deployed build must set VITE_API_URL.",
+      );
+    }
+  }
+
+  return baseUrl;
 }
 
 /**
@@ -157,6 +241,10 @@ export class ApiError extends Error {
 export function isBackendUnavailable(error) {
   if (!(error instanceof ApiError)) return false;
   if (error.kind === "network" || error.kind === "timeout") return true;
+  // The server answered 503 UNCONFIGURED: it is running but missing a required
+  // secret. That is a deployment fault, not a rejected password - reporting it
+  // as "unavailable" lets the auth pages say so instead of "Request failed".
+  if (error.status === 503 && error.code === "UNCONFIGURED") return true;
   // An HTML/unparseable body: the request reached something that is not our
   // API (SPA rewrite, proxy error page, captive portal).
   if (error.kind === "parse") return true;
@@ -291,9 +379,9 @@ export async function requestJson(path, options = {}) {
     operation = "",
     // Session mode. The backend authenticates with a Bearer token that the
     // pages store themselves, so cookies are only needed when a caller
-    // explicitly asks for them. Sending `credentials: "include"` on every call
-    // makes the browser refuse a plain `Access-Control-Allow-Origin: *`, which
-    // is exactly what a missing CORS header on mobile data looks like.
+    // explicitly asks for them. Production calls are cross-origin
+    // (Vercel -> Render) and use the Authorization header only, so nothing
+    // ambient (a cookie) is ever sent.
     credentials = "omit",
   } = options;
 

@@ -17,6 +17,8 @@
  *   GET /api/sms/set-status?id=&status=  -> ACCESS_ACTIVATION | ACCESS_CANCEL | ...
  */
 
+import { getApiBaseUrl } from "./httpClient.js";
+
 // Strip any trailing slash so "/api/sms/" + "/balance" never becomes "//balance".
 const API_BASE = (import.meta.env?.VITE_SMS_API_BASE || "/api/sms").replace(
   /\/+$/,
@@ -178,9 +180,22 @@ function asProviderError(error, code = "PROVIDER_BAD_RESPONSE") {
  */
 const looksLikeMarkup = (text) => /^<(!doctype|html|body|head)\b/i.test(text);
 
-/** Build a URL against our own backend. No key is added - it lives server-side. */
+/**
+ * Build a URL against our own backend. No key is added - it lives server-side.
+ *
+ * The base MUST come from getApiBaseUrl(): on Vercel the page origin is the
+ * static frontend, so a relative "/api/sms/stock" resolved against
+ * window.location.origin was answered by the SPA rewrite (index.html), and the
+ * Buy page reported "inventory unavailable" while the laptop - where the Vite
+ * proxy forwards /api - worked. A path that is already absolute (an operator
+ * setting VITE_SMS_API_BASE to https://<backend>/api/sms) is used as-is.
+ */
 function buildUrl(path, params = {}) {
-  const url = new URL(`${API_BASE}${path}`, window.location.origin);
+  const isAbsolute = /^https?:\/\//i.test(API_BASE);
+  const base = isAbsolute
+    ? API_BASE.replace(/\/+$/, "")
+    : `${getApiBaseUrl()}${API_BASE}`;
+  const url = new URL(`${base}${path}`, window.location.origin);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, String(value));
