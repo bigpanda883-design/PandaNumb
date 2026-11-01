@@ -32,7 +32,18 @@ export { ApiError };
  *
  * wallet
  *   GET  /api/wallet/balance     -> { balance: number }            (naira)
- *   POST /api/wallet/deposit     -> { balance, transaction }
+ *   GET  /api/payments/config    -> { configured, missing[], mode, currency }
+ *   GET  /api/wallet/virtual-account
+ *                                -> { account, state, configured, mode, missing[] }
+ *   POST /api/wallet/virtual-account { bvn?|nin?, firstName?, lastName? }
+ *                                -> { ok, created, account }
+ *   GET  /api/wallet/deposits?limit&offset
+ *                                -> { deposits[], total, balance }
+ *
+ * There is deliberately NO "credit my wallet" call: a balance only grows when
+ * Flutterwave confirms a bank transfer into the user's virtual account (see
+ * server/flutterwave.js and the webhook in server/index.js), and the old
+ * POST /api/wallet/deposit answers 410 DEPOSIT_ENDPOINT_REMOVED.
  *
  * transactions
  *   GET  /api/transactions       -> { transactions: Transaction[] }
@@ -93,8 +104,18 @@ export async function apiRequest(path, options = {}) {
   try {
     return await requestJson(path, options);
   } catch (error) {
-    if (error instanceof ApiError && options.operation) {
-      error.message = `${options.operation}: ${error.message}`;
+    // `requestJson` already names the failing call and, when the server sent a
+    // message, uses that message verbatim (see describeFailure in httpClient.js).
+    // This used to prefix AGAIN, which is where the doubled
+    //   "deposit to wallet: deposit to wallet: Card funding is not available yet."
+    // came from. Only label an error that carries no message at all - there is
+    // nothing to duplicate in that case.
+    if (
+      error instanceof ApiError &&
+      options.operation &&
+      !String(error.message || "").trim()
+    ) {
+      error.message = `${options.operation} failed. Please try again.`;
     }
     throw error;
   }
@@ -183,18 +204,66 @@ export async function fetchWalletBalance({ signal } = {}) {
   return typeof payload?.balance === "number" ? payload.balance : 0;
 }
 
-export async function depositToWallet(amount, { signal } = {}) {
-  const payload = await apiRequest("/api/wallet/deposit", {
+/**
+ * What bank-transfer funding still needs before it can run. Public and
+ * secret-free: it reports which settings are present and whether the server is
+ * on a Flutterwave test or live key - never a key, prefix or length.
+ */
+export async function fetchPaymentsConfig({ signal } = {}) {
+  return apiRequest("/api/payments/config", {
+    signal,
+    operation: "load payment configuration",
+  });
+}
+
+/**
+ * The user's saved virtual bank account (or `account: null` with a `state` of
+ * NOT_CREATED / FAILED / PENDING). One indexed read on the server: this does not
+ * call Flutterwave, so it is safe to run on every Deposit page load.
+ */
+export async function fetchVirtualAccount({ signal } = {}) {
+  return apiRequest("/api/wallet/virtual-account", {
+    signal,
+    operation: "load bank account",
+    headers: authHeaders(),
+  });
+}
+
+/**
+ * Create the user's permanent virtual account. Idempotent: when one already
+ * exists the server returns it instead of creating a second.
+ *
+ * `bvn`/`nin` are sent ONCE, over HTTPS, to be forwarded to Flutterwave for this
+ * step only. They are not stored by our backend and are never returned.
+ */
+export async function createVirtualAccount(
+  { bvn, nin, firstName, lastName } = {},
+  { signal } = {},
+) {
+  const body = {};
+  if (bvn) body.bvn = String(bvn).replace(/\D/g, "");
+  if (nin) body.nin = String(nin).replace(/\D/g, "");
+  if (firstName) body.firstName = String(firstName).trim();
+  if (lastName) body.lastName = String(lastName).trim();
+
+  return apiRequest("/api/wallet/virtual-account", {
     method: "POST",
     signal,
-    operation: "deposit to wallet",
+    operation: "create bank account",
     headers: authHeaders(),
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify(body),
   });
+}
 
-  return {
-    balance: payload?.balance,
-    transaction: payload?.transaction,
-    user: payload?.user,
-  };
+/**
+ * The user's bank-transfer deposits, newest first. `limit` is capped server-side
+ * at 100, so a large value cannot turn this into a heavy query.
+ */
+export async function fetchDeposits({ limit = 10, offset = 0, signal } = {}) {
+  const query = `?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
+  return apiRequest(`/api/wallet/deposits${query}`, {
+    signal,
+    operation: "load deposits",
+    headers: authHeaders(),
+  });
 }

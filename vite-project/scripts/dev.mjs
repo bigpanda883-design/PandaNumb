@@ -48,10 +48,20 @@ if (!apiKey) {
 
 const processes = [];
 
+/**
+ * The dev servers are run ONCE together. A second `npm run dev` while the first
+ * is still up used to fail with "Port 5173 is already in use" - and, worse, to
+ * leave its own freshly spawned API server running (see `shutdown` below).
+ */
 function run(name, command, args) {
-  const child = spawn(command, args, {
-    stdio: "inherit",
-    shell: process.platform === "win32",
+  // No shell on Windows: the .cmd shims are resolved explicitly below, so the
+  // process tree stays in one place (killing a shell wrapper orphaned the
+  // servers it had started) and no untrusted argument is ever re-parsed.
+  const child = spawn(command, args, { stdio: "inherit" });
+
+  child.on("error", (error) => {
+    console.error(`[dev] could not start ${name}: ${error.message}`);
+    shutdown(1);
   });
 
   child.on("exit", (code) => {
@@ -60,26 +70,53 @@ function run(name, command, args) {
     if (code !== 0 && code !== null) {
       console.error(`[dev] ${name} exited with code ${code}`);
     }
-    shutdown();
+    shutdown(code ?? 0);
   });
 
   processes.push(child);
   return child;
 }
 
-let shuttingDown = false;
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
+/**
+ * Kill every child and END THE PROCESS.
+ *
+ * The old version killed them and called process.exit(0) itself, but the child
+ * `exit` handler could fire re-entrantly and the servers kept listening. Code is
+ * propagated so a failing stack exits non-zero.
+ */
+function stopAll(code) {
   processes.forEach((child) => {
-    if (!child.killed) child.kill();
+    if (!child.killed && child.exitCode === null) child.kill();
   });
-  process.exit(0);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    stopAll(0);
+    process.exit(0);
+  });
+}
+
+// A hard stop on the way out: anything still listening would hold the port for
+// the next `npm run dev`.
+process.on("exit", stopAll);
+
+let shuttingDown = false;
+function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopAll(code);
+  // Give the children a moment to close their listeners, then leave with the
+  // real status instead of a misleading 0.
+  setTimeout(() => process.exit(code), 300);
+}
+
+/** `npx`/`vite` are .cmd shims on Windows and only run through a shell. */
+const NPX =
+  process.platform === "win32"
+    ? path.join(path.dirname(process.execPath), "npx.cmd")
+    : "npx";
 
 // Server first, so the proxy is listening before the client requests it.
-run("server", "node", [`--env-file=${ENV_FILE}`, "server/index.js"]);
-run("client", "npx", ["vite"]);
+run("server", process.execPath, [`--env-file=${ENV_FILE}`, "server/index.js"]);
+run("client", NPX, ["vite"]);

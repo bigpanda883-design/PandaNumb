@@ -18,4 +18,13 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  // The Express server and its tooling run in Node, not in a browser. Without
+  // this block every `process.env` read was reported as `no-undef`, which hid
+  // real errors in the server files behind 87 false ones.
+  {
+    files: ['server/**/*.js', 'scripts/**/*.mjs', 'scripts/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
 ])

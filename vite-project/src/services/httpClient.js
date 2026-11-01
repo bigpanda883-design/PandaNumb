@@ -69,6 +69,29 @@ const BUNDLED_API_BASE_URL =
 const PRODUCTION_API_BASE_URL = "https://pandanumbers-api.onrender.com";
 
 /**
+ * True when a URL points at this machine.
+ *
+ * A deployed build must never contain one. `VITE_API_URL=http://localhost:8787`
+ * left in a Vercel environment makes every browser - including a phone - call
+ * the visitor's own machine, failing with a network error whose cause is
+ * invisible from the UI.
+ */
+function isLocalhostUrl(value) {
+  try {
+    const url = new URL(value);
+    return (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "0.0.0.0" ||
+      url.hostname === "::1" ||
+      url.hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when the page is in a test runner (node), where a relative URL has no
  * origin to resolve against. `import.meta.env.SSR` covers Vite builds.
  */
@@ -99,6 +122,10 @@ function normaliseBaseUrl(value) {
  */
 function pointsAtFrontendHost() {
   if (typeof window === "undefined") return false;
+  // A local dev/preview page normally uses same-origin ON PURPOSE (the Vite
+  // proxy forwards /api to the Express server), so it is not a misconfigured
+  // deployment. Reporting it as one made `npm run preview` unable to log in.
+  if (isDevHost()) return false;
   const baseUrl = getApiBaseUrl();
   // No base at all -> the request goes to window.location.
   if (!baseUrl) return true;
@@ -126,21 +153,72 @@ function isLocalPage() {
 }
 
 /**
+ * True when the page is served from the DEVELOPMENT stack: this machine, or
+ * another device on the same network reaching it (a phone on the LAN).
+ *
+ * THE BUG THIS FIXES
+ * ------------------
+ * `isLocalPage()` only recognised localhost/127.0.0.1. A phone opening
+ * http://192.168.1.20:5173 is neither of those, so the base resolved to the
+ * PRODUCTION backend: the phone called Render directly while the laptop called
+ * the local Express server. Login then "worked on the laptop" but failed or
+ * behaved differently on the phone - and every other API did too. Private LAN
+ * ranges are exactly the dev server's other address, so they belong here.
+ * A public deployment (Vercel/Render) is never in these ranges.
+ */
+function isDevHost() {
+  if (isLocalPage()) return true;
+  if (typeof window === "undefined") return false;
+
+  const host = String(window.location.hostname || "").toLowerCase();
+  if (!host) return false;
+
+  // 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, and the 169.254.x link-local
+  // address a phone falls back to when the router gives out no DHCP lease.
+  return (
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)
+  );
+}
+
+/**
  * Decide which host the API lives on.
  *
  * - a configured base (VITE_API_URL / VITE_API_BASE_URL / VITE_BACKEND_URL) always
  *   wins, on localhost and deployed alike;
- * - otherwise localhost uses same-origin, which the Vite proxy forwards to the
- *   local Express server;
+ * - otherwise a LOCAL page (localhost OR a LAN address such as 192.168.x,
+ *   which is how a phone reaches the dev server) uses same-origin, so the
+ *   request is a relative `/api/...` that the Vite proxy forwards to the local
+ *   Express server. Absolute URLs are unchanged, so this never affects a real
+ *   deployment);
  * - otherwise (a deployed host with no configured base) the production backend
  *   is used, because same-origin there is the static frontend, which has no
  *   /api routes - that request would be answered with index.html;
  * - in a non-browser (node tests) an empty base is kept relative, exactly as
  *   before.
+ *
+ * A configured base that points at THIS page's own host is also ignored on a
+ * deployed page. That is the "no API URL configured" login failure in another
+ * shape: VITE_API_URL set to the Vercel host itself makes every /api request
+ * land on the static file server, which has no /api routes.
  */
 function resolveApiBaseUrl() {
-  if (API_BASE_URL) return API_BASE_URL;
-  if (IS_NON_BROWSER || isLocalPage()) return "";
+  const configured =
+    API_BASE_URL &&
+    (IS_NON_BROWSER ||
+      isDevHost() ||
+      (!isLocalhostUrl(API_BASE_URL) && !pointsAtPageHost(API_BASE_URL)))
+      ? API_BASE_URL
+      : "";
+
+  if (configured) return configured;
+  if (IS_NON_BROWSER || isDevHost()) return "";
+
+  // No usable configured base (unset, or a localhost URL that cannot work from
+  // a deployed page): use the production default rather than the static
+  // frontend host, which has no /api routes.
   return PRODUCTION_API_BASE_URL;
 }
 
@@ -156,6 +234,16 @@ function resolveApiBaseUrl() {
  */
 let baseUrlLogged = false;
 
+/** True when `value` resolves to the host serving this page. */
+function pointsAtPageHost(value) {
+  if (typeof window === "undefined" || !window.location) return false;
+  try {
+    return new URL(value, window.location.origin).host === window.location.host;
+  } catch {
+    return false;
+  }
+}
+
 export function getApiBaseUrl() {
   const baseUrl = normaliseBaseUrl(
     globalThis.__PANDA_API_BASE_URL__ ||
@@ -164,7 +252,19 @@ export function getApiBaseUrl() {
 
   if (!baseUrlLogged && typeof window !== "undefined" && !IS_NON_BROWSER) {
     baseUrlLogged = true;
-    if (baseUrl) {
+    if (API_BASE_URL && !isDevHost() && isLocalhostUrl(API_BASE_URL)) {
+      console.error(
+        `[panda] VITE_API_URL is ${API_BASE_URL}, which only exists on a ` +
+          "developer's machine. Ignored in this deployment - set it to the " +
+          `public backend URL and redeploy. Using ${baseUrl || "same origin"} instead.`,
+      );
+    } else if (baseUrl && API_BASE_URL && !isDevHost() && pointsAtPageHost(API_BASE_URL)) {
+      console.error(
+        `[panda] VITE_API_URL is ${API_BASE_URL}, which is this website's own ` +
+          "host (static files only, no /api routes). Ignored - the API host is " +
+          `${baseUrl}.`,
+      );
+    } else if (baseUrl) {
       console.info(`[panda] API base URL: ${baseUrl}`);
     } else {
       console.info(
@@ -206,6 +306,8 @@ export class ApiError extends Error {
   constructor(message, details = {}) {
     super(message);
     this.name = "ApiError";
+    /** The caller's name for the call ("login", "purchase a number"), or "". */
+    this.operation = details.operation ?? "";
     /** HTTP status, or 0 when the request never got a response. */
     this.status = details.status ?? 0;
     /** Machine-readable code from the API, when it sent one. */
@@ -309,22 +411,26 @@ function describeFailure({ kind, status, data, operation = "" }) {
       ? data.message.trim()
       : "";
 
-  // Every message ends with the operation name (when the caller supplied one),
-  // so a failure is never an anonymous "Request failed (500).".
+  // The caller's operation name makes a GENERIC failure name the call, so it is
+  // never an anonymous "Request failed (500).".
   const withOperation = (message) =>
     operation ? `${operation}: ${message}` : message;
 
+  // ...but it is a developer label, not something a customer should read. When
+  // the server already explained itself, that sentence is the message: prefixing
+  // it produced "sign up: This phone number has already been used." and
+  // "purchase a number: Your wallet balance is not enough...". The operation is
+  // still kept on `ApiError.operation` for logs and diagnostics.
+  const explain = (fallback) => serverMessage || withOperation(fallback);
+
   if (kind === "network") {
-    return withOperation(
-      serverMessage ||
-        "Cannot reach the server. Check your internet connection and try again.",
+    return explain(
+      "Cannot reach the server. Check your internet connection and try again.",
     );
   }
 
   if (kind === "timeout") {
-    return withOperation(
-      serverMessage || "The server took too long to respond. Please try again.",
-    );
+    return explain("The server took too long to respond. Please try again.");
   }
 
   if (kind === "parse") {
@@ -334,21 +440,14 @@ function describeFailure({ kind, status, data, operation = "" }) {
         "The app is not connected to its server yet. Please try again in a moment.",
       );
     }
-    return withOperation(
-      serverMessage ||
-        "The server sent an unexpected response. Please try again.",
-    );
+    return explain("The server sent an unexpected response. Please try again.");
   }
 
   if (status === 429) {
-    return withOperation(
-      serverMessage || "Too many attempts. Please wait and try again.",
-    );
+    return explain("Too many attempts. Please wait and try again.");
   }
 
-  return withOperation(
-    serverMessage || `Request failed (${status || "unknown"}).`,
-  );
+  return explain(`Request failed (${status || "unknown"}).`);
 }
 
 /**
@@ -453,7 +552,7 @@ export async function requestJson(path, options = {}) {
           data: null,
           operation,
         }),
-        { kind: "http", status: response.status },
+        { kind: "http", status: response.status, operation },
       );
     }
     return null;
@@ -479,6 +578,7 @@ export async function requestJson(path, options = {}) {
         kind: "http",
         status: response.status,
         code: serverCode,
+        operation,
       },
     );
   }
@@ -493,7 +593,7 @@ export async function requestJson(path, options = {}) {
         data: null,
         operation,
       }),
-      { kind: "parse", status: response.status },
+      { kind: "parse", status: response.status, operation },
     );
   }
 

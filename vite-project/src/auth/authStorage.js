@@ -193,7 +193,12 @@ export async function registerLocalAccount({
     };
   }
 
-  const { salt: _salt, hash: _hash, ...user } = accounts[key];
+  // The public user object must not carry the credential material back into the
+  // UI/store. `salt`/`hash` are already bound above, so the left-out keys are
+  // destructured into differently named throwaways.
+  const { salt: _dropSalt, hash: _dropHash, ...user } = accounts[key];
+  void _dropSalt;
+  void _dropHash;
   return { ok: true, user };
 }
 
@@ -216,7 +221,9 @@ export async function authenticateLocalAccount({ email, password }) {
     return failure;
   }
 
-  const { salt: _salt, hash: _hash, ...user } = account;
+  const { salt: _dropSalt, hash: _dropHash, ...user } = account;
+  void _dropSalt;
+  void _dropHash;
   return { ok: true, user };
 }
 
