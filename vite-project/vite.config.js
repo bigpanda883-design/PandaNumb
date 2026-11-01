@@ -44,5 +44,18 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
     port: 4173,
+    // A preview of the build must talk to a REAL backend, exactly like the dev
+    // server does. Without this, `/api/...` was answered by the preview's
+    // static handler, which is the same "no API" failure the deployed site
+    // hits. Nothing else changes: the built bundle still carries the API URL
+    // from .env.production.
+    proxy: {
+      "/api": {
+        target: `http://127.0.0.1:${process.env.PORT || 8787}`,
+        changeOrigin: true,
+        timeout: 25000,
+        proxyTimeout: 25000,
+      },
+    },
   },
 });

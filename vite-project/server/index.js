@@ -1,16 +1,38 @@
-﻿import express from "express";
+import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 
 import {
+  appendDepositTransactionIfMissing,
   appendUserNumber,
   appendUserTransaction,
+  assertModeMatches as assertDepositModeMatches,
+  claimVirtualAccountSlot,
+  reclaimVirtualAccountSlot,
+  clearWebhookEvent,
   createUser,
   createPasswordResetCode,
   createPasswordResetToken,
   createSession,
+  creditWallet,
   DATABASE_PATH,
+  debitWallet,
+  findUserForDeposit,
+  getDepositByTransactionId,
+  getVirtualAccountForUser,
+  listDepositsForUser,
+  listUncreditedDeposits,
+  markVirtualAccountFailure,
+  recordConfirmedDeposit,
+  recordUnconfirmedDeposit,
+  recordUnmatchedDeposit,
+  saveVirtualAccountDetails,
+  listUnmatchedDeposits,
+  LEDGER_REASONS,
+  ledgerBalance,
+  markWebhookProcessed,
+  recordWebhookEvent,
   deleteAllSessionsForUser,
   deleteSessionByToken,
   getLatestPasswordResetCode,
@@ -29,7 +51,6 @@ import {
   safeUser,
   updateUserNumber,
   updateUserPassword,
-  updateUserWalletBalance,
 } from "./db.js";
 import {
   RESET_CODE_TTL_MINUTES,
@@ -49,10 +70,20 @@ import {
 import {
   resolveProviderCountry,
   resolveProviderService,
-  YANKEE_SERVICE_MAP,
 } from "./providerMapping.js";
 import smsProxyRouter from "./smsProxy.js";
 import smsRouter from "./smsRouter.js";
+import {
+  createPermanentVirtualAccount,
+  describeConfig as describeFlutterwaveConfig,
+  extractVirtualAccountNumber,
+  FlutterwaveError,
+  findVirtualAccounts,
+  isConfigured as isFlutterwaveConfigured,
+  isTestKey as isFlutterwaveTestKey,
+  verifyTransaction as verifyFlutterwaveTransaction,
+} from "./flutterwave.js";
+import { DEPOSIT_LIMITS } from "./depositLimits.js";
 import {
   BLOCKED_SERVICES,
   getBlockedReason,
@@ -97,12 +128,24 @@ const ALLOWED_ORIGINS = String(
 
 function isAllowedOrigin(origin) {
   if (!origin) return true; // curl, health checks, same-origin server calls
-  let host;
+  let url;
   try {
-    host = new URL(origin).host.toLowerCase();
+    url = new URL(origin);
   } catch {
     return false;
   }
+  const host = url.host.toLowerCase();
+
+  // A phone testing the dev server reaches it as http://<lan-ip>:5173, which no
+  // static allow-list can predict (it changes per network). Every request from
+  // that phone was refused with 403 ORIGIN_NOT_ALLOWED, so login and every other
+  // API failed on mobile while the laptop worked. This is only ever a plain-HTTP
+  // private/LAN address - a public deployment is https and never matches - and
+  // the app's auth is a Bearer token, not ambient cookies, so allowing it grants
+  // a local-network device nothing a browser on the laptop does not already
+  // have.
+  if (url.protocol === "http:" && isPrivateHost(url.hostname)) return true;
+
   // Wildcard entries are matched against the HOST, so "https://*.vercel.app"
   // covers every preview URL without listing them.
   return ALLOWED_ORIGINS.some((allowed) => {
@@ -116,6 +159,24 @@ function isAllowedOrigin(origin) {
       return false;
     }
   });
+}
+
+/**
+ * True for localhost and private IPv4 ranges (the LAN the dev server binds to).
+ * A public hostname or public IP is never private, so production access still
+ * has to be listed explicitly.
+ */
+function isPrivateHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+
+  return (
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)
+  );
 }
 
 app.use(
@@ -133,6 +194,9 @@ app.use(
     maxAge: 86400,
   }),
 );
+// One JSON parser for every route, webhook included: Flutterwave authenticates
+// its webhook with a secret hash in a header (`verif-hash`), not with a
+// signature over the raw bytes, so the parsed object is all that is needed.
 app.use(express.json({ limit: "1mb" }));
 
 // A browser request from an origin that is not allow-listed is refused HERE,
@@ -466,66 +530,720 @@ app.get("/api/wallet/balance", authMiddleware, (req, res) => {
   });
 });
 
-app.post("/api/wallet/deposit", authMiddleware, async (req, res) => {
-  // Payment integration is not complete yet. This endpoint used to CREDIT the
-  // wallet for free (the client calls it a "demo deposit"), which turned real
-  // money in the database into fiction: anyone could fund any amount without
-  // paying. It now refuses explicitly while no payment provider is wired, so no
-  // fake balance can be created.
-  //
-  // To finish it, verify the provider's webhook/charge server-side, then credit
-  // here with updateUserWalletBalance + appendUserTransaction - the existing
-  // `amount`, balance and transaction flow below is ready for that.
-  if (!process.env.PAYMENT_PROVIDER) {
+/* ------------------------------------------------------------------ *
+ * Funding (Flutterwave virtual accounts)
+ *
+ * A Panda wallet can only be credited by recordConfirmedDeposit(), and that is
+ * only reached after Flutterwave's own verify API confirms a successful NGN
+ * transfer into an account belonging to THIS user. There is no request a browser
+ * can make that increases its own balance: the old free-credit endpoint answers
+ * 410, and a webhook is treated as a notification, never as proof.
+ *
+ * While FLW_* configuration is incomplete, every funding route answers
+ * 503 PAYMENT_NOT_CONFIGURED and /api/payments/config names what is missing.
+ * Nothing here ever simulates a payment or invents bank details.
+ * ------------------------------------------------------------------ */
+
+// One rate-limit map for the whole funding area: account creation is the only
+// endpoint that calls Flutterwave, and 5 attempts an hour per account is enough
+// for a legitimate retry (a wrong BVN, a transient outage) without letting a
+// script hammer the provider.
+const accountCreateRateMap = new Map();
+const ACCOUNT_CREATE_RATE_LIMIT = { max: 5, windowMs: 60 * 60_000 };
+
+/** The Flutterwave mode this process is running in: "test" or "live". */
+function flutterwaveMode() {
+  return isFlutterwaveTestKey() ? "test" : "live";
+}
+
+/**
+ * Report what funding needs and what it has. Public, secret-free, and the first
+ * thing to look at when funding is disabled.
+ */
+app.get("/api/payments/config", (req, res) => {
+  return res.json({
+    ...describeFlutterwaveConfig(),
+    // The funding rules the Deposit page shows and the server enforces. They
+    // are business limits, not secrets, so the UI never has to invent them.
+    depositLimits: {
+      minimum: DEPOSIT_LIMITS.minimum,
+      maximum: DEPOSIT_LIMITS.maximum,
+      currency: DEPOSIT_LIMITS.currency,
+    },
+  });
+});
+
+/** The explicit refusal for every legacy "credit my wallet" call. */
+app.post("/api/wallet/deposit", authMiddleware, (req, res) =>
+  fail(
+    res,
+    410,
+    "DEPOSIT_ENDPOINT_REMOVED",
+    "Direct wallet credits are no longer supported. Fund your wallet by bank transfer to your account on the Deposit page.",
+  ),
+);
+
+/** Safe public shape of a virtual account. Never includes provider internals. */
+function publicAccount(account) {
+  if (!account) return null;
+  return {
+    accountNumber: account.accountNumber || null,
+    bankName: account.bankName || null,
+    accountName: account.accountName || account.narration || null,
+    narration: account.narration || null,
+    currency: account.currency || "NGN",
+    status: account.status,
+    kind: account.kind,
+    mode: account.mode,
+    createdAt: account.createdAt,
+  };
+}
+
+/**
+ * Collect the identity fields Flutterwave needs for a permanent account.
+ *
+ * The BVN/NIN lives in this local object for the duration of ONE provider call.
+ * It is never written to the database, never logged, never included in an error
+ * message and never returned to the browser.
+ */
+function readIdentity(body) {
+  const bvn = String(body?.bvn ?? "").replace(/\s+/g, "");
+  const nin = String(body?.nin ?? "").replace(/\s+/g, "");
+  return {
+    bvn: bvn || undefined,
+    nin: nin || undefined,
+    firstName: String(body?.firstName ?? "").trim(),
+    lastName: String(body?.lastName ?? "").trim(),
+  };
+}
+
+function splitName(fullName) {
+  const parts = String(fullName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+/**
+ * A. GET my virtual account.
+ *
+ * Reads only the SAVED row: the Deposit page must not call Flutterwave on every
+ * render, so a page load is one indexed query.
+ */
+app.get("/api/wallet/virtual-account", authMiddleware, (req, res) => {
+  const account = getVirtualAccountForUser(req.user.id);
+  const config = describeFlutterwaveConfig();
+  return res.json({
+    account: publicAccount(account),
+    currency: "NGN",
+    provider: "flutterwave",
+    configured: config.configured,
+    mode: config.mode,
+    missing: config.missing,
+    // What the customer has to do next, in one word, so the UI can pick a state
+    // instead of guessing from a null. An account number is the ONLY thing that
+    // makes an account usable, so it is checked before the row's status: a failed
+    // attempt leaves an empty row behind, and that must read as "no account yet"
+    // (the form is shown) rather than as a pending account the UI can never fill.
+    //
+    // A row with no number can only mean "NOT_CREATED": POST below can always
+    // take it over and retry. Reporting PENDING instead left the Deposit page on
+    // a banner that told the user to wait, with no button that could ever finish
+    // the account.
+    state: !account
+      ? config.configured
+        ? "NOT_CREATED"
+        : "NOT_CONFIGURED"
+      : account.accountNumber
+        ? "ACTIVE"
+        : config.configured
+          ? "NOT_CREATED"
+          : "NOT_CONFIGURED",
+  });
+});
+
+/**
+ * B. Create my virtual account (idempotent, safe to retry).
+ *
+ * Sequence:
+ *   1. Return the saved account if there is one - no provider call.
+ *   2. Claim the user's slot in the database (UNIQUE(user_id) is the lock), so
+ *      two concurrent clicks cannot create two accounts.
+ *   3. Before calling Flutterwave, ask whether an account already exists for
+ *      this email. That is what makes a retry after a timed-out create safe: it
+ *      REPAIRS the outcome instead of sending a second creation request.
+ *   4. Create, then persist the account number.
+ *   5. On failure keep the user intact, mark the row FAILED and let them retry.
+ */
+app.post("/api/wallet/virtual-account", authMiddleware, async (req, res) => {
+  if (
+    applyRateLimit(
+      accountCreateRateMap,
+      rateLimitKey(req.ip, req.user.id),
+      ACCOUNT_CREATE_RATE_LIMIT.max,
+      ACCOUNT_CREATE_RATE_LIMIT.windowMs,
+    )
+  ) {
+    return fail(
+      res,
+      429,
+      "TOO_MANY_REQUESTS",
+      "Too many attempts. Please try again later.",
+    );
+  }
+
+  const existing = getVirtualAccountForUser(req.user.id);
+  if (existing?.accountNumber) {
+    return res.json({
+      ok: true,
+      created: false,
+      account: publicAccount(existing),
+    });
+  }
+
+  if (!isFlutterwaveConfigured()) {
+    return res.status(503).json({
+      error: "PAYMENT_NOT_CONFIGURED",
+      message:
+        "Bank transfer funding is not available yet. Your balance was not changed.",
+      missing: describeFlutterwaveConfig().missing,
+    });
+  }
+
+  const identity = readIdentity(req.body);
+  const fallbackName = splitName(req.user.name);
+  const firstname = identity.firstName || fallbackName.firstName;
+  const lastname = identity.lastName || fallbackName.lastName;
+
+  // Fail BEFORE the claim when the request can never succeed, so a bad form
+  // submission does not leave a "pending" row behind.
+  if (!identity.bvn && !identity.nin) {
+    return fail(
+      res,
+      400,
+      "IDENTITY_REQUIRED",
+      "Enter your BVN or NIN to create a permanent account. It is sent to Flutterwave for this step only and is not stored.",
+    );
+  }
+
+  const mode = flutterwaveMode();
+  const pendingRef = `PN-${req.user.id}-${Date.now()}`;
+  // The account name the customer sees: the bank's wording when there is one,
+  // otherwise the narration the account was requested with.
+  void pendingRef;
+
+  const slot = claimVirtualAccountSlot({
+    userId: req.user.id,
+    mode,
+    customerEmail: req.user.email,
+    pendingRef,
+  });
+
+  // A row exists but has no account number: an earlier attempt never finished
+  // (crash, restart, or a lost answer). Without taking it over the user could
+  // never create an account again, because the UNIQUE(user_id) row blocks a new
+  // claim forever. Only an empty-number row is touched.
+
+  if (!slot.claimed && slot.account?.accountNumber) {
+    return res.json({
+      ok: true,
+      created: false,
+      account: publicAccount(slot.account),
+    });
+  }
+
+  try {
+    // Reconcile FIRST: a previous attempt may have created an account whose
+    // answer never arrived. Creating again would give the customer two accounts.
+    // Only visible to an earlier claimed attempt, which stamps order_ref on its
+    // row; nothing here is sent unless one exists.
+    const claimed = slot.claimed
+      ? slot
+      : reclaimVirtualAccountSlot(req.user.id);
+    if (!claimed.claimed && claimed.account?.accountNumber) {
+      // Another request finished the account while this one was starting.
+      return res.json({
+        ok: true,
+        created: false,
+        account: publicAccount(claimed.account),
+      });
+    }
+
+    const { accounts: found } = await findVirtualAccounts({
+      orderRefs: claimed.account?.orderRef ? [claimed.account.orderRef] : [],
+    });
+    const recovered = found.find((entry) => entry && entry.account_number);
+
+    const details = recovered
+      ? {
+          accountNumber: String(recovered.account_number),
+          bankName: String(recovered.bank_name || ""),
+          accountName: String(
+            recovered.account_name || recovered.note || recovered.narration || "",
+          ),
+          narration: String(recovered.note || recovered.narration || ""),
+          orderRef: String(recovered.order_ref || recovered.account_number),
+          flwRef: recovered.flw_ref ? String(recovered.flw_ref) : null,
+          kind: "PERMANENT",
+          // The docs' virtual-account objects name the state `account_status`;
+          // `note` is the bank's display text.
+          status: String(
+            recovered.account_status || recovered.status || "ACTIVE",
+          ).toUpperCase(),
+        }
+      : await createPermanentVirtualAccount({
+          email: req.user.email,
+          phonenumber: req.user.phone || undefined,
+          firstname,
+          lastname,
+          narration: `Panda Number ${req.user.id.slice(0, 8)}`,
+          identity,
+        });
+
+    // Flutterwave hands the bank's own wording back as `note`; the create
+    // adapter normalises that and the recovered object does not, so both shapes
+    // land in the columns the Deposit page reads (bank name, account name).
+    if (!details.accountName && details.bankName) {
+      details.accountName = details.narration || details.bankName;
+    }
+
+    const saved = saveVirtualAccountDetails(req.user.id, details);
+    return res.status(recovered ? 200 : 201).json({
+      ok: true,
+      created: !recovered,
+      recovered: Boolean(recovered),
+      account: publicAccount(saved),
+    });
+  } catch (error) {
+    markVirtualAccountFailure(req.user.id);
+    const status = Number(error?.status) || 502;
+    // The provider's own text is logged, never returned: it can echo the request.
+    if (error?.details) {
+      console.warn(
+        `[flutterwave] account creation for ${req.user.id}: ${error.details}`,
+      );
+    }
+    return fail(
+      res,
+      status,
+      String(error?.code || "ACCOUNT_CREATE_FAILED"),
+      error?.message ||
+        "Your bank account could not be created yet. Your balance was not changed - you can retry.",
+    );
+  }
+});
+
+/**
+ * D. My deposit transactions (paged).
+ *
+ * Only rows belonging to the authenticated user, and only the safe fields.
+ */
+app.get("/api/wallet/deposits", authMiddleware, (req, res) => {
+  const page = listDepositsForUser(req.user.id, {
+    limit: req.query.limit,
+    offset: req.query.offset,
+  });
+  return res.json({
+    deposits: page.deposits.map((deposit) => ({
+      id: deposit.id,
+      reference: deposit.transactionId,
+      amount: deposit.amount,
+      currency: deposit.currency,
+      status: deposit.status,
+      credited: Boolean(deposit.creditedAt),
+      creditedAt: deposit.creditedAt,
+      narration: deposit.narration,
+      createdAt: deposit.createdAt,
+    })),
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
+    balance: Number(getUserById(req.user.id)?.walletBalance || 0),
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * E. The transfer webhook
+ *
+ * Flutterwave authenticates a webhook with the secret hash it was configured
+ * with, sent as the `verif-hash` header. There is no signature over the body, so
+ * the header alone is only a "this came from our webhook URL" check - it is
+ * necessary but NOT sufficient. Every transfer is therefore re-verified through
+ * GET /transactions/{id}/verify before a kobo moves, and the paying account is
+ * matched against our own rows. A fixed IP allowlist is deliberately NOT used.
+ *
+ * IMPORTANT: the body is parsed with express.json() like every other route. A
+ * raw body would also work, but the secret-hash scheme needs no bytes-exact
+ * access, and consistency avoids re-parsing bugs.
+ * ------------------------------------------------------------------ */
+
+app.post("/api/webhooks/flutterwave", async (req, res) => {
+  const expectedHash = String(process.env.FLW_WEBHOOK_SECRET_HASH || "").trim();
+  const providedHash = String(req.headers["verif-hash"] || "").trim();
+
+  if (!expectedHash) {
+    console.error(
+      "[flutterwave] webhook received but FLW_WEBHOOK_SECRET_HASH is not set",
+    );
     return fail(
       res,
       503,
       "PAYMENT_NOT_CONFIGURED",
-      "Card funding is not available yet. Your balance was not changed.",
+      "Webhook is not configured.",
     );
   }
 
-  const amount = Number(req.body?.amount ?? req.body?.value ?? 0);
-
-  if (!Number.isFinite(amount) || amount <= 0) {
+  // Constant-time compare: a byte-by-byte early exit leaks the correct prefix.
+  const a = Buffer.from(providedHash);
+  const b = Buffer.from(expectedHash);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    console.warn("[flutterwave] webhook rejected: verif-hash mismatch");
     return fail(
       res,
-      400,
-      "INVALID_AMOUNT",
-      "Enter a valid amount greater than zero.",
+      401,
+      "INVALID_SIGNATURE",
+      "Webhook signature could not be verified.",
     );
   }
 
-  if (amount < 100) {
-    return fail(res, 400, "MINIMUM_DEPOSIT", "The minimum deposit is â‚¦100.");
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const data =
+    payload.data && typeof payload.data === "object" ? payload.data : {};
+  const eventKey =
+    String(payload["event.type"] || payload.event || payload.event_type || "") +
+    ":" +
+    String(payload.id ?? data.id ?? "");
+
+  // Persist the delivery BEFORE doing any work. If processing then fails, the
+  // retry is recognised; if the process dies, the row is a durable record that
+  // this event arrived.
+  const dedupeKey =
+    eventKey.trim().replace(/:+$/, "") ||
+    crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+
+  const { duplicate } = recordWebhookEvent({
+    provider: "flutterwave",
+    eventKey: dedupeKey,
+    payload: {
+      type: payload["event.type"] ?? payload.event ?? null,
+      transactionId: data.id ?? null,
+    },
+  });
+  if (duplicate) {
+    return res.json({ ok: true, duplicate: true });
   }
 
-  const user = getUserById(req.user.id);
-  const nextBalance = Number(user?.walletBalance || 0) + amount;
-  const now = new Date();
+  try {
+    const outcome = await processTransferWebhook({ payload, data });
+    markWebhookProcessed(dedupeKey, outcome.state, "flutterwave");
+    if (outcome.state === "ERROR") {
+      clearWebhookEvent(dedupeKey, "flutterwave");
+      return fail(
+        res,
+        500,
+        "WEBHOOK_PROCESSING_FAILED",
+        "The deposit could not be processed yet.",
+      );
+    }
+    return res.json({ ok: true, ...outcome });
+  } catch (error) {
+    // 500 makes Flutterwave retry; the event row is removed so the retry is
+    // actually processed instead of being acknowledged as a duplicate.
+    clearWebhookEvent(dedupeKey, "flutterwave");
+    console.error(
+      `[flutterwave] webhook ${dedupeKey} failed: ${error?.code || ""} ${error?.message || error}`,
+    );
+    return fail(
+      res,
+      500,
+      "WEBHOOK_PROCESSING_FAILED",
+      "The deposit could not be processed yet.",
+    );
+  }
+});
 
-  // Record the deposit so it appears in the user's history and survives a
-  // reload - the balance and the transaction must move together.
-  const transaction = {
-    id: `demo-deposit-${Date.now()}`,
-    type: "deposit",
-    title: "Wallet deposit",
+/**
+ * Turn one webhook into a decision. Returns `{ state, ... }` - never throws for
+ * an expected outcome (unknown account, pending, failed), only for a real error
+ * so the provider retries.
+ */
+async function processTransferWebhook({ payload, data }) {
+  const transactionId = Number(data.id);
+  if (!Number.isFinite(transactionId) || transactionId <= 0) {
+    return { state: "IGNORED", ignored: "NO_TRANSACTION_ID" };
+  }
+
+  // A reversal or a refund of a deposit this wallet already received is money
+  // leaving again; it is recorded for review and NEVER silently ignored.
+  const kind = String(
+    payload["event.type"] || payload.event || "",
+  ).toLowerCase();
+  if (/reverse|refund|reversal/.test(kind)) {
+    const deposit = getDepositByTransactionId(transactionId);
+    if (!deposit) return { state: "IGNORED", ignored: "UNKNOWN_DEPOSIT" };
+    return { state: "REVERSAL_RECORDED", requiresReview: true, transactionId };
+  }
+
+  // Already credited? Answer without another provider round trip. The event key
+  // is per delivery, so this also covers a provider re-sending "successful".
+  const known = getDepositByTransactionId(transactionId);
+  if (known?.creditedAt) {
+    return { state: "ALREADY_CREDITED", transactionId };
+  }
+
+  // Verify with Flutterwave. The webhook body is a notification, not proof.
+  let verified;
+  try {
+    verified = await verifyFlutterwaveTransaction(transactionId);
+  } catch (error) {
+    if (
+      error?.code === "VERIFY_FAILED" ||
+      error?.code === "INVALID_TRANSACTION_ID"
+    ) {
+      return { state: "UNVERIFIED", transactionId };
+    }
+    throw error;
+  }
+
+  // Who paid? The account number from the payload, then the customer email that
+  // Flutterwave has for this transaction's customer.
+  const accountNumber =
+    extractVirtualAccountNumber(data) ||
+    extractVirtualAccountNumber(payload) ||
+    null;
+
+  const account =
+    findUserForDeposit({
+      accountNumber,
+      customerEmail: verified.customerEmail,
+    }) ?? (known ? getVirtualAccountForUser(known.userId) : null);
+
+  if (!account) {
+    // Money arrived that we cannot attribute. Never guess: leave it uncredited
+    // and say so in the log. Nothing is credited from an unmatched transfer.
+    console.warn(
+      `[flutterwave] deposit ${transactionId} could not be matched to a Panda user (account ${accountNumber || "unknown"})`,
+    );
+    // `recordUnconfirmedDeposit` needs an owner to file a row against and there
+    // is none, so this one is deliberately NOT stored: the log line above is the
+    // durable record, and nothing may be fabricated to attach it to.
+    return { state: "REVIEW", reason: "UNMATCHED_ACCOUNT", transactionId };
+  }
+
+  return settleVerifiedDeposit({ account, verified });
+}
+
+/**
+ * The ONE place a verified Flutterwave transaction becomes wallet money.
+ *
+ * Every check happens before recordConfirmedDeposit(); any doubt leaves the
+ * deposit uncredited and recorded as REVIEW with the reason.
+ */
+function settleVerifiedDeposit({ account, verified }) {
+  const mode = flutterwaveMode();
+
+  if (!account.accountNumber) {
+    return { state: "REVIEW", reason: "ACCOUNT_NOT_READY" };
+  }
+  if (!assertDepositModeMatches(account, mode)) {
+    // A test-mode account must never fund a live wallet.
+    recordUnconfirmedDeposit({
+      account,
+      mode,
+      transactionId: verified.id,
+      amount: verified.amount,
+      currency: verified.currency,
+      status: "REVIEW",
+      providerStatus: verified.status,
+      reason: "MODE_MISMATCH",
+    });
+    return { state: "REVIEW", reason: "MODE_MISMATCH" };
+  }
+
+  const status = verified.status;
+  const amount = verified.amount;
+
+  if (status !== "successful") {
+    const failed = /fail|cancel|declin|revers|error/.test(status);
+    recordUnconfirmedDeposit({
+      account,
+      mode,
+      transactionId: verified.id,
+      amount,
+      currency: verified.currency,
+      status: failed ? "FAILED" : "PENDING",
+      providerStatus: status,
+      reason: null,
+      payerName: verified.customerName,
+      narration: verified.processorResponse,
+    });
+    return { state: failed ? "FAILED" : "PENDING", transactionId: verified.id };
+  }
+
+  if (
+    String(verified.currency || "").toUpperCase() !==
+    account.currency.toUpperCase()
+  ) {
+    recordUnconfirmedDeposit({
+      account,
+      mode,
+      transactionId: verified.id,
+      amount,
+      currency: verified.currency,
+      status: "REVIEW",
+      providerStatus: status,
+      reason: "CURRENCY_MISMATCH",
+    });
+    return { state: "REVIEW", reason: "CURRENCY_MISMATCH" };
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    recordUnconfirmedDeposit({
+      account,
+      mode,
+      transactionId: verified.id,
+      amount: null,
+      currency: verified.currency,
+      status: "REVIEW",
+      providerStatus: status,
+      reason: "AMOUNT_INVALID",
+    });
+    return { state: "REVIEW", reason: "AMOUNT_INVALID" };
+  }
+
+  // Overpayments and underpayments are REAL money against a named account with
+  // no amount to match against, so the customer is credited exactly what
+  // Flutterwave confirms - never a guessed or capped figure. The case is logged
+  // so an operator can see it happened if a dispute arises.
+  if (amount >= DEPOSIT_LIMITS.maximum) {
+    console.warn(
+      `[flutterwave] deposit ${verified.id} for ${account.userId} is ₦${amount} (max expected ₦${DEPOSIT_LIMITS.maximum})`,
+    );
+  }
+
+  const result = recordConfirmedDeposit({
+    account,
+    mode,
+    transactionId: verified.id,
     amount,
-    status: "SUCCESSFUL",
-    path: "/deposit",
-    reference: `DEMO-${Date.now()}`,
-    date: formatTransactionDate(now),
-    createdAt: now.getTime(),
-  };
+    currency: verified.currency,
+    providerStatus: status,
+    txRef: verified.txRef || "",
+    flwRef: verified.flwRef,
+    payerName: verified.customerName,
+    narration: verified.processorResponse,
+  });
 
-  updateUserWalletBalance(user.id, nextBalance);
-  const updatedUser = appendUserTransaction(user.id, transaction);
+  if (!result.ok) {
+    return { state: "REVIEW", reason: result.reason };
+  }
+
+  if (!result.alreadyApplied && result.balance !== null) {
+    appendUserTransaction(account.userId, {
+      id: `deposit-${verified.id}`,
+      type: "deposit",
+      title: "Bank transfer deposit",
+      amount: result.deposit.amount,
+      status: "SUCCESSFUL",
+      path: "/deposit",
+      reference: `flw:${verified.id}`,
+      date: formatTransactionDate(new Date()),
+      createdAt: Date.now(),
+    });
+  }
+
+  return {
+    state: "SUCCESS",
+    transactionId: verified.id,
+    amount: result.deposit.amount,
+    alreadyApplied: result.alreadyApplied,
+  };
+}
+
+/**
+ * C. Wallet balance - the authoritative figure, read from the database.
+ * (Declared above this block; kept here as the contract the Deposit page uses.)
+ *
+ * Reconciliation endpoint for the operator: retries every deposit that is
+ * recorded but NOT credited. It walks only rows we already know, so a lost or
+ * failed webhook can be repaired without touching anything else.
+ */
+app.post(
+  "/api/health/flutterwave/reconcile",
+  authMiddleware,
+  async (req, res) => {
+    // Admin-only: gated on the same operator secret the ledger check uses, plus a
+    // signed-in session, so this is never a public "credit me" button.
+    const expected = String(process.env.ADMIN_RECONCILE_TOKEN || "").trim();
+    const provided = String(req.headers["x-reconcile-token"] || "").trim();
+    if (!expected || provided !== expected) {
+      return fail(res, 403, "FORBIDDEN", "This endpoint is not available.");
+    }
+
+    const pending = listUncreditedDeposits({ limit: 50 });
+    const outcomes = [];
+    for (const deposit of pending) {
+      try {
+        // A row is only ever filed against a user, so a missing account row means
+        // the row is orphaned, not that the customer has no account.
+        const account = getVirtualAccountForUser(deposit.userId);
+        if (!account) {
+          outcomes.push({ deposit: deposit.transactionId, state: "NO_ACCOUNT" });
+          continue;
+        }
+        const verified = await verifyFlutterwaveTransaction(
+          deposit.transactionId,
+        );
+        outcomes.push({
+          deposit: deposit.transactionId,
+          ...settleVerifiedDeposit({ account, verified }),
+        });
+      } catch (error) {
+        // One unreachable provider call must not abort the whole sweep, and the
+        // code is what tells an operator whether a retry can help.
+        outcomes.push({
+          deposit: deposit.transactionId,
+          state: "ERROR",
+          code: error?.code,
+        });
+      }
+    }
+
+    return res.json({ checked: pending.length, outcomes });
+  },
+);
+
+/**
+ * Reconciliation: does every stored balance still equal its own ledger?
+ * Read-only and operator-facing; it never changes money.
+ */
+app.get("/api/health/ledger", (req, res) => {
+  const rows = db
+    .prepare("SELECT id, wallet_balance FROM users")
+    .all();
+
+  const mismatches = [];
+  for (const row of rows) {
+    const computed = ledgerBalance(row.id);
+    if (Math.abs(computed.balance - Number(row.wallet_balance)) > 0.01) {
+      // Accounts that predate the ledger have history stored only in the old
+      // JSON column. They are reported, never "corrected" silently.
+      mismatches.push({
+        userId: row.id,
+        storedBalance: Number(row.wallet_balance),
+        ledgerBalance: computed.balance,
+      });
+    }
+  }
 
   return res.json({
-    ok: true,
-    balance: Number(updatedUser?.walletBalance ?? nextBalance),
-    transaction,
-    user: safeUser(updatedUser),
+    checked: rows.length,
+    mismatches: mismatches.length,
+    // No balances, emails or hashes are exposed - only counts and ids.
+    details: req.query.verbose === "1" ? mismatches.slice(0, 50) : undefined,
   });
 });
 
@@ -676,14 +1394,14 @@ async function quotePurchasePrice({
   if (priced.status === "below-min-profit") {
     console.warn(
       `[pricing] refusing purchase: ${serviceId}/${variant.variantId} in ${countrySlug} ` +
-        `costs ₦${priced.cost} but would sell at ₦${priced.price} (profit ₦${priced.profit}).`,
+        `costs ?${priced.cost} but would sell at ?${priced.price} (profit ?${priced.profit}).`,
     );
     return {
       error: {
         status: 409,
         code: "PRICE_NOT_PROFITABLE",
         message:
-          `This number can no longer be sold: the provider now charges ₦${priced.cost.toLocaleString()}. ` +
+          `This number can no longer be sold: the provider now charges ?${priced.cost.toLocaleString()}. ` +
           "Please choose another service.",
       },
     };
@@ -778,7 +1496,6 @@ function recordPurchase({
   idempotencyKey,
   chargePrice,
   providerCost,
-  baseBalance,
   countryCode,
   countrySlug,
   countryName,
@@ -787,7 +1504,6 @@ function recordPurchase({
   mapping,
   variantId,
 }) {
-  const nextBalance = baseBalance - chargePrice;
   const now = new Date();
   const displayService = serviceName || mapping.displayName || serviceId;
   // Audit trail: what the number cost us vs. what was charged. Kept on the
@@ -807,7 +1523,7 @@ function recordPurchase({
     serviceId,
     variantId,
     providerService: mapping.providerService,
-    price: `₦${chargePrice.toLocaleString()}`,
+    price: `?${chargePrice.toLocaleString()}`,
     priceValue: chargePrice,
     providerCost: margin === null ? null : Number(providerCost),
     profit: margin,
@@ -834,15 +1550,48 @@ function recordPurchase({
     createdAt: now.getTime(),
   };
 
-  updateUserWalletBalance(userId, nextBalance);
-  appendUserNumber(userId, purchasedNumber);
-  const updatedUser = appendUserTransaction(userId, transaction);
+  // The debit is the authoritative one. `baseBalance` was read BEFORE the
+  // provider call, so it could be stale if another purchase settled meanwhile -
+  // debitWallet() re-reads and subtracts in a single statement that refuses to
+  // go below zero. That is what makes three simultaneous purchases safe.
+  const debit = debitWallet({
+    userId,
+    amount: chargePrice,
+    reason: LEDGER_REASONS.PURCHASE,
+    reference: allocation.activationId,
+    metadata: {
+      serviceId,
+      countrySlug,
+      variantId,
+      providerService: mapping.providerService,
+      providerCost: margin === null ? null : Number(providerCost),
+    },
+  });
+
+  // The number EXISTS upstream by now, so it must be recorded even if the debit
+  // was refused for insufficient funds: otherwise the user paid nothing and the
+  // number is lost, and support has no record of it. `insufficientFunds` marks
+  // exactly that case for reconciliation instead of silently pretending it was
+  // free.
+  const storedNumber = debit.ok
+    ? purchasedNumber
+    : {
+        ...purchasedNumber,
+        unpaid: true,
+        paymentStatus: "INSUFFICIENT_FUNDS",
+      };
+
+  appendUserNumber(userId, storedNumber);
+  const updatedUser = debit.ok
+    ? appendUserTransaction(userId, transaction)
+    : getUserById(userId);
 
   const body = {
-    number: purchasedNumber,
-    balance: Number(updatedUser?.walletBalance ?? nextBalance),
-    transaction,
+    number: storedNumber,
+    balance: Number(debit.balance),
+    transaction: debit.ok ? transaction : null,
     user: safeUser(updatedUser),
+    insufficientFunds: !debit.ok,
   };
 
   if (idempotencyKey) {
@@ -869,7 +1618,17 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
   const variantId = String(req.body?.variantId ?? "").trim();
   const serviceName = String(req.body?.serviceName ?? "").trim();
   const countryName = String(req.body?.countryName ?? "").trim();
-  const price = Number(req.body?.price ?? 0);
+
+  // The body's price is OPTIONAL. It is display-only: the charge always comes
+  // from quotePurchasePrice() below, never from the browser. Requiring it turned
+  // a perfectly valid request (any API client that omits a display hint) into
+  // "A valid price is required to buy a number." even though the server had
+  // already looked up the real price. A malformed value is still refused, so a
+  // NaN can never reach the comparison further down.
+  const rawPrice = req.body?.price;
+  const hasClientPrice =
+    rawPrice !== undefined && rawPrice !== null && rawPrice !== "";
+  const price = hasClientPrice ? Number(rawPrice) : 0;
 
   if (!serviceId || !countryCode) {
     return fail(
@@ -880,12 +1639,12 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
     );
   }
 
-  if (!Number.isFinite(price) || price <= 0) {
+  if (hasClientPrice && (!Number.isFinite(price) || price <= 0)) {
     return fail(
       res,
       400,
       "INVALID_PRICE",
-      "A valid price is required to buy a number.",
+      "The price sent with this request is not valid.",
     );
   }
 
@@ -947,14 +1706,14 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
   const chargePrice = quote.price;
   const providerCost = quote.priced.cost;
 
-  // The body's price is display-only, but a page still showing a different
-  // figure must be corrected before anything is bought or charged.
-  if (Number.isFinite(price) && price > 0 && price !== chargePrice) {
+  // A page still showing a different figure must be corrected before anything
+  // is bought or charged. Only compares when a price was actually sent.
+  if (hasClientPrice && price !== chargePrice) {
     return fail(
       res,
       409,
       "PRICE_CHANGED",
-      `The price for this number has changed to ₦${chargePrice.toLocaleString()}. Please review and confirm again.`,
+      `The price for this number has changed to ?${chargePrice.toLocaleString()}. Please review and confirm again.`,
     );
   }
 
@@ -1005,6 +1764,9 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
   };
 
   // Balance is checked here, on the server, before we spend anything upstream.
+  // This is an early, friendly refusal only - the REAL guarantee is the atomic
+  // debit inside recordPurchase(), which cannot overdraw even when several
+  // purchases for this user are in flight at the same time.
   const user = getUserById(req.user.id);
   const currentBalance = Number(user?.walletBalance || 0);
   if (currentBalance < chargePrice) {
@@ -1062,7 +1824,10 @@ app.post("/api/numbers/purchase", authMiddleware, async (req, res) => {
     variantId: quote.variant.variantId,
   });
 
-  return res.status(201).json(body);
+  // A number WAS issued, but the wallet could not cover it (another purchase
+  // settled first). Answer 402 so the client shows a payment problem instead of
+  // a green "number purchased", while the number stays recorded for support.
+  return res.status(body.insufficientFunds ? 402 : 201).json(body);
 });
 
 // How long WE wait for the SMS before telling the user the number expired. The
@@ -1279,15 +2044,22 @@ app.post("/api/numbers/:id/cancel", authMiddleware, async (req, res) => {
 
   // The provider accepted the release and refunded ITS OWN balance, so the
   // customer is refunded the exact amount they were charged for this number
-  // (the recorded priceValue, not today's catalogue price). Before this, the
-  // number was closed as CANCELLED but the wallet was never credited.
-  const existingBalance = Number(getUserById(user.id)?.walletBalance || 0);
-  const nextBalance =
-    Number.isFinite(charged) && charged > 0
-      ? existingBalance + charged
-      : existingBalance;
-
-  updateUserWalletBalance(user.id, nextBalance);
+  // (the recorded priceValue, not today's catalogue price).
+  //
+  // creditWallet() - not a balance overwrite - because it writes the ledger row
+  // in the same transaction and is keyed on (user, reference "refund:<id>",
+  // reason), so a repeated release can never refund twice. It also removes the
+  // old read-then-write: a number purchase committing in between would have been
+  // erased by writing back a stale `existingBalance + charged`.
+  if (Number.isFinite(charged) && charged > 0) {
+    creditWallet({
+      userId: user.id,
+      amount: charged,
+      reason: LEDGER_REASONS.REFUND,
+      reference: `refund:${activationId}`,
+      metadata: { activationId, service: record.service || null },
+    });
+  }
 
   if (Number.isFinite(charged) && charged > 0) {
     appendUserTransaction(user.id, {
@@ -1310,11 +2082,15 @@ app.post("/api/numbers/:id/cancel", authMiddleware, async (req, res) => {
     refundedAmount: Number.isFinite(charged) ? charged : 0,
   });
 
+  // The balance is read back AFTER the credit: the refund above is the only
+  // change, so this figure is the authoritative post-refund wallet.
   return res.json({
     ok: true,
     status: "CANCELLED",
     refunded: Number.isFinite(charged) ? charged : 0,
-    balance: Number(updated?.walletBalance ?? nextBalance),
+    balance: Number(
+      updated?.walletBalance ?? getUserById(user.id)?.walletBalance ?? 0,
+    ),
   });
 });
 

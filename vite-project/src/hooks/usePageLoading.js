@@ -35,10 +35,14 @@ export function usePageLoading(loader, { delay = 550, deps = [] } = {}) {
   useEffect(() => {
     const controller = new AbortController();
 
-    // Show the loading state again when re-running for new deps.
-    setState((prev) => (prev.isLoading ? prev : LOADING_STATE));
-
     const run = async () => {
+      // Re-entering the loading state for NEW deps is scheduled, not done
+      // synchronously in the effect body: a synchronous setState there causes a
+      // cascading render (and the lint error). The first run already starts in
+      // LOADING_STATE, so the very first paint is unaffected.
+      await Promise.resolve();
+      if (controller.signal.aborted) return;
+      setState((prev) => (prev.isLoading ? prev : LOADING_STATE));
       try {
         const currentLoader = loaderRef.current;
         const result = currentLoader

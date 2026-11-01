@@ -16,6 +16,7 @@ import { registerLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import {
+  getApiBaseUrl,
   isApiOnFrontendHost,
   isBackendUnavailable,
   requestJson,
@@ -179,11 +180,21 @@ function SignUp() {
         // frontend host - there a "successful" local signup would create an
         // account that only exists in this one browser.
         if (!isBackendUnavailable(error) || isApiOnFrontendHost()) {
-          // A mis-pointed API is a deployment fault, not a rejected form: say
-          // which host was called so the fix (VITE_API_BASE_URL) is obvious.
-          if (isApiOnFrontendHost() && isBackendUnavailable(error)) {
+          // Same rule as Login: name the URL that was actually called. Blaming
+          // the website host was wrong whenever VITE_API_URL pointed at a
+          // backend that does not resolve.
+          if (isBackendUnavailable(error)) {
+            const base = getApiBaseUrl();
+            const target = base
+              ? `${base}/api/auth/register`
+              : `${window.location.origin}/api/auth/register`;
             throw new Error(
-              "This app is not connected to its server (the sign-up request went to the website host instead of the API). Please try again later.",
+              base
+                ? `Cannot reach the sign-up server at ${target}. ` +
+                    `The backend did not respond (${error?.status || "no response"}). ` +
+                    "Check that the backend is running and that VITE_API_URL on the hosting dashboard points to it."
+                : "This build has no API URL configured, so the sign-up request went to the website host instead of the API. " +
+                    "Set VITE_API_URL on the hosting dashboard and redeploy.",
               { cause: error },
             );
           }
@@ -248,7 +259,22 @@ function SignUp() {
       // "Unexpected end of JSON input".
       const message =
         error?.message || "Account creation failed. Please try again.";
-      setErrors({ submit: message });
+
+      // Put the error on the field that actually caused it. A taken phone
+      // number used to be reported only in the toast, which then faded - the
+      // phone input kept looking valid while the form refused to submit, and
+      // there was nothing left on screen explaining why. The server's message
+      // is kept verbatim; only WHERE it is shown changes.
+      const fieldErrorsByCode = {
+        PHONE_ALREADY_EXISTS: "phone",
+        EMAIL_ALREADY_EXISTS: "email",
+        ACCOUNT_ALREADY_EXISTS: "email",
+        INVALID_EMAIL: "email",
+        WEAK_PASSWORD: "password",
+      };
+      const field = fieldErrorsByCode[error?.code];
+
+      setErrors(field ? { [field]: message, submit: message } : { submit: message });
       triggerToast(message, "error");
     } finally {
       setIsSubmitting(false);

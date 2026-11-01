@@ -19,6 +19,9 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# Public build config (the API URL the browser calls). NOT a secret - it must
+# ship with the repo so a Vercel build never forgets to point at the backend.
+!.env.production
 
 # Belt-and-braces: block the key file even if a broad pattern is loosened later.
 *.key

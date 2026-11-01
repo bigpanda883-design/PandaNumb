@@ -16,6 +16,7 @@ import { authenticateLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import {
+  getApiBaseUrl,
   isApiOnFrontendHost,
   isBackendUnavailable,
   requestJson,
@@ -154,11 +155,26 @@ function Login() {
         // "local login" is why a phone could appear to log in while talking to
         // no server at all.
         if (!isBackendUnavailable(error) || isApiOnFrontendHost()) {
-          // A mis-pointed API is a deployment fault, not a rejected password:
-          // say which host was called so the fix (VITE_API_BASE_URL) is obvious.
-          if (isApiOnFrontendHost() && isBackendUnavailable(error)) {
+          // A mis-pointed API is a deployment fault, not a rejected password.
+          //
+          // THE OLD MESSAGE BLAMED THE WRONG HOST: it always said the request
+          // "went to the website host", even when VITE_API_URL pointed at a
+          // backend that did not resolve (a wrong Render service name). The
+          // person then went looking at Vercel and found nothing wrong. Name the
+          // URL that was actually called, and what came back, so the fix is
+          // obvious from the message itself.
+          if (isBackendUnavailable(error)) {
+            const base = getApiBaseUrl();
+            const target = base
+              ? `${base}/api/auth/login`
+              : `${window.location.origin}/api/auth/login`;
             throw new Error(
-              "This app is not connected to its server (the login request went to the website host instead of the API). Please try again later.",
+              base
+                ? `Cannot reach the sign-in server at ${target}. ` +
+                    `The backend did not respond (${error?.status || "no response"}). ` +
+                    "Check that the backend is running and that VITE_API_URL on the hosting dashboard points to it."
+                : "This build has no API URL configured, so the sign-in request went to the website host instead of the API. " +
+                    "Set VITE_API_URL on the hosting dashboard and redeploy.",
               { cause: error },
             );
           }

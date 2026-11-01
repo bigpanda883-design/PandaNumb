@@ -106,15 +106,26 @@ function Buy() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [purchaseError, setPurchaseError] = useState(null);
+  // Stock for the CURRENT selection. `providerStockKeyFetched` says which
+  // country+service the value belongs to, so a stale answer for a previous
+  // country can never be shown as this one's inventory.
   const [providerStock, setProviderStock] = useState(null);
-  const [isLoadingProviderStock, setIsLoadingProviderStock] = useState(false);
-  const [providerStockError, setProviderStockError] = useState(null);
-  const [providerStockRefresh, setProviderStockRefresh] = useState(0);
-
-  // Stock is re-checked when either the country changes or the refresh counter
-  // is bumped, so the counter is read by the effect below even though nothing
-  // in this render assigns it again.
-  void setProviderStockRefresh;
+  const [providerStockKeyFetched, setProviderStockKeyFetched] = useState("");
+  // Raw state for the LAST request (which key it was for is what decides
+  // whether it is shown); the derived flags below are what the UI reads.
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockFailure, setStockFailure] = useState(null);
+  // Bumped by any "re-check inventory" control; read by the stock effect so a
+  // bump re-asks the provider.
+  const [providerStockRefresh] = useState(0);
+  // A bump has to come from somewhere: re-picking the SAME country is the
+  // inventory refresh a user can reach today.
+  const refreshProviderStock = () => {
+    if (!selectedCountry) return;
+    setProviderStockKeyFetched("");
+    setStockLoading(true);
+  };
+  void providerStockRefresh;
 
   const allCountries = useMemo(() => buildCountryList(catalogue), [catalogue]);
   const canBuyAtAll = true;
@@ -272,58 +283,68 @@ function Buy() {
     ? 0
     : Math.max(0, catalogueServices.length - VISIBLE_SERVICE_LIMIT);
 
-  useEffect(() => {
-    if (!selectedAppService) {
-      setSelectedOffer(null);
-      return;
+  // The offer that is actually selected: the user's explicit choice while it is
+  // still a valid option for this service/country, otherwise the first option.
+  //
+  // This used to be a useEffect that called setSelectedOffer, which re-rendered
+  // the whole page a second time on every step change (the lint error this
+  // fixes) and could leave the confirm button acting on a stale offer for one
+  // frame. Deriving it during render makes "what is selected" true immediately.
+  const effectiveOffer = useMemo(() => {
+    if (!selectedAppService || serviceOptions.length === 0) return null;
+    if (selectedOffer && serviceOptions.some((o) => o.id === selectedOffer.id)) {
+      return selectedOffer;
     }
-
-    if (serviceOptions.length === 0) {
-      setSelectedOffer(null);
-      return;
-    }
-
-    setSelectedOffer((current) => {
-      if (
-        !current ||
-        !serviceOptions.some((option) => option.id === current.id)
-      ) {
-        return serviceOptions[0];
-      }
-      return current;
-    });
-  }, [selectedAppService, serviceOptions]);
+    return serviceOptions[0];
+  }, [selectedAppService, selectedOffer, serviceOptions]);
 
   useEffect(() => {
-    if (!selectedCountry?.providerId) {
-      setProviderStock(null);
-      setProviderStockError(null);
-      setIsLoadingProviderStock(false);
-      return undefined;
-    }
+    // No country (or no provider id for it): there is nothing to ask, so the
+    // stock state belongs to that country's key - it is empty by definition.
+    if (!selectedCountry?.providerId) return undefined;
 
     const controller = new AbortController();
-    setProviderStock(null);
-    setProviderStockError(null);
-    setIsLoadingProviderStock(true);
+    // The key this answer belongs to. An answer that arrives after the user has
+    // moved on is discarded (the abort), never shown as the new inventory.
+    const key = `${selectedCountry.providerId}:${selectedAppService?.id ?? ""}`;
 
     getNumbersStatus(selectedCountry.providerId, { signal: controller.signal })
       .then((stock) => {
-        if (!controller.signal.aborted) setProviderStock(stock);
+        if (controller.signal.aborted) return;
+        setProviderStock(stock);
+        setStockFailure(null);
+        setProviderStockKeyFetched(key);
+        setStockLoading(false);
       })
       .catch((error) => {
-        if (!controller.signal.aborted && error?.name !== "AbortError") {
-          setProviderStockError(error);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoadingProviderStock(false);
+        if (controller.signal.aborted || error?.name === "AbortError") return;
+        setProviderStock(null);
+        setStockFailure(error);
+        setProviderStockKeyFetched(key);
+        setStockLoading(false);
       });
 
     return () => controller.abort();
-  }, [selectedCountry, providerStockRefresh]);
+  }, [selectedCountry, selectedAppService?.id, providerStockRefresh]);
 
-  const purchasePrice = Number(selectedOffer?.sellingPrice || 0);
+  // Stock is keyed by the COUNTRY + service it was fetched for. Deriving the
+  // state from the key (instead of clearing it inside an effect) means a country
+  // switch can never show the previous country's count, and "checking..." is
+  // true from the first frame rather than one render later.
+  const stockKey = `${selectedCountry?.providerId ?? ""}:${selectedAppService?.id ?? ""}`;
+  const stockIsForThisSelection =
+    providerStockKeyFetched === stockKey && Boolean(selectedCountry?.providerId);
+  const currentStock = stockIsForThisSelection ? providerStock : null;
+  const currentStockError = stockIsForThisSelection ? stockFailure : null;
+  // True from the first frame after a country is picked - never one render of
+  // stale "N numbers" from the previous country.
+  const isCheckingStock =
+    Boolean(selectedCountry?.providerId) &&
+    !stockIsForThisSelection &&
+    !currentStockError;
+  const isLoadingStock = isCheckingStock || stockLoading;
+
+  const purchasePrice = Number(effectiveOffer?.sellingPrice || 0);
   const availableBalance = Number(animatedBalance || 0);
   const shortfall = Math.max(0, purchasePrice - availableBalance);
   const hasKnownPrice = Number.isFinite(purchasePrice) && purchasePrice > 0;
@@ -335,13 +356,13 @@ function Buy() {
   // as the lookup key or every offer would read as out of stock.
   const providerStockKey = selectedAppService?.id || null;
   const providerCount = providerStockKey
-    ? getProviderStockCount(providerStock, providerStockKey)
+    ? getProviderStockCount(currentStock, providerStockKey)
     : null;
   const stockCount = providerCount ?? 0;
   const isOutOfStock =
     providerCount === 0 ||
-    (providerStock &&
-      Object.keys(providerStock).length > 0 &&
+    (currentStock &&
+      Object.keys(currentStock).length > 0 &&
       providerCount === null);
 
   const handleBack = () => {
@@ -374,6 +395,7 @@ function Buy() {
     setSelectedOffer(null);
     setPurchaseError(null);
     setSearchQuery("");
+    setProviderStockKeyFetched("");
     setStep(2);
   };
 
@@ -381,6 +403,7 @@ function Buy() {
     setSelectedCountry(country);
     setSelectedOffer(null);
     setPurchaseError(null);
+    setProviderStockKeyFetched("");
     setSearchQuery("");
     setStep(3);
   };
@@ -402,7 +425,7 @@ function Buy() {
 
   const handleConfirmPurchase = async () => {
     if (isSubmitting) return;
-    if (hasInsufficientFunds || isLoadingProviderStock || providerStockError)
+    if (hasInsufficientFunds || isLoadingStock || currentStockError)
       return;
     if (!hasKnownPrice || !selectedCountry || !selectedOffer) return;
 
@@ -753,7 +776,7 @@ function Buy() {
                   <button
                     key={option.id}
                     type="button"
-                    className={`offer-toggle${selectedOffer?.id === option.id ? " active" : ""}`}
+                    className={`offer-toggle${effectiveOffer?.id === option.id ? " active" : ""}`}
                     onClick={() => handleOfferSelect(option)}
                   >
                     <span>{option.label}</span>
@@ -789,12 +812,12 @@ function Buy() {
               <span className="confirm-label">Available stock</span>
               <span className="confirm-value">
                 {serviceOptions.length === 0
-                  ? isLoadingProviderStock
+                  ? isLoadingStock
                     ? "Checking availability..."
                     : "Not available"
-                  : isLoadingProviderStock
+                  : isLoadingStock
                     ? "Checking provider inventory..."
-                    : providerStockError
+                    : currentStockError
                       ? "Inventory unavailable"
                       : providerCount === null
                         ? "No stock data"
@@ -836,17 +859,25 @@ function Buy() {
             </div>
           )}
 
-          {providerStockError && (
+          {currentStockError && (
             <div className="purchase-error-card" role="alert">
               <p className="insufficient-text">
-                Could not check provider inventory: {providerStockError.message}
+                Could not check provider inventory: {currentStockError.message}
               </p>
+              <button
+                type="button"
+                className="insufficient-fund-btn"
+                onClick={refreshProviderStock}
+              >
+                <FiRefreshCw aria-hidden="true" />
+                Check inventory again
+              </button>
             </div>
           )}
 
           {providerCount === 0 &&
-            !providerStockError &&
-            !isLoadingProviderStock && (
+            !currentStockError &&
+            !isLoadingStock && (
               <div className="purchase-error-card" role="alert">
                 <p className="insufficient-text">
                   No live numbers are available for this{" "}
@@ -925,8 +956,8 @@ function Buy() {
               disabled={
                 hasInsufficientFunds ||
                 isSubmitting ||
-                isLoadingProviderStock ||
-                Boolean(providerStockError) ||
+                isLoadingStock ||
+                Boolean(currentStockError) ||
                 isOutOfStock ||
                 !canBuyAtAll ||
                 (!selectedCountry?.providerId && !selectedCountry?.iso)

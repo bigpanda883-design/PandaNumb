@@ -159,6 +159,36 @@ test("requestJson prefixes the operation name so failures name the call", async 
   );
 });
 
+test("a server message is shown verbatim, without the operation label", async () => {
+  // The operation is a developer label. Prepending it made the UI read
+  // "sign up: This phone number has already been used." - see describeFailure.
+  globalThis.__PANDA_API_BASE_URL__ = "";
+  globalThis.fetch = async () =>
+    makeResponse({
+      status: 409,
+      body: JSON.stringify({
+        error: "PHONE_ALREADY_EXISTS",
+        message: "This phone number has already been used.",
+      }),
+    });
+
+  await assert.rejects(
+    () =>
+      requestJson("/api/auth/register", {
+        method: "POST",
+        body: {},
+        operation: "sign up",
+      }),
+    (error) => {
+      assert.equal(error.message, "This phone number has already been used.");
+      // Still available for logs and diagnostics.
+      assert.equal(error.operation, "sign up");
+      assert.equal(error.code, "PHONE_ALREADY_EXISTS");
+      return true;
+    },
+  );
+});
+
 test.after(() => {
   globalThis.__PANDA_API_BASE_URL__ = originalBase;
   globalThis.fetch = originalFetch;

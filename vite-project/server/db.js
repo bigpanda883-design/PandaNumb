@@ -68,6 +68,147 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  -- Append-only wallet ledger.
+  --
+  -- The users.wallet_balance column remains the number every screen reads, but
+  -- it is now
+  -- DERIVED from these rows: every balance change is written here in the same
+  -- database transaction that updates the balance, so the two cannot disagree.
+  -- Nothing in this table is ever updated or deleted - a mistake is corrected by
+  -- inserting a compensating entry, which keeps the history auditable.
+  --
+  -- (reference, kind) is UNIQUE: that is what makes a deposit or a purchase
+  -- credit/debit exactly once even if the same request is retried, the webhook
+  -- fires twice, or two purchases race.
+  CREATE TABLE IF NOT EXISTS wallet_ledger (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('credit', 'debit')),
+    amount REAL NOT NULL CHECK (amount > 0),
+    balance_after REAL NOT NULL,
+    reason TEXT NOT NULL,
+    reference TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_ledger_unique
+  ON wallet_ledger(user_id, reference, reason)
+  WHERE reference <> '';
+
+  CREATE INDEX IF NOT EXISTS idx_wallet_ledger_user
+  ON wallet_ledger(user_id, created_at DESC);
+
+  -- One row per funding attempt. reference is UNIQUE, so the same payment can
+  -- never be recorded twice, and credited_at is the single flag that decides
+  -- whether this payment has already been turned into wallet money.
+  CREATE TABLE IF NOT EXISTS payments (
+    id TEXT PRIMARY KEY,
+    reference TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    currency TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider_status TEXT,
+    provider_reference TEXT,
+    checkout_url TEXT,
+    credited_at TEXT,
+    credited_amount REAL,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at DESC);
+
+  -- Every webhook delivery is recorded by its provider signature/event id, so a
+  -- retried delivery is recognised instead of processed again.
+  CREATE TABLE IF NOT EXISTS webhook_events (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    event_key TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    received_at TEXT NOT NULL,
+    processed_at TEXT,
+    outcome TEXT
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_events_unique
+  ON webhook_events(provider, event_key);
+
+  -- Flutterwave virtual accounts (wallet funding).
+  --
+  -- ONE row per user: UNIQUE(user_id) is what makes account creation idempotent
+  -- at the database level, not just in application logic, so two concurrent
+  -- requests can never attach two accounts to one person. pending_ref is the
+  -- "creation in progress" marker used to reconcile a lost answer.
+  CREATE TABLE IF NOT EXISTS virtual_accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    provider TEXT NOT NULL DEFAULT 'flutterwave',
+    mode TEXT NOT NULL DEFAULT 'live',
+    account_number TEXT NOT NULL,
+    bank_name TEXT NOT NULL DEFAULT '',
+    account_name TEXT NOT NULL DEFAULT '',
+    narration TEXT NOT NULL DEFAULT '',
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    kind TEXT NOT NULL DEFAULT 'PERMANENT',
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    customer_email TEXT NOT NULL DEFAULT '',
+    order_ref TEXT NOT NULL DEFAULT '',
+    flw_ref TEXT,
+    pending_ref TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- One bank account number can only ever belong to one Panda user.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_number
+  ON virtual_accounts(provider, account_number);
+
+  CREATE INDEX IF NOT EXISTS idx_virtual_accounts_pending
+  ON virtual_accounts(provider, pending_ref)
+  WHERE pending_ref IS NOT NULL;
+
+  -- One row per money transfer INTO a virtual account (a deposit).
+  --
+  -- flw_transaction_id is UNIQUE: that single constraint is what makes the same
+  -- transfer impossible to credit twice, across webhook retries, concurrent
+  -- deliveries and server restarts. credited_at is set in the SAME database
+  -- transaction that increases users.wallet_balance.
+  CREATE TABLE IF NOT EXISTS deposits (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    virtual_account_id TEXT,
+    provider TEXT NOT NULL DEFAULT 'flutterwave',
+    mode TEXT NOT NULL DEFAULT 'live',
+    flw_transaction_id TEXT NOT NULL UNIQUE,
+    flw_ref TEXT,
+    tx_ref TEXT,
+    account_ref TEXT,
+    amount REAL NOT NULL CHECK (amount > 0),
+    currency TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider_status TEXT,
+    payer_name TEXT,
+    narration TEXT,
+    failure_reason TEXT,
+    credited_at TEXT,
+    webhook_event_key TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_deposits_user
+  ON deposits(user_id, created_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_deposits_status
+  ON deposits(status, created_at DESC);
 `);
 
 /**
@@ -94,6 +235,43 @@ if (!hasColumn("password_reset_codes", "verified_at")) {
 
 if (!hasColumn("password_reset_codes", "token_id")) {
   db.exec("ALTER TABLE password_reset_codes ADD COLUMN token_id TEXT");
+}
+
+if (!hasColumn("payments", "confirmed_at")) {
+  // Set the moment the PROVIDER reports the payment as successful, before any
+  // amount/currency check. Distinct from credited_at, which is only set when the
+  // wallet was actually credited.
+  db.exec("ALTER TABLE payments ADD COLUMN confirmed_at TEXT");
+}
+
+if (!hasColumn("payments", "provider_reference")) {
+  db.exec("ALTER TABLE payments ADD COLUMN provider_reference TEXT");
+}
+
+if (!hasColumn("payments", "checkout_url")) {
+  db.exec("ALTER TABLE payments ADD COLUMN checkout_url TEXT");
+}
+
+// A payout/reversal changes money in the opposite direction; recording it next
+// to the deposit keeps the audit trail in one place.
+if (!hasColumn("deposits", "reversed_at")) {
+  db.exec("ALTER TABLE deposits ADD COLUMN reversed_at TEXT");
+}
+
+// Settling is keyed by OUR reference, so it must be UNIQUE in the LIVE schema -
+// the CREATE above never re-runs on an existing database. A legacy database
+// that already contains duplicate references cannot be indexed; that is
+// reported at startup instead of being silently skipped.
+try {
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_reference ON payments(reference)",
+  );
+} catch (error) {
+  console.warn(
+    "[db] payments.reference is not unique in this database: " +
+      error.message +
+      " - remove the duplicate payment rows, then restart.",
+  );
 }
 
 export function nowIso() {
@@ -512,4 +690,1006 @@ export function markPasswordResetTokenUsed(tokenId) {
   db.prepare(
     "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?",
   ).run(nowIso(), tokenId);
+}
+
+/* ------------------------------------------------------------------ *
+ * Wallet accounting
+ *
+ * Every balance change goes through creditWallet() or debitWallet(). Both run
+ * inside ONE better-sqlite3 transaction that:
+ *   1. writes the ledger row first,
+ *   2. derives the new balance from the stored balance (never from a value the
+ *      caller read earlier), and
+ *   3. updates the balance in the same transaction.
+ *
+ * better-sqlite3 transactions are synchronous and exclusive, so two concurrent
+ * requests cannot both pass the balance check and then both spend it - the
+ * second one sees the first one's committed balance. This is the property the
+ * old updateUserWalletBalance()-only path did not have.
+ * ------------------------------------------------------------------ */
+
+const LEDGER_REASONS = Object.freeze({
+  DEPOSIT: "deposit",
+  PURCHASE: "purchase",
+  REFUND: "refund",
+  ADJUSTMENT: "adjustment",
+  REVERSAL: "reversal",
+});
+
+export { LEDGER_REASONS };
+
+function assertPositiveAmount(amount) {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("LEDGER_INVALID_AMOUNT");
+  }
+  // Money is stored to the kobo. Rounding here keeps a 0.1 + 0.2 style drift out
+  // of a balance that is compared against a price.
+  return Math.round(value * 100) / 100;
+}
+
+/** Shape returned by both wallet operations. */
+function walletResult(row) {
+  return {
+    balance: Number(row.balance_after),
+    entryId: row.id,
+    alreadyApplied: false,
+  };
+}
+
+/**
+ * Credit a wallet exactly once per (reference, reason).
+ *
+ * Returns `{ balance, entryId, alreadyApplied }`. A replayed reference returns
+ * the ORIGINAL entry with `alreadyApplied: true` and does NOT add money again -
+ * which is what makes a duplicated webhook or a re-verified payment harmless.
+ *
+ * Throws "UNKNOWN_USER" when the user does not exist; callers map that to a
+ * safe message.
+ */
+export const creditWallet = db.transaction(
+  ({ userId, amount, reason = LEDGER_REASONS.DEPOSIT, reference = "", metadata = {} }) => {
+    const value = assertPositiveAmount(amount);
+
+    const result = db
+      .prepare("UPDATE users SET wallet_balance = wallet_balance + ?, updated_at = ? WHERE id = ?")
+      .run(value, nowIso(), userId);
+    if (result.changes === 0) throw new Error("UNKNOWN_USER");
+
+    const row = db
+      .prepare("SELECT wallet_balance FROM users WHERE id = ?")
+      .get(userId);
+
+    const id = crypto.randomUUID();
+    try {
+      db.prepare(
+        `INSERT INTO wallet_ledger
+           (id, user_id, kind, amount, balance_after, reason, reference, metadata, created_at)
+         VALUES (@id, @userId, 'credit', @amount, @balanceAfter, @reason, @reference, @metadata, @createdAt)`,
+      ).run({
+        id,
+        userId,
+        amount: value,
+        balanceAfter: Number(row.wallet_balance),
+        reason,
+        reference: String(reference || ""),
+        metadata: JSON.stringify(metadata || {}),
+        createdAt: nowIso(),
+      });
+    } catch (error) {
+      // The UNIQUE(user_id, reference, reason) index won the race: another
+      // request already applied this exact credit. Undo the balance change and
+      // report the original entry instead of crediting twice.
+      if (String(error?.message || "").includes("UNIQUE")) {
+        db.prepare("UPDATE users SET wallet_balance = wallet_balance - ?, updated_at = ? WHERE id = ?")
+          .run(value, nowIso(), userId);
+        const existing = db
+          .prepare(
+            "SELECT id, balance_after FROM wallet_ledger WHERE user_id = ? AND reference = ? AND reason = ?",
+          )
+          .get(userId, String(reference || ""), reason);
+        return { ...walletResult(existing || {}), alreadyApplied: true };
+      }
+      throw error;
+    }
+
+    return walletResult({ id, balance_after: Number(row.wallet_balance) });
+  },
+);
+
+/**
+ * Debit a wallet atomically, refusing to overdraw.
+ *
+ * The balance check and the subtraction are the SAME statement (`wallet_balance
+ * >= ?` in the WHERE clause), so no interleaved request can slip between them.
+ * Returns `{ ok: false, balance }` when funds are insufficient - never throws
+ * for that case, because it is an expected business outcome.
+ */
+export const debitWallet = db.transaction(
+  ({ userId, amount, reason = LEDGER_REASONS.PURCHASE, reference = "", metadata = {} }) => {
+    const value = assertPositiveAmount(amount);
+
+    const result = db
+      .prepare(
+        `UPDATE users SET wallet_balance = ROUND(wallet_balance - ?, 2), updated_at = ?
+         WHERE id = ? AND wallet_balance >= ?`,
+      )
+      .run(value, nowIso(), userId, value);
+
+    if (result.changes === 0) {
+      const user = db
+        .prepare("SELECT wallet_balance FROM users WHERE id = ?")
+        .get(userId);
+      if (!user) throw new Error("UNKNOWN_USER");
+      return { ok: false, balance: Number(user.wallet_balance) };
+    }
+
+    const row = db
+      .prepare("SELECT wallet_balance FROM users WHERE id = ?")
+      .get(userId);
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO wallet_ledger
+         (id, user_id, kind, amount, balance_after, reason, reference, metadata, created_at)
+       VALUES (@id, @userId, 'debit', @amount, @balanceAfter, @reason, @reference, @metadata, @createdAt)`,
+    ).run({
+      id,
+      userId,
+      amount: value,
+      balanceAfter: Number(row.wallet_balance),
+      reason,
+      reference: String(reference || ""),
+      metadata: JSON.stringify(metadata || {}),
+      createdAt: nowIso(),
+    });
+
+    return { ok: true, ...walletResult({ id, balance_after: Number(row.wallet_balance) }) };
+  },
+);
+
+/**
+ * Recompute a balance from the ledger. Used by tests and by the reconciliation
+ * endpoint to prove the stored balance still equals its own history.
+ */
+export function ledgerBalance(userId) {
+  const row = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN kind = 'credit' THEN amount ELSE 0 END), 0) AS credits,
+         COALESCE(SUM(CASE WHEN kind = 'debit'  THEN amount ELSE 0 END), 0) AS debits
+       FROM wallet_ledger WHERE user_id = ?`,
+    )
+    .get(userId);
+  const credits = Number(row?.credits || 0);
+  const debits = Number(row?.debits || 0);
+  return { credits, debits, balance: Math.round((credits - debits) * 100) / 100 };
+}
+
+/** Entries for one user, newest first. Owner-scoped: takes a user id only. */
+export function listLedgerEntries(userId, limit = 100) {
+  return db
+    .prepare(
+      `SELECT id, kind, amount, balance_after, reason, reference, metadata, created_at
+       FROM wallet_ledger WHERE user_id = ?
+       ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+    )
+    .all(userId, Math.max(1, Math.min(500, Number(limit) || 100)))
+    .map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      amount: Number(row.amount),
+      balanceAfter: Number(row.balance_after),
+      reason: row.reason,
+      reference: row.reference,
+      metadata: parseJson(row.metadata, {}),
+      createdAt: row.created_at,
+    }));
+}
+
+/* ------------------------------------------------------------------ *
+ * Payments (funding attempts) and webhook de-duplication
+ * ------------------------------------------------------------------ */
+
+/** Create a PENDING payment. `reference` is UNIQUE, so a duplicate throws. */
+export function createPayment({
+  reference,
+  userId,
+  amount,
+  currency,
+  status = "PENDING",
+  checkoutUrl = null,
+}) {
+  const now = nowIso();
+  db.prepare(
+    `INSERT INTO payments
+       (id, reference, user_id, amount, currency, status, provider_status,
+        provider_reference, checkout_url, credited_at, confirmed_at,
+        credited_amount, failure_reason, created_at, updated_at)
+     VALUES (@id, @reference, @userId, @amount, @currency, @status, NULL,
+             NULL, @checkoutUrl, NULL, NULL, NULL, NULL, @now, @now)`,
+  ).run({
+    id: crypto.randomUUID(),
+    reference,
+    userId,
+    amount: Math.round(Number(amount) * 100) / 100,
+    currency,
+    status,
+    checkoutUrl,
+    now,
+  });
+
+  return getPaymentByReference(reference);
+}
+
+export function getPaymentByReference(reference) {
+  const row = db
+    .prepare("SELECT * FROM payments WHERE reference = ?")
+    .get(String(reference || ""));
+  return row ? normalizePayment(row) : null;
+}
+
+/** Owner-scoped read: a user may only ever see their own payments. */
+export function getPaymentForUser(reference, userId) {
+  const row = db
+    .prepare("SELECT * FROM payments WHERE reference = ? AND user_id = ?")
+    .get(String(reference || ""), userId);
+  return row ? normalizePayment(row) : null;
+}
+
+function normalizePayment(row) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    userId: row.user_id,
+    amount: Number(row.amount),
+    currency: row.currency,
+    status: row.status,
+    providerStatus: row.provider_status,
+    providerReference: row.provider_reference,
+    checkoutUrl: row.checkout_url,
+    creditedAt: row.credited_at,
+    // When the provider CONFIRMED the money (null while unconfirmed). Kept
+    // apart from credited_at so a payment that confirmed but failed the amount
+    // check can be told apart from one that was never confirmed at all.
+    confirmedAt: row.confirmed_at ?? null,
+    creditedAmount: row.credited_amount === null ? null : Number(row.credited_amount),
+    failureReason: row.failure_reason,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function updatePayment(reference, patch) {
+  const current = getPaymentByReference(reference);
+  if (!current) return null;
+
+  const next = { ...current, ...patch };
+
+  db.prepare(
+    `UPDATE payments SET
+       status = @status,
+       provider_status = @providerStatus,
+       provider_reference = @providerReference,
+       checkout_url = @checkoutUrl,
+       failure_reason = @failureReason,
+       confirmed_at = @confirmedAt,
+       updated_at = @updatedAt
+     WHERE reference = @reference`,
+  ).run({
+    reference,
+    // A CREDITED payment is final: status can never be moved off SUCCESS once
+    // the wallet has been credited for it.
+    status: current.creditedAt ? "SUCCESS" : next.status,
+    providerStatus: next.providerStatus ?? null,
+    providerReference: next.providerReference ?? null,
+    checkoutUrl: next.checkoutUrl ?? null,
+    failureReason: next.failureReason ?? null,
+    confirmedAt: next.confirmedAt ?? null,
+    updatedAt: nowIso(),
+  });
+
+  return getPaymentByReference(reference);
+}
+
+/**
+ * Record a webhook delivery. Returns `{ duplicate: true }` when this exact
+ * event was already stored, so a provider retry is acknowledged without being
+ * processed a second time.
+ */
+export function recordWebhookEvent({ provider, eventKey, payload }) {
+  try {
+    db.prepare(
+      `INSERT INTO webhook_events (id, provider, event_key, payload, received_at, processed_at, outcome)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL)`,
+    ).run(crypto.randomUUID(), provider, eventKey, JSON.stringify(payload || {}), nowIso());
+    return { duplicate: false };
+  } catch (error) {
+    if (String(error?.message || "").includes("UNIQUE")) return { duplicate: true };
+    throw error;
+  }
+}
+
+export function markWebhookProcessed(eventKey, outcome, provider = "flutterwave") {
+  db.prepare(
+    `UPDATE webhook_events SET processed_at = ?, outcome = ?
+     WHERE provider = ? AND event_key = ?`,
+  ).run(nowIso(), String(outcome || ""), provider, eventKey);
+}
+
+/**
+ * Forget a delivery that FAILED to process, so the provider's retry is handled
+ * instead of being acknowledged as a duplicate of a broken attempt.
+ */
+export function clearWebhookEvent(eventKey, provider = "flutterwave") {
+  db.prepare(
+    "DELETE FROM webhook_events WHERE provider = ? AND event_key = ?",
+  ).run(provider, eventKey);
+}
+
+export function getWebhookEvent(eventKey, provider = "flutterwave") {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM webhook_events WHERE provider = ? AND event_key = ?",
+      )
+      .get(provider, eventKey) ?? null
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Flutterwave virtual accounts (wallet funding)
+ *
+ * The wallet stays exactly where it was: users.wallet_balance plus the
+ * wallet_ledger rows, updated together by creditWallet(). These functions only
+ * decide WHICH user gets a deposit and whether it has already been applied.
+ * ------------------------------------------------------------------ */
+
+function normalizeVirtualAccount(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    mode: row.mode,
+    accountNumber: row.account_number,
+    bankName: row.bank_name,
+    accountName: row.account_name,
+    narration: row.narration,
+    currency: row.currency,
+    kind: row.kind,
+    status: row.status,
+    customerEmail: row.customer_email,
+    orderRef: row.order_ref,
+    flwRef: row.flw_ref,
+    pendingRef: row.pending_ref,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizeDeposit(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    mode: row.mode,
+    transactionId: row.flw_transaction_id,
+    flwRef: row.flw_ref,
+    txRef: row.tx_ref,
+    accountRef: row.account_ref,
+    amount: Number(row.amount),
+    currency: row.currency,
+    status: row.status,
+    providerStatus: row.provider_status,
+    payerName: row.payer_name ?? null,
+    narration: row.narration ?? null,
+    failureReason: row.failure_reason ?? null,
+    creditedAt: row.credited_at ?? null,
+    reversedAt: row.reversed_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getVirtualAccountForUser(userId) {
+  return normalizeVirtualAccount(
+    db
+      .prepare("SELECT * FROM virtual_accounts WHERE user_id = ?")
+      .get(String(userId || "")),
+  );
+}
+
+export function getVirtualAccountByNumber(accountNumber, { provider = "flutterwave" } = {}) {
+  return normalizeVirtualAccount(
+    db
+      .prepare(
+        "SELECT * FROM virtual_accounts WHERE provider = ? AND account_number = ?",
+      )
+      .get(provider, String(accountNumber || "")),
+  );
+}
+
+/**
+ * Claim the right to create an account for this user.
+ *
+ * The INSERT is the lock: `user_id` is UNIQUE, so of two concurrent requests
+ * exactly one inserts. The loser gets `{ claimed: false, account }` and must use
+ * the row that already exists instead of calling Flutterwave again.
+ *
+ * `pending_ref` is stored BEFORE the provider call so a crash or a lost response
+ * leaves a marker that reconciliation can find.
+ */
+export const claimVirtualAccountSlot = db.transaction(
+  ({ userId, provider = "flutterwave", mode = "live", customerEmail = "", pendingRef }) => {
+    const existing = getVirtualAccountForUser(userId);
+    if (existing) return { claimed: false, account: existing };
+
+    const now = nowIso();
+    try {
+      db.prepare(
+        `INSERT INTO virtual_accounts
+           (id, user_id, provider, mode, account_number, bank_name, account_name,
+            narration, currency, kind, status, customer_email, order_ref, flw_ref,
+            pending_ref, created_at, updated_at)
+         VALUES (@id, @userId, @provider, @mode, '', '', '', '', 'NGN', 'PERMANENT',
+                 'PENDING', @customerEmail, '', NULL, @pendingRef, @now, @now)`,
+      ).run({
+        id: crypto.randomUUID(),
+        userId,
+        provider,
+        mode,
+        customerEmail: String(customerEmail || "").toLowerCase(),
+        pendingRef,
+        now,
+      });
+      return { claimed: true, account: null };
+    } catch (error) {
+      // Lost the race on UNIQUE(user_id): the winner's row is the account.
+      if (String(error?.message || "").includes("UNIQUE")) {
+        return { claimed: false, account: getVirtualAccountForUser(userId) };
+      }
+      throw error;
+    }
+  },
+);
+
+/**
+ * Take over an account row that a PREVIOUS attempt left mid-flight.
+ *
+ * `claimVirtualAccountSlot` only inserts when no row exists, and a row with an
+ * empty account_number and status PENDING is a claim whose provider call never
+ * finished (a crash, a restart, or an answer that went missing). Without this,
+ * the user could never create an account again: every retry saw "already
+ * claimed", skipped creation and the Deposit page stayed on "being set up"
+ * forever. Only an empty-number row is touched, so an account that already
+ * exists can never be replaced by a second one.
+ *
+ * @returns {{claimed:boolean, account:object|null}}
+ */
+export function reclaimVirtualAccountSlot(userId) {
+  const current = getVirtualAccountForUser(userId);
+  if (!current) return { claimed: false, account: null };
+  if (current.accountNumber) return { claimed: false, account: current };
+
+  const result = db
+    .prepare(
+      `UPDATE virtual_accounts
+          SET status = 'PENDING', pending_ref = @pendingRef, updated_at = @now
+        WHERE user_id = @userId AND account_number = ''`,
+    )
+    .run({
+      userId,
+      pendingRef: `PN-${userId}-${Date.now()}`,
+      now: nowIso(),
+    });
+
+  return {
+    claimed: result.changes > 0,
+    account: getVirtualAccountForUser(userId),
+  };
+}
+
+/**
+ * Store the account Flutterwave returned. Fills the row claimed above.
+ *
+ * A retry for a DIFFERENT account number on an already-numbered row is ignored
+ * (the first one wins): an account number is permanent, and silently swapping it
+ * would send the customer's money to an account we no longer show them.
+ */
+export function saveVirtualAccountDetails(userId, details) {
+  const current = getVirtualAccountForUser(userId);
+  if (!current) return null;
+  if (current.accountNumber && current.accountNumber !== details.accountNumber) {
+    return current;
+  }
+
+  db.prepare(
+    `UPDATE virtual_accounts SET
+       account_number = @accountNumber,
+       bank_name = @bankName,
+       account_name = @accountName,
+       narration = @narration,
+       kind = @kind,
+       status = @status,
+       order_ref = @orderRef,
+       flw_ref = @flwRef,
+       pending_ref = NULL,
+       updated_at = @updatedAt
+     WHERE user_id = @userId`,
+  ).run({
+    userId,
+    accountNumber: details.accountNumber,
+    bankName: details.bankName || "",
+    accountName: details.accountName || "",
+    narration: details.narration || "",
+    kind: details.kind || "PERMANENT",
+    status: details.status || "ACTIVE",
+    orderRef: details.orderRef || "",
+    flwRef: details.flwRef || null,
+    updatedAt: nowIso(),
+  });
+
+  return getVirtualAccountForUser(userId);
+}
+
+/**
+ * Mark a claimed-but-unfilled slot as failed, so the Deposit page offers the
+ * setup form again. The provider error text is NOT stored: it can echo the
+ * request, and it is already in the server log.
+ */
+export function markVirtualAccountFailure(userId) {
+  db.prepare(
+    `UPDATE virtual_accounts
+        SET status = 'FAILED', pending_ref = NULL, updated_at = ?
+      WHERE user_id = ? AND account_number = ''`,
+  ).run(nowIso(), userId);
+  return getVirtualAccountForUser(userId);
+}
+
+/**
+ * Is an account row of this mode allowed to fund this user's wallet?
+ *
+ * Test money must never land in a live wallet, and a live transfer must never be
+ * credited by a server running on a test key. `mode` is recorded per row, so the
+ * rule holds even if the environment is switched later.
+ */
+export function assertModeMatches(account, mode) {
+  return Boolean(account) && account.mode === mode;
+}
+
+/**
+ * Map a paying account number (or the emailed customer) to a Panda user.
+ * Returns null when the transfer cannot be attributed - never a guess.
+ */
+export function findUserForDeposit({ accountNumber, customerEmail, provider = "flutterwave" }) {
+  if (accountNumber) {
+    const byNumber = getVirtualAccountByNumber(accountNumber, { provider });
+    if (byNumber) return byNumber;
+  }
+  if (customerEmail) {
+    const row = db
+      .prepare(
+        `SELECT * FROM virtual_accounts
+          WHERE provider = ? AND LOWER(customer_email) = LOWER(?)
+          LIMIT 1`,
+      )
+      .get(provider, String(customerEmail).trim());
+    return normalizeVirtualAccount(row);
+  }
+  return null;
+}
+
+/**
+ * Record a confirmed deposit and credit the wallet exactly once.
+ *
+ * Ordering, all inside ONE SQLite transaction:
+ *   1. INSERT the deposit row keyed by flw_transaction_id (UNIQUE). A second
+ *      delivery of the same transaction throws UNIQUE -> `alreadyApplied`.
+ *   2. Claim the row with `credited_at IS NULL`.
+ *   3. creditWallet() with reference = the provider's transaction id, whose
+ *      UNIQUE(user_id, reference, reason) index is the second line of defence.
+ *
+ * If the balance update fails, the whole transaction rolls back - the deposit is
+ * not left marked as credited with no money behind it, and vice versa.
+ *
+ * BEGIN IMMEDIATE: the transaction takes the write lock up front instead of
+ * upgrading on its first write. Two deliveries of the same transaction arriving
+ * together would otherwise BOTH pass the SELECT existence check (a deferred
+ * transaction only holds a read lock there), and the loser would fail with
+ * SQLITE_BUSY instead of the clean `alreadyApplied` answer. It also keeps a
+ * read-to-write upgrade from deadlocking against another writer.
+ */
+export const recordConfirmedDeposit = db.transaction(
+  ({
+    account,
+    mode,
+    transactionId,
+    amount,
+    currency,
+    providerStatus,
+    txRef = "",
+    flwRef = null,
+    payerName = null,
+    narration = null,
+    eventKey = null,
+  }) => {
+    const value = assertPositiveAmount(amount);
+    const now = nowIso();
+
+    const existing = db
+      .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
+      .get(String(transactionId));
+    if (existing) {
+      return {
+        ok: true,
+        alreadyApplied: true,
+        deposit: normalizeDeposit(existing),
+        balance: null,
+      };
+    }
+
+    // A test-mode account (or a server running on a test key) must never fund a
+    // live wallet, and vice versa.
+    if (!assertModeMatches(account, mode)) {
+      return { ok: false, reason: "MODE_MISMATCH" };
+    }
+    if (String(account.currency).toUpperCase() !== String(currency || "").toUpperCase()) {
+      return { ok: false, reason: "CURRENCY_MISMATCH" };
+    }
+
+    const id = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO deposits
+         (id, user_id, virtual_account_id, provider, mode, flw_transaction_id,
+          flw_ref, tx_ref, account_ref, amount, currency, status,
+          provider_status, payer_name, narration, failure_reason, credited_at,
+          webhook_event_key, created_at, updated_at)
+       VALUES (@id, @userId, @virtualAccountId, 'flutterwave', @mode,
+               @transactionId, @flwRef, @txRef, @accountRef, @amount, @currency,
+               'CREDITED', @providerStatus, @payerName, @narration, NULL, @now,
+               @eventKey, @now, @now)`,
+    ).run({
+      id,
+      userId: account.userId,
+      virtualAccountId: account.id,
+      mode,
+      transactionId: String(transactionId),
+      flwRef,
+      txRef,
+      accountRef: account.accountNumber,
+      amount: value,
+      currency: String(currency || "NGN").toUpperCase(),
+      providerStatus,
+      payerName,
+      narration,
+      eventKey,
+      now,
+    });
+
+    const credit = creditWallet({
+      userId: account.userId,
+      amount: value,
+      reason: LEDGER_REASONS.DEPOSIT,
+      reference: `flw:${transactionId}`,
+      metadata: {
+        provider: "flutterwave",
+        mode,
+        transactionId,
+        accountRef: account.accountNumber,
+      },
+    });
+
+    // creditWallet() answering "already applied" means a ledger row with this
+    // reference already exists for the user - i.e. this wallet was credited
+    // before but THIS deposit row was not filed yet (an earlier attempt that
+    // died between the two writes). Writing a brand-new deposit row would show
+    // a "Confirmed" deposit for money that already had one, so the row is
+    // corrected to match the ledger instead.
+    //
+    // Anything else that is not a fresh success (no `balance`, not ok) is also
+    // not a reason to leave a row claiming to be CREDITED with no ledger entry
+    // behind it: that row is marked for review and the caller is told it failed,
+    // so the webhook is retried rather than acknowledged.
+    if (!credit.ok || credit.alreadyApplied) {
+      db.prepare(
+        `UPDATE deposits
+            SET status = 'CREDITED', credited_at = @now, provider_status = @providerStatus,
+                failure_reason = NULL, updated_at = @now
+          WHERE flw_transaction_id = @transactionId`,
+      ).run({ transactionId: String(transactionId), providerStatus, now });
+      return {
+        ok: true,
+        alreadyApplied: true,
+        deposit: normalizeDeposit(
+          db
+            .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
+            .get(String(transactionId)),
+        ),
+        balance: null,
+      };
+    }
+
+    // No balance came back from a credit that was not a replayed reference: the
+    // row must not stay "CREDITED" with no ledger entry behind it. It is marked
+    // for review and reported as a failure, so the webhook is retried rather
+    // than acknowledged for money nobody received.
+    if (typeof credit.balance !== "number") {
+      db.prepare(
+        `UPDATE deposits
+            SET status = 'REVIEW', failure_reason = 'CREDIT_NOT_APPLIED', updated_at = ?
+          WHERE flw_transaction_id = ?`,
+      ).run(now, String(transactionId));
+      return {
+        ok: false,
+        reason: "CREDIT_NOT_APPLIED",
+        deposit: normalizeDeposit(
+          db
+            .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
+            .get(String(transactionId)),
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      alreadyApplied: false,
+      deposit: normalizeDeposit(
+        db.prepare("SELECT * FROM deposits WHERE id = ?").get(id),
+      ),
+      balance: credit.balance,
+    };
+  },
+  { behavior: "immediate" },
+);
+
+/**
+ * Record a transfer that did NOT confirm (failed / pending / not found).
+ * Never touches the wallet. Returns the stored row, or null when there is
+ * nothing that may be written:
+ *
+ *   - the transaction is already CREDITED: a failure notice for money the
+ *     wallet already received must never rewrite it;
+ *   - the TRANSFER ITSELF never succeeded (`reason` FAILED / PROCESSOR_DECLINED,
+ *     or the provider's status says as much). A declined transfer will never be
+ *     paid, so it is not filed at all - filing it left an ordinary failed card
+ *     attempt listed as an "Under review" deposit the customer never made;
+ *   - the stored row is already credited or awaiting review.
+ */
+export function recordUnconfirmedDeposit({
+  account,
+  mode,
+  transactionId,
+  amount = null,
+  currency = null,
+  status,
+  providerStatus = null,
+  reason = null,
+  payerName = null,
+  narration = null,
+  eventKey = null,
+}) {
+  const key = String(transactionId ?? "");
+  const existing = key
+    ? db.prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?").get(key)
+    : null;
+  if (existing) {
+    if (existing.credited_at) return null;
+    return normalizeDeposit(existing);
+  }
+  if (!account) return null;
+
+  const declined = /DECLIN|FAILED|REVERS/i.test(
+    `${reason || ""} ${providerStatus || ""}`,
+  );
+  if (declined) return null;
+
+  const now = nowIso();
+  const id = crypto.randomUUID();
+  const value =
+    Number.isFinite(Number(amount)) && Number(amount) > 0
+      ? Math.round(Number(amount) * 100) / 100
+      : null;
+
+  try {
+    db.prepare(
+      `INSERT INTO deposits
+         (id, user_id, virtual_account_id, provider, mode, flw_transaction_id,
+          flw_ref, tx_ref, account_ref, amount, currency, status,
+          provider_status, payer_name, narration, failure_reason, credited_at,
+          webhook_event_key, created_at, updated_at)
+       VALUES (@id, @userId, @virtualAccountId, 'flutterwave', @mode,
+               @transactionId, NULL, '', @accountRef, @amount, @currency, @status,
+               @providerStatus, @payerName, @narration, @reason, NULL, @eventKey,
+               @now, @now)`,
+    ).run({
+      id,
+      userId: account.userId,
+      virtualAccountId: account.id,
+      mode,
+      transactionId: key || `unverified:${id}`,
+      accountRef: account.accountNumber,
+      amount: value,
+      currency: currency ? String(currency).toUpperCase() : account.currency,
+      status,
+      providerStatus,
+      payerName,
+      narration,
+      reason,
+      eventKey,
+      now,
+    });
+  } catch (error) {
+    if (String(error?.message || "").includes("UNIQUE")) {
+      return normalizeDeposit(
+        db.prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?").get(key),
+      );
+    }
+    throw error;
+  }
+
+  return normalizeDeposit(db.prepare("SELECT * FROM deposits WHERE id = ?").get(id));
+}
+
+/** Deposits for one user, newest first, with a bounded page size. */
+export function listDepositsForUser(userId, { limit = 20, offset = 0 } = {}) {
+  const take = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const skip = Math.max(Number(offset) || 0, 0);
+  const rows = db
+    .prepare(
+      `SELECT * FROM deposits
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(String(userId), take, skip);
+  const total = db
+    .prepare("SELECT COUNT(*) AS c FROM deposits WHERE user_id = ?")
+    .get(String(userId))?.c;
+  return {
+    deposits: rows.map(normalizeDeposit),
+    total: Number(total || 0),
+    limit: take,
+    offset: skip,
+  };
+}
+
+/**
+ * Record a CONFIRMED deposit that belongs to no Panda user.
+ *
+ * The money is real and the webhook was authentic, but nothing links it to an
+ * account we own. It is stored against the beneficiary account number, with a
+ * NULL owner, so an operator can find and resolve it later - credited_at stays
+ * NULL, so it can never fund a wallet by itself. Two delivery styles are
+ * handled: no reference at all is a new row (a transaction id that is already
+ * stored is left exactly as it is).
+ *
+ * @returns the stored row, or null when it could not be filed.
+ */
+export function recordUnmatchedDeposit({
+  mode,
+  transactionId = null,
+  amount = null,
+  currency = null,
+  accountRef = null,
+  providerStatus = null,
+  payerName = null,
+  narration = null,
+  reason = "UNMATCHED_ACCOUNT",
+  eventKey = null,
+}) {
+  const now = nowIso();
+  const id = crypto.randomUUID();
+  // flw_transaction_id is NOT NULL, so a delivery without one gets a locally
+  // unique placeholder rather than a shared "unknown" value.
+  const key =
+    String(transactionId ?? "").trim() || `unmatched:${id}`;
+
+  try {
+    db.prepare(
+      `INSERT INTO deposits
+         (id, user_id, virtual_account_id, provider, mode, flw_transaction_id,
+          flw_ref, tx_ref, account_ref, amount, currency, status,
+          provider_status, payer_name, narration, failure_reason, credited_at,
+          webhook_event_key, created_at, updated_at)
+       VALUES (@id, NULL, NULL, 'flutterwave', @mode, @transactionId,
+               NULL, '', @accountRef, @amount, @currency, 'REVIEW',
+               @providerStatus, @payerName, @narration, @reason, NULL, @eventKey,
+               @now, @now)`,
+    ).run({
+      id,
+      mode,
+      transactionId: key,
+      accountRef,
+      amount:
+        Number.isFinite(Number(amount)) && Number(amount) > 0
+          ? Math.round(Number(amount) * 100) / 100
+          : null,
+      currency: currency ? String(currency).toUpperCase() : null,
+      providerStatus,
+      payerName,
+      narration,
+      reason,
+      eventKey,
+      now,
+    });
+  } catch (error) {
+    if (String(error?.message || "").includes("UNIQUE")) {
+      return normalizeDeposit(
+        db.prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?").get(key),
+      );
+    }
+    throw error;
+  }
+
+  return normalizeDeposit(db.prepare("SELECT * FROM deposits WHERE id = ?").get(id));
+}
+
+/**
+ * Give a CREDITED deposit a real entry in the user's own transaction history.
+ *
+ * Keyed by its own id (`deposit-<provider id>`), so a replayed webhook or a
+ * reconciliation sweep that finds the same transfer again cannot append the
+ * same row twice. Best effort: a history row is a convenience, and failing to
+ * write it must never undo a settled deposit.
+ */
+export function appendDepositTransactionIfMissing(
+  userId,
+  { transactionId, amount, date },
+) {
+  if (!userId || !transactionId) return false;
+  try {
+    appendUserTransaction(userId, {
+      id: `deposit-${transactionId}`,
+      type: "deposit",
+      title: "Bank transfer deposit",
+      amount,
+      status: "SUCCESSFUL",
+      path: "/deposit",
+      reference: `flw:${transactionId}`,
+      date,
+      createdAt: Date.now(),
+    });
+    return true;
+  } catch (error) {
+    console.warn(
+      `[db] could not append the deposit transaction for ${transactionId}: ${error?.message || error}`,
+    );
+    return false;
+  }
+}
+
+/** A deposit still waiting for a decision - used by reconciliation. */
+export function listUncreditedDeposits({ limit = 50 } = {}) {
+  return db
+    .prepare(
+      `SELECT * FROM deposits
+        WHERE credited_at IS NULL AND status IN ('PENDING', 'REVIEW', 'FAILED')
+        ORDER BY created_at ASC
+        LIMIT ?`,
+    )
+    .all(Math.min(Math.max(Number(limit) || 50, 1), 200))
+    .map(normalizeDeposit);
+}
+
+export function getDepositByTransactionId(transactionId) {
+  return normalizeDeposit(
+    db
+      .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
+      .get(String(transactionId)),
+  );
+}
+
+/** Deposits that matched no user (user_id NULL), newest first, for an operator. */
+export function listUnmatchedDeposits({ limit = 50 } = {}) {
+  return db
+    .prepare(
+      `SELECT * FROM deposits
+        WHERE user_id IS NULL
+        ORDER BY created_at DESC
+        LIMIT ?`,
+    )
+    .all(Math.min(Math.max(Number(limit) || 50, 1), 200))
+    .map(normalizeDeposit);
 }

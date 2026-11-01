@@ -72,6 +72,65 @@
   line-height: 1.4;
 }
 
+/* Status banners ----------------------------------------------------------
+   .deposit-error and .deposit-success are rendered by Deposit.jsx, but no rule
+   for either existed, so a failed deposit showed as bare unstyled text with no
+   background or border (measured: transparent background, 0px border).
+   No .detail-value/.ref-text rule could stand in for them. */
+.deposit-error,
+.deposit-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  box-sizing: border-box;
+  word-break: break-word;
+}
+
+.deposit-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.deposit-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+}
+
+.deposit-success svg {
+  flex-shrink: 0;
+  font-size: 16px;
+  margin-top: 1px;
+}
+
+/* The amount summary on step 2. It was also unstyled, so it read as plain
+   running text under the payment notice. */
+.deposit-confirm-amount {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f0f7ff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #475569;
+  box-sizing: border-box;
+}
+
+.deposit-confirm-amount strong {
+  color: #005ce6;
+  font-size: 16px;
+  font-weight: 800;
+}
+
 /* Balance Card */
 .deposit-content .balance-card {
   background: #005ce6;
@@ -602,6 +661,12 @@
     font-size: 13px;
   }
 
+  .deposit-confirm-amount {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
   .detail-item {
     padding: 12px;
   }
@@ -626,4 +691,112 @@
   .success-amount {
     font-size: 24px;
   }
+}
+
+/* --------------------------------------------------------------------------
+   Bank transfer (Flutterwave virtual account)
+   Newer markup: the deposit list, the status chips and the identity setup.
+   Values reuse the page's existing palette so the screen keeps its look.
+   -------------------------------------------------------------------------- */
+
+/* The account number is the one thing a customer must copy exactly, so it is
+   large, spaced and selectable - not a label. */
+.deposit-content .transfer-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+.deposit-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.deposit-list-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deposit-list-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deposit-state {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.deposit-state-credited {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.deposit-state-pending {
+  background: #fefce8;
+  color: #92400e;
+}
+
+.deposit-state-review {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.deposit-state-failed {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+/* A rotating refresh icon inside a round button reuses the page's spin
+   keyframes; the existing rule sizes it for a full-page spinner, so it is
+   brought back down to button scale here. */
+.deposit-content .back-btn .spin-icon {
+  font-size: 16px;
+  animation: spin 1s linear infinite;
+}
+
+.deposit-content .card-top-nav .card-title {
+  flex: 1;
+}
+
+/* Identity setup: the BVN/NIN choice and the name fields that must match it. */
+.deposit-content .offer-toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.deposit-content .offer-toggle {
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  cursor: pointer;
+}
+
+.deposit-content .offer-toggle.active {
+  background: #eff6ff;
+  border-color: #005ce6;
+  color: #005ce6;
 }
