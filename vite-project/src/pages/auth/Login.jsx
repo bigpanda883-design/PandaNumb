@@ -36,6 +36,7 @@ function Login() {
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
 
   // Mobile Popup / Toast notification state
   const [toast, setToast] = useState({
@@ -58,6 +59,7 @@ function Login() {
       [name]: type === "checkbox" ? checked : value,
     }));
     setErrors((current) => ({ ...current, [name]: "" }));
+    if (name === "email") setNeedsVerification(false);
   };
 
   // Strong Validation Routine
@@ -233,6 +235,7 @@ function Login() {
         navigate("/dashboard", { replace: true });
       }, 500);
     } catch (error) {
+      setNeedsVerification(error?.code === "EMAIL_NOT_VERIFIED");
       triggerToast(
         error?.message || "An unexpected error occurred. Please try again.",
         "error",
@@ -398,8 +401,6 @@ function Login() {
                 <span>Remember me</span>
               </label>
 
-              {/* There is no self-service reset flow yet, so this opens the
-                  support mailbox that the Footer and Help Center also use. */}
               <Link to="/forgot-password" className="auth-inline-link">
                 Forgot password?
               </Link>
@@ -420,6 +421,17 @@ function Login() {
               )}
             </button>
           </form>
+
+          {needsVerification && (
+            <p className="auth-form-error" role="alert">
+              Verify your email before signing in.{" "}
+              <Link
+                to={`/signup?verify=${encodeURIComponent(values.email.trim().toLowerCase())}`}
+              >
+                Continue verification
+              </Link>
+            </p>
+          )}
 
           <p className="auth-switch">
             New to Panda Numbers? <Link to="/signup">Create one</Link>

@@ -12,12 +12,13 @@ const POLL_INTERVAL = Number(import.meta.env?.VITE_SMS_POLL_INTERVAL) || 5000;
  *
  * @param {string|null} numberId  the purchased number's id (activation id)
  */
-export function useVerificationCode(numberId) {
+export function useVerificationCode(numberId, onCodeReceived) {
   const [code, setCode] = useState(null);
   const [receivedAt, setReceivedAt] = useState(null);
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState(null);
   const timerRef = useRef(0);
+  const controllerRef = useRef(null);
 
   const pollRef = useRef(null);
 
@@ -29,6 +30,8 @@ export function useVerificationCode(numberId) {
 
   const stopPolling = useCallback(() => {
     generationRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
       timerRef.current = 0;
@@ -44,8 +47,12 @@ export function useVerificationCode(numberId) {
 
         if (result.status === "CODE_RECEIVED" && result.code) {
           setCode(result.code);
-          setReceivedAt(result.receivedAt ? new Date(result.receivedAt) : new Date());
-          setIsPolling(false);
+          const codeReceivedAt = result.receivedAt
+            ? new Date(result.receivedAt)
+            : new Date();
+          setReceivedAt(codeReceivedAt);
+          onCodeReceived?.(result.code, codeReceivedAt);
+          stopPolling();
           // The backend releases the activation with the provider once the code
           // is read, so no further action is needed here.
           return;
@@ -70,9 +77,10 @@ export function useVerificationCode(numberId) {
         if (generation !== generationRef.current) return;
         setError(err);
         setIsPolling(false);
+        controllerRef.current = null;
       }
     },
-    [numberId, stopPolling],
+    [numberId, onCodeReceived, stopPolling],
   );
 
   useEffect(() => {
@@ -86,14 +94,14 @@ export function useVerificationCode(numberId) {
     setCode(null);
     setReceivedAt(null);
     setIsPolling(true);
-    poll(undefined, generationRef.current);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    poll(controller.signal, generationRef.current);
   }, [numberId, poll, stopPolling]);
 
   // Clean up any in-flight timer on unmount or when the activation changes.
   useEffect(() => {
-    const controller = new AbortController();
     return () => {
-      controller.abort();
       stopPolling();
     };
   }, [stopPolling]);

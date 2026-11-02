@@ -53,12 +53,19 @@ function secretKey() {
 
 /** True when the configured secret key is a TEST key. */
 export function isTestKey() {
-  return secretKey().startsWith("FLWSECK_TEST");
+  return /^FLWSECK_TEST-[A-Za-z0-9_-]+$/.test(secretKey());
 }
 
 /** True when a usable secret key is present. Never reveals the value. */
 export function isConfigured() {
-  return secretKey().length > 0;
+  const key = secretKey();
+  const validFormat =
+    /^FLWSECK-[A-Za-z0-9_-]+$/.test(key) ||
+    /^FLWSECK_TEST-[A-Za-z0-9_-]+$/.test(key);
+  return (
+    validFormat &&
+    !(process.env.NODE_ENV === "production" && isTestKey())
+  );
 }
 
 /** True when the webhook secret hash is present. */
@@ -72,7 +79,13 @@ export function hasWebhookSecret() {
  */
 export function missingConfig() {
   const missing = [];
-  if (!isConfigured()) missing.push("FLW_SECRET_KEY");
+  if (!isConfigured()) {
+    missing.push(
+      process.env.NODE_ENV === "production" && isTestKey()
+        ? "FLW_SECRET_KEY (live key required)"
+        : "FLW_SECRET_KEY",
+    );
+  }
   if (!hasWebhookSecret()) missing.push("FLW_WEBHOOK_SECRET_HASH");
   return missing;
 }
@@ -107,7 +120,7 @@ export class FlutterwaveError extends Error {
 
 function requireKey() {
   const key = secretKey();
-  if (!key) {
+  if (!isConfigured()) {
     throw new FlutterwaveError(
       "PAYMENT_NOT_CONFIGURED",
       "Bank transfer funding is not available yet. Your balance was not changed.",
@@ -189,6 +202,7 @@ export async function createPermanentVirtualAccount({
   firstname,
   lastname,
   narration,
+  txRef,
   identity,
 }) {
   requireKey();
@@ -235,10 +249,19 @@ export async function createPermanentVirtualAccount({
       400,
     );
   }
+  const reference = String(txRef || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,50}$/.test(reference)) {
+    throw new FlutterwaveError(
+      "REFERENCE_INVALID",
+      "A valid account reference is required to create a permanent bank account.",
+      400,
+    );
+  }
 
   const body = {
     email: String(email).trim(),
     is_permanent: true,
+    tx_ref: reference,
     narration: narration || VIRTUAL_ACCOUNT.defaultNarration,
     firstname: String(firstname).trim(),
     lastname: String(lastname).trim(),
@@ -266,6 +289,15 @@ export async function createPermanentVirtualAccount({
   }
 
   const data = payload.data;
+  const responseCode = String(data.response_code || "").trim();
+  if (responseCode && responseCode !== "02") {
+    throw new FlutterwaveError(
+      "ACCOUNT_CREATE_FAILED",
+      "Flutterwave did not confirm that the bank account is ready.",
+      502,
+      safeProviderMessage(payload),
+    );
+  }
   const accountNumber = String(data.account_number || "").trim();
   if (!/^\d{10}$/.test(accountNumber)) {
     throw new FlutterwaveError(
@@ -275,11 +307,22 @@ export async function createPermanentVirtualAccount({
       safeProviderMessage(payload),
     );
   }
+  const bankName = String(data.bank_name || "").trim();
+  if (!bankName) {
+    throw new FlutterwaveError(
+      "ACCOUNT_CREATE_FAILED",
+      "Flutterwave returned incomplete bank account details.",
+      502,
+      safeProviderMessage(payload),
+    );
+  }
 
   return {
     accountNumber,
-    bankName: String(data.bank_name || "").trim(),
-    orderRef: String(data.order_ref || "").trim() || accountNumber,
+    bankName,
+    accountName: String(data.account_name || "").trim(),
+    txRef: reference,
+    orderRef: String(data.order_ref || "").trim() || null,
     flwRef: data.flw_ref ? String(data.flw_ref) : null,
     // The docs' create response carries the bank's own wording as `note`
     // ("Please make a bank transfer to ... FLW"), not `narration`.
@@ -289,8 +332,12 @@ export async function createPermanentVirtualAccount({
     // one is what we asked for, the other is what the provider says.
     kind: "PERMANENT",
     accountStatus: String(
-      data.account_status || data.status || "ACTIVE",
-    ).toUpperCase(),
+      data.account_status ||
+        data.status ||
+        (responseCode === "02" ? "ACTIVE" : ""),
+    )
+      .trim()
+      .toUpperCase(),
     // Static accounts report a per-transfer `amount` ("0.00" = no limit); there
     // is no `amount_control` object in the documented response.
     amountLimit:

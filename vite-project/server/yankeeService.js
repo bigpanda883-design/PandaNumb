@@ -172,17 +172,25 @@ export function getYankeeActivationStatus(activationId) {
 
       const raw = String(text || "").trim();
       const parts = raw.split(":");
-      if (parts[0] === "STATUS_WAIT_CODE")
+      const responseCode = String(parts[0] || "").toUpperCase();
+      if (responseCode === "STATUS_WAIT_CODE" || /^STATUS_WAIT_/.test(responseCode))
         return { status: "WAITING", code: null };
-      if (parts[0] === "STATUS_OK")
+      if (responseCode === "STATUS_OK")
         return {
           status: "CODE_RECEIVED",
           code: parts.slice(1).join(":") || null,
         };
-      if (parts[0] === "STATUS_CANCEL")
+      if (responseCode === "STATUS_CANCEL")
         return { status: "CANCELLED", code: null };
+      if (responseCode === "NO_ACTIVATION") {
+        const error = new Error("NO_ACTIVATION");
+        error.code = "NO_ACTIVATION";
+        throw error;
+      }
 
-      return { status: raw || "UNKNOWN", code: null };
+      const error = new Error(responseCode || "BAD_RESPONSE");
+      error.code = responseCode || "BAD_RESPONSE";
+      throw error;
     },
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   FiGrid,
   FiSmartphone,
@@ -10,10 +11,11 @@ import {
   FiShield,
   FiLogOut,
   FiX,
+  FiSettings,
 } from "react-icons/fi";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearAuthUser } from "../auth/authStorage";
-import { logoutUser } from "../services/apiClient";
+import { fetchAdminStatus, logoutUser } from "../services/apiClient";
 import "../CSS/dashboard/components/Sidebar.css";
 
 const mainItems = [
@@ -34,6 +36,22 @@ const moreItems = [
 
 function Sidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
+  const [canManagePayments, setCanManagePayments] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAdminStatus({ signal: controller.signal })
+      .then(() => setCanManagePayments(true))
+      .catch((error) => {
+        if (error?.name !== "AbortError" && error?.status !== 403) {
+          console.error(
+            "[admin] Could not check payment dashboard access:",
+            error?.message || error,
+          );
+        }
+      });
+    return () => controller.abort();
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -103,6 +121,20 @@ function Sidebar({ isOpen, onClose }) {
 
           <span className="dashboard-nav-label">MORE</span>
           <div className="nav-group">{renderItems(moreItems)}</div>
+          {canManagePayments && (
+            <div className="nav-group">
+              <NavLink
+                to="/admin/payments"
+                className={({ isActive }) =>
+                  `dashboard-nav-item${isActive ? " active" : ""}`
+                }
+                onClick={onClose}
+              >
+                <FiSettings className="nav-icon" aria-hidden="true" />
+                <span>Payment admin</span>
+              </NavLink>
+            </div>
+          )}
         </nav>
 
         {/* LOGOUT BUTTON */}

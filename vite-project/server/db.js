@@ -20,6 +20,7 @@ db.exec(`
     email TEXT UNIQUE NOT NULL,
     phone TEXT DEFAULT '',
     password_hash TEXT NOT NULL,
+    email_verified_at TEXT,
     wallet_balance REAL NOT NULL DEFAULT 0,
     transactions TEXT NOT NULL DEFAULT '[]',
     notifications TEXT NOT NULL DEFAULT '[]',
@@ -43,6 +44,20 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS email_verification_codes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    used_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_email_verification_codes_user
+  ON email_verification_codes(user_id, created_at DESC);
 
   CREATE TABLE IF NOT EXISTS password_reset_codes (
     id TEXT PRIMARY KEY,
@@ -138,6 +153,8 @@ db.exec(`
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_events_unique
   ON webhook_events(provider, event_key);
+  CREATE INDEX IF NOT EXISTS idx_webhook_events_recent
+  ON webhook_events(received_at DESC);
 
   -- Flutterwave virtual accounts (wallet funding).
   --
@@ -159,6 +176,7 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     customer_email TEXT NOT NULL DEFAULT '',
     order_ref TEXT NOT NULL DEFAULT '',
+    tx_ref TEXT,
     flw_ref TEXT,
     pending_ref TEXT,
     created_at TEXT NOT NULL,
@@ -226,6 +244,13 @@ function hasColumn(table, column) {
     .some((row) => row.name === column);
 }
 
+if (!hasColumn("users", "email_verified_at")) {
+  db.exec("ALTER TABLE users ADD COLUMN email_verified_at TEXT");
+  db.prepare(
+    "UPDATE users SET email_verified_at = COALESCE(created_at, ?)",
+  ).run(nowIso());
+}
+
 if (!hasColumn("password_reset_codes", "verified_at")) {
   // Set when the six-digit code has been checked and accepted. A verified code
   // can no longer be used on its own to change the password - see
@@ -257,6 +282,16 @@ if (!hasColumn("payments", "checkout_url")) {
 if (!hasColumn("deposits", "reversed_at")) {
   db.exec("ALTER TABLE deposits ADD COLUMN reversed_at TEXT");
 }
+
+if (!hasColumn("virtual_accounts", "tx_ref")) {
+  db.exec("ALTER TABLE virtual_accounts ADD COLUMN tx_ref TEXT");
+}
+
+db.exec(
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_tx_ref
+   ON virtual_accounts(provider, tx_ref)
+   WHERE tx_ref IS NOT NULL AND tx_ref <> ''`,
+);
 
 // Settling is keyed by OUR reference, so it must be UNIQUE in the LIVE schema -
 // the CREATE above never re-runs on an existing database. A legacy database
@@ -299,6 +334,7 @@ export function createUser({ name, email, passwordHash, phone = "" }) {
     email: email.toLowerCase(),
     phone,
     password_hash: passwordHash,
+    email_verified_at: null,
     wallet_balance: 0,
     transactions: "[]",
     notifications: "[]",
@@ -368,6 +404,7 @@ function normalizeUser(row) {
     name: row.name,
     fullName: row.name,
     email: row.email,
+    emailVerifiedAt: row.email_verified_at || null,
     phone: row.phone || "",
     passwordHash: row.password_hash,
     walletBalance: Number(row.wallet_balance || 0),
@@ -389,6 +426,7 @@ export function safeUser(user) {
     fullName: user.name || user.fullName,
     name: user.name || user.fullName,
     email: user.email,
+    emailVerified: Boolean(user.emailVerifiedAt),
     phone: user.phone || "",
     walletBalance: Number(user.walletBalance || 0),
     transactions: Array.isArray(user.transactions) ? user.transactions : [],
@@ -449,6 +487,23 @@ export function updateUserPassword(userId, passwordHash) {
       WHERE id = ?
     `,
   ).run(passwordHash, nowIso(), userId);
+}
+
+export const updatePasswordAndCreateSession = db.transaction(
+  ({ userId, passwordHash, token }) => {
+    updateUserPassword(userId, passwordHash);
+    deleteAllSessionsForUser(userId);
+    return createSession({ userId, token });
+  },
+);
+
+export function updateUserProfile({ userId, name, phone }) {
+  db.prepare(
+    `UPDATE users
+     SET name = ?, phone = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(name, phone, nowIso(), userId);
+  return getUserById(userId);
 }
 
 export function updateUserWalletBalance(userId, balance) {
@@ -528,6 +583,74 @@ export function updateUserNumber(userId, numberId, patch) {
 
   return getUserById(userId);
 }
+
+export function createEmailVerificationCode({ userId, codeHash, expiresAt }) {
+  const id = crypto.randomUUID();
+  const createdAt = nowIso();
+  const create = db.transaction(() => {
+    db.prepare(
+      `UPDATE email_verification_codes
+       SET used_at = ?
+       WHERE user_id = ? AND used_at IS NULL`,
+    ).run(createdAt, userId);
+    db.prepare(
+      `INSERT INTO email_verification_codes
+         (id, user_id, code_hash, expires_at, attempts, used_at, created_at)
+       VALUES (@id, @userId, @codeHash, @expiresAt, 0, NULL, @createdAt)`,
+    ).run({ id, userId, codeHash, expiresAt, createdAt });
+  });
+  create();
+  return { id };
+}
+
+export function getLatestEmailVerificationCode(userId) {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM email_verification_codes
+         WHERE user_id = ?
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1`,
+      )
+      .get(userId) || null
+  );
+}
+
+export function incrementEmailVerificationAttempts(codeId) {
+  db.prepare(
+    `UPDATE email_verification_codes
+     SET attempts = attempts + 1
+     WHERE id = ? AND used_at IS NULL`,
+  ).run(codeId);
+}
+
+export const verifyUserEmail = db.transaction(({ userId, codeId }) => {
+  const now = nowIso();
+  const codeUpdate = db
+    .prepare(
+      `UPDATE email_verification_codes
+       SET used_at = ?
+       WHERE id = ? AND user_id = ? AND used_at IS NULL
+         AND expires_at > ? AND attempts < 5`,
+    )
+    .run(now, codeId, userId, now);
+  if (codeUpdate.changes === 0) return null;
+
+  const user = db
+    .prepare("SELECT email_verified_at FROM users WHERE id = ?")
+    .get(userId);
+  if (!user) return null;
+
+  const verifiedNow = !user.email_verified_at;
+  if (verifiedNow) {
+    db.prepare(
+      `UPDATE users
+       SET email_verified_at = ?, updated_at = ?
+       WHERE id = ? AND email_verified_at IS NULL`,
+    ).run(now, now, userId);
+  }
+  return { verifiedNow };
+});
 
 export function createPasswordResetCode({ userId, codeHash, expiresAt }) {
   const id = crypto.randomUUID();
@@ -1061,6 +1184,7 @@ function normalizeVirtualAccount(row) {
     status: row.status,
     customerEmail: row.customer_email,
     orderRef: row.order_ref,
+    txRef: row.tx_ref || null,
     flwRef: row.flw_ref,
     pendingRef: row.pending_ref,
     createdAt: row.created_at,
@@ -1070,6 +1194,10 @@ function normalizeVirtualAccount(row) {
 
 function normalizeDeposit(row) {
   if (!row) return null;
+  const newBalance =
+    row.new_balance === null || row.new_balance === undefined
+      ? null
+      : Number(row.new_balance);
   return {
     id: row.id,
     userId: row.user_id,
@@ -1088,6 +1216,11 @@ function normalizeDeposit(row) {
     failureReason: row.failure_reason ?? null,
     creditedAt: row.credited_at ?? null,
     reversedAt: row.reversed_at ?? null,
+    previousBalance:
+      newBalance === null
+        ? null
+        : Math.round((newBalance - Number(row.amount)) * 100) / 100,
+    newBalance,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1108,6 +1241,21 @@ export function getVirtualAccountByNumber(accountNumber, { provider = "flutterwa
         "SELECT * FROM virtual_accounts WHERE provider = ? AND account_number = ?",
       )
       .get(provider, String(accountNumber || "")),
+  );
+}
+
+export function getVirtualAccountByTransactionRef(
+  txRef,
+  { provider = "flutterwave" } = {},
+) {
+  const reference = String(txRef || "").trim();
+  if (!reference) return null;
+  return normalizeVirtualAccount(
+    db
+      .prepare(
+        "SELECT * FROM virtual_accounts WHERE provider = ? AND tx_ref = ?",
+      )
+      .get(provider, reference),
   );
 }
 
@@ -1214,6 +1362,7 @@ export function saveVirtualAccountDetails(userId, details) {
        kind = @kind,
        status = @status,
        order_ref = @orderRef,
+       tx_ref = @txRef,
        flw_ref = @flwRef,
        pending_ref = NULL,
        updated_at = @updatedAt
@@ -1225,8 +1374,9 @@ export function saveVirtualAccountDetails(userId, details) {
     accountName: details.accountName || "",
     narration: details.narration || "",
     kind: details.kind || "PERMANENT",
-    status: details.status || "ACTIVE",
+    status: details.status || "UNKNOWN",
     orderRef: details.orderRef || "",
+    txRef: details.txRef || null,
     flwRef: details.flwRef || null,
     updatedAt: nowIso(),
   });
@@ -1263,10 +1413,19 @@ export function assertModeMatches(account, mode) {
  * Map a paying account number (or the emailed customer) to a Panda user.
  * Returns null when the transfer cannot be attributed - never a guess.
  */
-export function findUserForDeposit({ accountNumber, customerEmail, provider = "flutterwave" }) {
+export function findUserForDeposit({
+  accountNumber,
+  customerEmail,
+  txRef,
+  provider = "flutterwave",
+}) {
   if (accountNumber) {
     const byNumber = getVirtualAccountByNumber(accountNumber, { provider });
     if (byNumber) return byNumber;
+  }
+  if (txRef) {
+    const byReference = getVirtualAccountByTransactionRef(txRef, { provider });
+    if (byReference) return byReference;
   }
   if (customerEmail) {
     const row = db
@@ -1285,8 +1444,8 @@ export function findUserForDeposit({ accountNumber, customerEmail, provider = "f
  * Record a confirmed deposit and credit the wallet exactly once.
  *
  * Ordering, all inside ONE SQLite transaction:
- *   1. INSERT the deposit row keyed by flw_transaction_id (UNIQUE). A second
- *      delivery of the same transaction throws UNIQUE -> `alreadyApplied`.
+ *   1. Reuse an existing pending row, or INSERT one keyed by
+ *      flw_transaction_id (UNIQUE).
  *   2. Claim the row with `credited_at IS NULL`.
  *   3. creditWallet() with reference = the provider's transaction id, whose
  *      UNIQUE(user_id, reference, reason) index is the second line of defence.
@@ -1321,13 +1480,16 @@ export const recordConfirmedDeposit = db.transaction(
     const existing = db
       .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
       .get(String(transactionId));
-    if (existing) {
+    if (existing?.credited_at) {
       return {
         ok: true,
         alreadyApplied: true,
         deposit: normalizeDeposit(existing),
         balance: null,
       };
+    }
+    if (existing && existing.user_id !== account.userId) {
+      return { ok: false, reason: "TRANSACTION_OWNER_MISMATCH" };
     }
 
     // A test-mode account (or a server running on a test key) must never fund a
@@ -1339,34 +1501,69 @@ export const recordConfirmedDeposit = db.transaction(
       return { ok: false, reason: "CURRENCY_MISMATCH" };
     }
 
-    const id = crypto.randomUUID();
-    db.prepare(
-      `INSERT INTO deposits
-         (id, user_id, virtual_account_id, provider, mode, flw_transaction_id,
-          flw_ref, tx_ref, account_ref, amount, currency, status,
-          provider_status, payer_name, narration, failure_reason, credited_at,
-          webhook_event_key, created_at, updated_at)
-       VALUES (@id, @userId, @virtualAccountId, 'flutterwave', @mode,
-               @transactionId, @flwRef, @txRef, @accountRef, @amount, @currency,
-               'CREDITED', @providerStatus, @payerName, @narration, NULL, @now,
-               @eventKey, @now, @now)`,
-    ).run({
-      id,
-      userId: account.userId,
-      virtualAccountId: account.id,
-      mode,
-      transactionId: String(transactionId),
-      flwRef,
-      txRef,
-      accountRef: account.accountNumber,
-      amount: value,
-      currency: String(currency || "NGN").toUpperCase(),
-      providerStatus,
-      payerName,
-      narration,
-      eventKey,
-      now,
-    });
+    const id = existing?.id || crypto.randomUUID();
+    if (existing) {
+      db.prepare(
+        `UPDATE deposits SET
+           virtual_account_id = @virtualAccountId,
+           mode = @mode,
+           flw_ref = @flwRef,
+           tx_ref = @txRef,
+           account_ref = @accountRef,
+           amount = @amount,
+           currency = @currency,
+           status = 'PENDING',
+           provider_status = @providerStatus,
+           payer_name = @payerName,
+           narration = @narration,
+           failure_reason = NULL,
+           webhook_event_key = @eventKey,
+           updated_at = @now
+         WHERE flw_transaction_id = @transactionId AND credited_at IS NULL`,
+      ).run({
+        virtualAccountId: account.id,
+        mode,
+        flwRef,
+        txRef,
+        accountRef: account.accountNumber,
+        amount: value,
+        currency: String(currency || "NGN").toUpperCase(),
+        providerStatus,
+        payerName,
+        narration,
+        eventKey,
+        now,
+        transactionId: String(transactionId),
+      });
+    } else {
+      db.prepare(
+        `INSERT INTO deposits
+           (id, user_id, virtual_account_id, provider, mode, flw_transaction_id,
+            flw_ref, tx_ref, account_ref, amount, currency, status,
+            provider_status, payer_name, narration, failure_reason, credited_at,
+            webhook_event_key, created_at, updated_at)
+         VALUES (@id, @userId, @virtualAccountId, 'flutterwave', @mode,
+                 @transactionId, @flwRef, @txRef, @accountRef, @amount, @currency,
+                 'PENDING', @providerStatus, @payerName, @narration, NULL, NULL,
+                 @eventKey, @now, @now)`,
+      ).run({
+        id,
+        userId: account.userId,
+        virtualAccountId: account.id,
+        mode,
+        transactionId: String(transactionId),
+        flwRef,
+        txRef,
+        accountRef: account.accountNumber,
+        amount: value,
+        currency: String(currency || "NGN").toUpperCase(),
+        providerStatus,
+        payerName,
+        narration,
+        eventKey,
+        now,
+      });
+    }
 
     const credit = creditWallet({
       userId: account.userId,
@@ -1392,13 +1589,22 @@ export const recordConfirmedDeposit = db.transaction(
     // not a reason to leave a row claiming to be CREDITED with no ledger entry
     // behind it: that row is marked for review and the caller is told it failed,
     // so the webhook is retried rather than acknowledged.
-    if (!credit.ok || credit.alreadyApplied) {
+    if (credit.alreadyApplied) {
       db.prepare(
         `UPDATE deposits
             SET status = 'CREDITED', credited_at = @now, provider_status = @providerStatus,
-                failure_reason = NULL, updated_at = @now
-          WHERE flw_transaction_id = @transactionId`,
-      ).run({ transactionId: String(transactionId), providerStatus, now });
+                     failure_reason = NULL, flw_ref = @flwRef, tx_ref = @txRef,
+                     amount = @amount, currency = @currency, updated_at = @now
+               WHERE flw_transaction_id = @transactionId`,
+      ).run({
+        transactionId: String(transactionId),
+        providerStatus,
+        flwRef,
+        txRef,
+        amount: value,
+        currency: String(currency || "NGN").toUpperCase(),
+        now,
+      });
       return {
         ok: true,
         alreadyApplied: true,
@@ -1446,15 +1652,14 @@ export const recordConfirmedDeposit = db.transaction(
 
 /**
  * Record a transfer that did NOT confirm (failed / pending / not found).
- * Never touches the wallet. Returns the stored row, or null when there is
- * nothing that may be written:
+ * Never touches the wallet. Pending/failed transfers with a valid amount are
+ * retained for support and admin review. Returns null when there is nothing
+ * safe to record:
  *
  *   - the transaction is already CREDITED: a failure notice for money the
  *     wallet already received must never rewrite it;
- *   - the TRANSFER ITSELF never succeeded (`reason` FAILED / PROCESSOR_DECLINED,
- *     or the provider's status says as much). A declined transfer will never be
- *     paid, so it is not filed at all - filing it left an ordinary failed card
- *     attempt listed as an "Under review" deposit the customer never made;
+ *   - the transfer has no valid positive amount, which the deposits table does
+ *     not permit and cannot be safely represented;
  *   - the stored row is already credited or awaiting review.
  */
 export function recordUnconfirmedDeposit({
@@ -1480,17 +1685,13 @@ export function recordUnconfirmedDeposit({
   }
   if (!account) return null;
 
-  const declined = /DECLIN|FAILED|REVERS/i.test(
-    `${reason || ""} ${providerStatus || ""}`,
-  );
-  if (declined) return null;
-
   const now = nowIso();
   const id = crypto.randomUUID();
   const value =
     Number.isFinite(Number(amount)) && Number(amount) > 0
       ? Math.round(Number(amount) * 100) / 100
       : null;
+  if (value === null) return null;
 
   try {
     db.prepare(
@@ -1538,9 +1739,15 @@ export function listDepositsForUser(userId, { limit = 20, offset = 0 } = {}) {
   const skip = Math.max(Number(offset) || 0, 0);
   const rows = db
     .prepare(
-      `SELECT * FROM deposits
-        WHERE user_id = ?
-        ORDER BY created_at DESC
+      `SELECT deposits.*,
+              wallet_ledger.balance_after AS new_balance
+         FROM deposits
+         LEFT JOIN wallet_ledger
+           ON wallet_ledger.user_id = deposits.user_id
+          AND wallet_ledger.reference = 'flw:' || deposits.flw_transaction_id
+          AND wallet_ledger.reason = 'deposit'
+        WHERE deposits.user_id = ?
+        ORDER BY deposits.created_at DESC
         LIMIT ? OFFSET ?`,
     )
     .all(String(userId), take, skip);
@@ -1552,6 +1759,154 @@ export function listDepositsForUser(userId, { limit = 20, offset = 0 } = {}) {
     total: Number(total || 0),
     limit: take,
     offset: skip,
+  };
+}
+
+function boundedPage({ limit = 50, offset = 0 } = {}) {
+  return {
+    limit: Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 100),
+    offset: Math.max(Number.parseInt(offset, 10) || 0, 0),
+  };
+}
+
+/** Read-only operator view of virtual accounts, bounded to one page. */
+export function listVirtualAccountsForAdmin({ search = "", limit, offset } = {}) {
+  const page = boundedPage({ limit, offset });
+  const needle = String(search || "").trim().toLowerCase();
+  const rows = db
+    .prepare(
+      `SELECT virtual_accounts.*, users.name AS user_name, users.email AS user_email
+         FROM virtual_accounts
+         JOIN users ON users.id = virtual_accounts.user_id
+        WHERE (? = ''
+           OR instr(lower(users.name), ?) > 0
+           OR instr(lower(users.email), ?) > 0
+           OR instr(virtual_accounts.account_number, ?) > 0)
+        ORDER BY virtual_accounts.created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(
+      needle,
+      needle,
+      needle,
+      String(search || "").trim(),
+      page.limit,
+      page.offset,
+    );
+  const total = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+         FROM virtual_accounts
+         JOIN users ON users.id = virtual_accounts.user_id
+        WHERE (? = ''
+           OR instr(lower(users.name), ?) > 0
+           OR instr(lower(users.email), ?) > 0
+           OR instr(virtual_accounts.account_number, ?) > 0)`,
+    )
+    .get(
+      needle,
+      needle,
+      needle,
+      String(search || "").trim(),
+    )?.c;
+  return {
+    items: rows.map((row) => ({
+      ...normalizeVirtualAccount(row),
+      userName: row.user_name,
+      userEmail: row.user_email,
+    })),
+    total: Number(total || 0),
+    ...page,
+  };
+}
+
+/** Read-only operator view of deposits and their corresponding ledger balances. */
+export function listDepositsForAdmin({
+  status = "",
+  search = "",
+  limit,
+  offset,
+} = {}) {
+  const page = boundedPage({ limit, offset });
+  const state = String(status || "").trim().toUpperCase();
+  const needle = String(search || "").trim().toLowerCase();
+  const where = `(? = '' OR deposits.status = ?)
+    AND (? = ''
+      OR instr(lower(users.name), ?) > 0
+      OR instr(lower(users.email), ?) > 0
+      OR instr(deposits.flw_transaction_id, ?) > 0
+      OR instr(lower(COALESCE(deposits.tx_ref, '')), ?) > 0
+      OR instr(lower(COALESCE(deposits.flw_ref, '')), ?) > 0)`;
+  const params = [
+    state,
+    state,
+    needle,
+    needle,
+    needle,
+    String(search || "").trim(),
+    needle,
+    needle,
+  ];
+  const rows = db
+    .prepare(
+      `SELECT deposits.*,
+              wallet_ledger.balance_after AS new_balance,
+              users.name AS user_name, users.email AS user_email
+         FROM deposits
+         JOIN users ON users.id = deposits.user_id
+         LEFT JOIN wallet_ledger
+           ON wallet_ledger.user_id = deposits.user_id
+          AND wallet_ledger.reference = 'flw:' || deposits.flw_transaction_id
+          AND wallet_ledger.reason = 'deposit'
+        WHERE ${where}
+        ORDER BY deposits.created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(...params, page.limit, page.offset);
+  const total = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+         FROM deposits
+         JOIN users ON users.id = deposits.user_id
+        WHERE ${where}`,
+    )
+    .get(...params)?.c;
+  return {
+    items: rows.map((row) => ({
+      ...normalizeDeposit(row),
+      userName: row.user_name,
+      userEmail: row.user_email,
+    })),
+    total: Number(total || 0),
+    ...page,
+  };
+}
+
+/** Read-only webhook audit feed; stored payloads contain only a safe summary. */
+export function listWebhookEventsForAdmin({ limit, offset } = {}) {
+  const page = boundedPage({ limit, offset });
+  const rows = db
+    .prepare(
+      `SELECT provider, event_key, payload, received_at, processed_at, outcome
+         FROM webhook_events
+        ORDER BY received_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(page.limit, page.offset);
+  const total = db
+    .prepare("SELECT COUNT(*) AS c FROM webhook_events")
+    .get()?.c;
+  return {
+    items: rows.map((row) => ({
+      provider: row.provider,
+      eventKey: row.event_key,
+      payload: parseJson(row.payload, {}),
+      receivedAt: row.received_at,
+      processedAt: row.processed_at,
+      outcome: row.outcome,
+    })),
+    total: Number(total || 0),
+    ...page,
   };
 }
 

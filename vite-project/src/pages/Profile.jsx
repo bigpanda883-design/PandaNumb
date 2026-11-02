@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { FiLifeBuoy, FiLogOut } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
-import { clearAuthUser, getAuthUser } from "../auth/authStorage";
-import { logoutUser } from "../services/apiClient";
+import {
+  clearAuthUser,
+  getAuthToken,
+  getAuthUser,
+  saveSession,
+} from "../auth/authStorage";
+import { logoutUser, updateUserProfile } from "../services/apiClient";
 import { pushNotification } from "../notifications/notificationStore";
 import { usePageLoading } from "../hooks/usePageLoading";
 import { ProfileSkeleton } from "../components/skeleton/PageSkeletons";
@@ -18,6 +23,9 @@ function Profile() {
     email: user?.email || "",
     phoneNumber: user?.phone || "",
   });
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   // Calculate initials from Full Name
   const getInitials = (name) => {
@@ -35,18 +43,44 @@ function Profile() {
       ...prev,
       [name]: value,
     }));
+    setError("");
+    setSuccess("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    alert("Profile changes saved successfully!");
+    setIsSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const updatedUser = await updateUserProfile({
+        fullName: formData.fullName.trim(),
+        phone: formData.phoneNumber.trim(),
+      });
+      if (!updatedUser || !saveSession(updatedUser, getAuthToken())) {
+        setError(
+          "Your profile was updated, but this device could not save the latest account details. Please refresh.",
+        );
+        return;
+      }
 
-    pushNotification({
-      type: "security",
-      title: "Profile updated",
-      description: "Your account details were changed.",
-      path: "/profile",
-    });
+      setFormData({
+        fullName: updatedUser.fullName || "",
+        email: updatedUser.email || "",
+        phoneNumber: updatedUser.phone || "",
+      });
+      setSuccess("Your profile changes were saved.");
+      pushNotification({
+        type: "security",
+        title: "Profile updated",
+        description: "Your account details were changed.",
+        path: "/profile",
+      });
+    } catch (requestError) {
+      setError(requestError.message || "Unable to update your profile.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Support already has a home in the app — send people there instead of
@@ -88,6 +122,16 @@ function Profile() {
         {/* Form Card */}
         <div className="profile-card profile-form-card">
           <form onSubmit={handleSubmit} className="profile-form">
+            {error && (
+              <p className="profile-form-message error" role="alert">
+                {error}
+              </p>
+            )}
+            {success && (
+              <p className="profile-form-message success" role="status">
+                {success}
+              </p>
+            )}
             <div className="form-group">
               <label htmlFor="fullName">Full name</label>
               <input
@@ -114,8 +158,12 @@ function Profile() {
               />
             </div>
 
-            <button type="submit" className="save-changes-btn">
-              Save changes
+            <button
+              type="submit"
+              className="save-changes-btn"
+              disabled={isSaving}
+            >
+              {isSaving ? "Saving..." : "Save changes"}
             </button>
           </form>
         </div>

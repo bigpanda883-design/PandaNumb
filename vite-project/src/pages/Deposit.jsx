@@ -4,7 +4,6 @@ import {
   FiCopy,
   FiAlertCircle,
   FiRefreshCw,
-  FiLoader,
 } from "react-icons/fi";
 import { useBalance } from "../hooks/useBalance";
 import { usePageLoading } from "../hooks/usePageLoading";
@@ -45,142 +44,6 @@ const STATUS_LABEL = {
   FAILED: "Not completed",
 };
 
-/** One-time identity input used to create the permanent account. */
-function AccountSetup({ onCreated }) {
-  const [idType, setIdType] = useState("bvn");
-  const [identityValue, setIdentityValue] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-
-  const digits = identityValue.replace(/\D/g, "");
-  const isValid = digits.length === 11;
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (!isValid || isSubmitting) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const result = await createVirtualAccount({
-        [idType]: digits,
-        firstName,
-        lastName,
-      });
-      // The identity value is never kept in component state after the call
-      // completes, and this component unmounts once the account exists.
-      setIdentityValue("");
-      onCreated?.(result);
-    } catch (createError) {
-      setError(
-        errorText(
-          createError,
-          "Your bank account could not be created yet. You can try again.",
-        ),
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <form className="deposit-card" onSubmit={handleSubmit}>
-      <h3 className="card-title">Get your dedicated bank account</h3>
-      <p className="min-deposit-note">
-        A permanent Nigerian bank account is created for you, once. Flutterwave
-        requires your BVN or NIN for this step. It is sent to Flutterwave over
-        an encrypted connection and is <strong>not stored</strong> on Panda
-        Number.
-      </p>
-
-      <div
-        className="offer-toggle-group"
-        role="tablist"
-        aria-label="Identity type"
-      >
-        {[
-          { id: "bvn", label: "BVN" },
-          { id: "nin", label: "NIN" },
-        ].map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="tab"
-            aria-selected={idType === option.id}
-            className={`offer-toggle${idType === option.id ? " active" : ""}`}
-            onClick={() => setIdType(option.id)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="input-wrap">
-        <input
-          type="text"
-          className="amount-input"
-          inputMode="numeric"
-          autoComplete="off"
-          maxLength={11}
-          placeholder={`Your 11-digit ${idType.toUpperCase()}`}
-          value={identityValue}
-          onChange={(event) => setIdentityValue(event.target.value)}
-          aria-label={`Your ${idType.toUpperCase()}`}
-        />
-      </div>
-
-      <div className="presets-row" style={{ marginTop: "10px" }}>
-        <input
-          type="text"
-          className="amount-input"
-          placeholder="First name"
-          autoComplete="given-name"
-          value={firstName}
-          onChange={(event) => setFirstName(event.target.value)}
-        />
-        <input
-          type="text"
-          className="amount-input"
-          placeholder="Last name"
-          autoComplete="family-name"
-          value={lastName}
-          onChange={(event) => setLastName(event.target.value)}
-        />
-      </div>
-
-      {error && (
-        <div
-          className="deposit-error"
-          role="alert"
-          style={{ marginTop: "12px" }}
-        >
-          {error}
-        </div>
-      )}
-
-      <button
-        type="submit"
-        className="primary-btn"
-        style={{ marginTop: "16px" }}
-        disabled={!isValid || isSubmitting}
-      >
-        {isSubmitting ? (
-          <>
-            <FiLoader className="spinner-icon" /> Creating your account…
-          </>
-        ) : (
-          "Create my bank account"
-        )}
-      </button>
-
-      <p className="disclaimer-text">
-        Your name must match the identity you enter - Flutterwave verifies it.
-      </p>
-    </form>
-  );
-}
-
 export default function Deposit() {
   const { balance, isLoading: balanceLoading } = useBalance();
   const { isLoading: isLoadingPage } = usePageLoading();
@@ -193,6 +56,10 @@ export default function Deposit() {
   const [depositsError, setDepositsError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [identityType, setIdentityType] = useState("bvn");
+  const [identityNumber, setIdentityNumber] = useState("");
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [accountSetupError, setAccountSetupError] = useState(null);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -208,10 +75,9 @@ export default function Deposit() {
    * Load the saved account + recent deposits. Both are plain database reads on
    * the server, so this runs on mount and on the poll tick, never per render.
    */
-  const load = useCallback(async ({ quiet = false } = {}) => {
-    if (!quiet) setAccountError(null);
-    try {
-      const [accountResult, depositsResult] = await Promise.all([
+   const load = useCallback(async ({ quiet = false } = {}) => {
+     try {
+       const [accountResult, depositsResult] = await Promise.all([
         fetchVirtualAccount(),
         fetchDeposits({ limit: 10 }).catch((depositFailure) => ({
           error: depositFailure,
@@ -219,6 +85,7 @@ export default function Deposit() {
       ]);
       if (!mounted.current) return;
 
+      if (!quiet) setAccountError(null);
       setAccount(accountResult?.account ?? null);
       setAccountState(accountResult?.state || "NOT_CREATED");
       setConfig((current) => ({
@@ -255,7 +122,10 @@ export default function Deposit() {
 
   useEffect(() => {
     let cancelled = false;
-    load();
+    void Promise.resolve().then(() => {
+      if (!cancelled) return load({ quiet: true });
+      return undefined;
+    });
     fetchPaymentsConfig()
       .then((result) => {
         if (!cancelled) setConfig(result);
@@ -301,17 +171,41 @@ export default function Deposit() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await load();
-    setIsRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
-  const handleAccountCreated = (result) => {
-    if (result?.account) {
-      setAccount(result.account);
-      setAccountState("ACTIVE");
+  const handleCreateAccount = async (event) => {
+    event.preventDefault();
+    const identifier = identityNumber.trim();
+    if (!/^\d{11}$/.test(identifier)) {
+      setAccountSetupError(`${identityType.toUpperCase()} must contain 11 digits.`);
+      return;
     }
-    setAccountError(null);
-    load({ quiet: true });
+
+    setIsCreatingAccount(true);
+    setAccountSetupError(null);
+    try {
+      const result = await createVirtualAccount({
+        [identityType]: identifier,
+      });
+      setAccount(result?.account ?? null);
+      setAccountState(result?.state || result?.account?.status || "PENDING");
+      await load({ quiet: true });
+    } catch (error) {
+      setAccountSetupError(
+        errorText(error, "Flutterwave could not create your bank account."),
+      );
+      if (error?.code === "ACCOUNT_CREATION_PENDING") {
+        setAccountState("PENDING");
+      }
+    } finally {
+      setIdentityNumber("");
+      setIsCreatingAccount(false);
+    }
   };
 
   if (isLoadingPage) {
@@ -320,7 +214,6 @@ export default function Deposit() {
 
   const configured = config?.configured !== false;
   const isTestMode = config?.mode === "test";
-  const showSetup = accountState === "NOT_CREATED" || accountState === "FAILED";
   const pendingDeposits = deposits.filter(
     (deposit) => !deposit.credited && deposit.status === "PENDING",
   );
@@ -391,15 +284,18 @@ export default function Deposit() {
       {account && (
         <div className="deposit-card">
           <h3 className="card-title">Transfer to your dedicated account</h3>
+          <p className="account-status">
+            Account status: <strong>{account.status || "UNKNOWN"}</strong>
+          </p>
 
           <div className="transfer-amount-box">
             <span className="transfer-label">{account.bankName || "Bank"}</span>
             <p className="transfer-value" aria-label="Your account number">
               {account.accountNumber}
             </p>
-            <span className="ref-text">
-              {account.accountName || account.narration || ""}
-            </span>
+            {account.accountName && (
+              <span className="ref-text">{account.accountName}</span>
+            )}
           </div>
 
           <button type="button" className="primary-btn" onClick={handleCopy}>
@@ -416,9 +312,9 @@ export default function Deposit() {
 
           <p className="min-deposit-note" style={{ marginTop: "14px" }}>
             Open your bank app and transfer any amount to this account number.
-            This account is permanently yours - transfer as often as you like.
-            Your wallet is credited automatically once the bank transfer is
-            confirmed, usually within a few minutes.
+            {account.status === "ACTIVE"
+              ? " This account is permanently yours. Your wallet is credited only after Flutterwave confirms the transfer."
+              : " Do not transfer until Flutterwave confirms that this account is active."}
           </p>
 
           <p className="disclaimer-text">
@@ -428,31 +324,99 @@ export default function Deposit() {
         </div>
       )}
 
-      {showSetup && configured && (
-        <AccountSetup onCreated={handleAccountCreated} />
-      )}
-
-      {showSetup && !configured && (
+      {!account && accountState === "UNAVAILABLE" && (
         <div className="deposit-card">
-          <h3 className="card-title">Account creation unavailable</h3>
+          <h3 className="card-title">Dedicated bank account unavailable</h3>
           <p className="min-deposit-note">
-            Your bank account cannot be created yet because the payment provider
-            is not fully configured on the server. Nothing you do here will be
-            charged.
+            Panda Number does not collect BVN or NIN. Flutterwave requires one
+            to create a permanent virtual account, so we cannot provide a
+            dedicated bank account until an ID-free funding option is available.
           </p>
         </div>
       )}
 
-      {accountState === "PENDING" && !account?.accountNumber && (
-        <div className="demo-banner" role="status">
-          <FiAlertCircle className="demo-icon" aria-hidden="true" />
-          <div className="demo-text">
-            <strong>Your account is being set up</strong>
-            <p>
-              An account request is in progress. Refresh in a moment - it will
-              not be created twice.
+      {!account &&
+        configured &&
+        ["NOT_CREATED", "FAILED"].includes(accountState) && (
+          <div className="deposit-card">
+            <h3 className="card-title">Set up your permanent bank account</h3>
+            <p className="min-deposit-note">
+              Flutterwave requires one identity number to issue a permanent
+              account. Enter it once; Panda Number sends it to Flutterwave for
+              account setup and does not save it.
             </p>
+            <form className="account-setup-form" onSubmit={handleCreateAccount}>
+              <div className="identity-choice" role="group" aria-label="Identity type">
+                <label>
+                  <input
+                    type="radio"
+                    name="identityType"
+                    value="bvn"
+                    checked={identityType === "bvn"}
+                    onChange={() => setIdentityType("bvn")}
+                    disabled={isCreatingAccount}
+                  />
+                  BVN
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="identityType"
+                    value="nin"
+                    checked={identityType === "nin"}
+                    onChange={() => setIdentityType("nin")}
+                    disabled={isCreatingAccount}
+                  />
+                  NIN
+                </label>
+              </div>
+              <label className="identity-input-label" htmlFor="account-identity">
+                {identityType.toUpperCase()}
+              </label>
+              <input
+                id="account-identity"
+                name="accountIdentity"
+                className="account-identity-input"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={11}
+                value={identityNumber}
+                onChange={(event) =>
+                  setIdentityNumber(event.target.value.replace(/\D/g, "").slice(0, 11))
+                }
+                aria-describedby="account-identity-privacy"
+                required
+                disabled={isCreatingAccount}
+              />
+              <p id="account-identity-privacy" className="min-deposit-note">
+                Do not enter this on a shared device. Your identifier is not
+                stored in your Panda Number account.
+              </p>
+              {accountSetupError && (
+                <p className="deposit-error" role="alert">
+                  {accountSetupError}
+                </p>
+              )}
+              <button
+                type="submit"
+                className="primary-btn"
+                disabled={isCreatingAccount || identityNumber.length !== 11}
+              >
+                {isCreatingAccount ? "Contacting Flutterwave…" : "Create bank account"}
+              </button>
+            </form>
           </div>
+        )}
+
+      {!account && accountState === "PENDING" && (
+        <div className="deposit-card" role="status">
+          <h3 className="card-title">Account setup is being confirmed</h3>
+          <p className="min-deposit-note">
+            Flutterwave did not confirm whether it created the account. To
+            prevent duplicate accounts, setup is paused while this is checked.
+            Contact support before retrying.
+          </p>
         </div>
       )}
 
@@ -514,6 +478,22 @@ export default function Deposit() {
                     hour12: false,
                   })}
                 </span>
+                {deposit.reference && (
+                  <span className="ref-text">
+                    Reference: {deposit.reference}
+                    {deposit.flutterwaveReference
+                      ? ` · Flutterwave: ${deposit.flutterwaveReference}`
+                      : ""}
+                  </span>
+                )}
+                {deposit.credited &&
+                  typeof deposit.previousBalance === "number" &&
+                  typeof deposit.newBalance === "number" && (
+                    <span className="ref-text">
+                      Balance: {formatNaira(deposit.previousBalance)} →{" "}
+                      {formatNaira(deposit.newBalance)}
+                    </span>
+                  )}
               </li>
             ))}
           </ul>

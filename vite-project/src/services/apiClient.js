@@ -13,19 +13,20 @@ export { ApiError };
  * WHY THIS FILE EXISTS
  * --------------------
  * The frontend needs real account data (balance, transactions, numbers, OTP
- * codes). No backend exists in this project yet, so rather than invent numbers
- * and codes client-side, every data requirement is declared here as a named
- * function that THROWS until the endpoint is implemented.
+ * codes). Every data requirement is declared here as a named function that
+ * returns a real response or throws an explicit API error.
  *
  * Nothing in this file fabricates data. A caller either receives a real
  * response or an explicit "not implemented" error.
  *
  * ---------------------------------------------------------------------------
- * REQUIRED ENDPOINTS  (implement these, then set VITE_API_BASE_URL)
+ * BACKEND ENDPOINTS
  * ---------------------------------------------------------------------------
  *
  * auth
- *   POST /api/auth/signup        -> { user, token }
+ *   POST /api/auth/register      -> { user, token }
+ *   POST /api/auth/verify-email  -> legacy pending-signup compatibility
+ *   POST /api/auth/resend-verification
  *   POST /api/auth/login         -> { user, token }
  *   POST /api/auth/logout
  *   GET  /api/auth/me            -> { user }
@@ -35,13 +36,14 @@ export { ApiError };
  *   GET  /api/payments/config    -> { configured, missing[], mode, currency }
  *   GET  /api/wallet/virtual-account
  *                                -> { account, state, configured, mode, missing[] }
- *   POST /api/wallet/virtual-account { bvn?|nin?, firstName?, lastName? }
- *                                -> { ok, created, account }
+ *   POST /api/wallet/virtual-account
+ *                                -> 503 while no ID-free Flutterwave account
+ *                                   creation option is configured
  *   GET  /api/wallet/deposits?limit&offset
  *                                -> { deposits[], total, balance }
  *
  * There is deliberately NO "credit my wallet" call: a balance only grows when
- * Flutterwave confirms a bank transfer into the user's virtual account (see
+ * Flutterwave confirms a bank transfer into a user's virtual account (see
  * server/flutterwave.js and the webhook in server/index.js), and the old
  * POST /api/wallet/deposit answers 410 DEPOSIT_ENDPOINT_REMOVED.
  *
@@ -179,6 +181,30 @@ export async function fetchCurrentUser({ signal } = {}) {
   return payload?.user ?? null;
 }
 
+export async function updateUserProfile({ fullName, phone }, { signal } = {}) {
+  const payload = await apiRequest("/api/auth/me", {
+    method: "PUT",
+    signal,
+    operation: "update profile",
+    headers: authHeaders(),
+    body: JSON.stringify({ fullName, phone }),
+  });
+  return payload?.user ?? null;
+}
+
+export async function changeUserPassword(
+  { currentPassword, newPassword },
+  { signal } = {},
+) {
+  return apiRequest("/api/auth/change-password", {
+    method: "POST",
+    signal,
+    operation: "change password",
+    headers: authHeaders(),
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 export async function logoutUser({ signal } = {}) {
   // The server needs the token to delete the session row. Without a token there
   // is no server session to end, so this succeeds locally instead of calling
@@ -217,9 +243,8 @@ export async function fetchPaymentsConfig({ signal } = {}) {
 }
 
 /**
- * The user's saved virtual bank account (or `account: null` with a `state` of
- * NOT_CREATED / FAILED / PENDING). One indexed read on the server: this does not
- * call Flutterwave, so it is safe to run on every Deposit page load.
+ * The user's saved virtual bank account (or `account: null` and an UNAVAILABLE
+ * state). One indexed read on the server: this does not call Flutterwave.
  */
 export async function fetchVirtualAccount({ signal } = {}) {
   return apiRequest("/api/wallet/virtual-account", {
@@ -230,28 +255,17 @@ export async function fetchVirtualAccount({ signal } = {}) {
 }
 
 /**
- * Create the user's permanent virtual account. Idempotent: when one already
- * exists the server returns it instead of creating a second.
- *
- * `bvn`/`nin` are sent ONCE, over HTTPS, to be forwarded to Flutterwave for this
- * step only. They are not stored by our backend and are never returned.
+ * Request a permanent account. BVN/NIN is sent only in this request and is
+ * never persisted by the API or returned to the caller.
  */
-export async function createVirtualAccount(
-  { bvn, nin, firstName, lastName } = {},
-  { signal } = {},
-) {
-  const body = {};
-  if (bvn) body.bvn = String(bvn).replace(/\D/g, "");
-  if (nin) body.nin = String(nin).replace(/\D/g, "");
-  if (firstName) body.firstName = String(firstName).trim();
-  if (lastName) body.lastName = String(lastName).trim();
-
+export async function createVirtualAccount(identity, { signal } = {}) {
+  const headers = authHeaders();
   return apiRequest("/api/wallet/virtual-account", {
     method: "POST",
     signal,
     operation: "create bank account",
-    headers: authHeaders(),
-    body: JSON.stringify(body),
+    headers,
+    body: identity,
   });
 }
 
@@ -266,4 +280,55 @@ export async function fetchDeposits({ limit = 10, offset = 0, signal } = {}) {
     operation: "load deposits",
     headers: authHeaders(),
   });
+}
+
+function adminQuery({ search = "", status = "", limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (search) params.set("search", search);
+  if (status) params.set("status", status);
+  return `?${params}`;
+}
+
+export async function fetchAdminStatus({ signal } = {}) {
+  return apiRequest("/api/admin/me", {
+    signal,
+    operation: "check administrator access",
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchAdminVirtualAccounts(options = {}) {
+  return apiRequest(
+    `/api/admin/payments/virtual-accounts${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load virtual accounts",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function fetchAdminDeposits(options = {}) {
+  return apiRequest(
+    `/api/admin/payments/deposits${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load payment records",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function fetchAdminWebhooks(options = {}) {
+  return apiRequest(
+    `/api/admin/payments/webhooks${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load webhook events",
+      headers: authHeaders(),
+    },
+  );
 }

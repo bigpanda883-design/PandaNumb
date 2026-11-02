@@ -54,9 +54,11 @@ const processes = [];
  * leave its own freshly spawned API server running (see `shutdown` below).
  */
 function run(name, command, args) {
-  // No shell on Windows: the .cmd shims are resolved explicitly below, so the
+  // No shell on Windows: the Vite CLI is launched through `node` itself, so the
   // process tree stays in one place (killing a shell wrapper orphaned the
   // servers it had started) and no untrusted argument is ever re-parsed.
+  // Windows refuses to spawn a `.cmd` without a shell (spawn EINVAL, Node 20+),
+  // which is why `npx.cmd` is not used here.
   const child = spawn(command, args, { stdio: "inherit" });
 
   child.on("error", (error) => {
@@ -111,12 +113,10 @@ function shutdown(code) {
   setTimeout(() => process.exit(code), 300);
 }
 
-/** `npx`/`vite` are .cmd shims on Windows and only run through a shell. */
-const NPX =
-  process.platform === "win32"
-    ? path.join(path.dirname(process.execPath), "npx.cmd")
-    : "npx";
+// Run Vite's CLI script with this same Node binary instead of the `vite`/`npx`
+// `.cmd` shims, which cannot be spawned without a shell on Windows.
+const VITE_BIN = path.join(import.meta.dirname, "..", "node_modules", "vite", "bin", "vite.js");
 
 // Server first, so the proxy is listening before the client requests it.
 run("server", process.execPath, [`--env-file=${ENV_FILE}`, "server/index.js"]);
-run("client", NPX, ["vite"]);
+run("client", process.execPath, [VITE_BIN]);

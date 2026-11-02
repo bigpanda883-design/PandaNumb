@@ -4,16 +4,16 @@ import nodemailer from "nodemailer";
  * Panda Numbers - outgoing email
  * ==============================
  *
- * All mail is sent through one Gmail mailbox (pandanumb001@gmail.com) over SMTP
+ * Mail is sent through the configured Gmail mailbox over SMTP
  * with a Google App Password. Credentials live ONLY in the backend environment;
  * nothing here is ever bundled into the React app or returned in an API response.
  *
  * Canonical variables (as configured on Render):
  *   SMTP_HOST  smtp.gmail.com
  *   SMTP_PORT  465            (port 587 with SMTP_SECURE=false also works)
- *   SMTP_USER  pandanumb001@gmail.com
+ *   SMTP_USER  pandanumbersms@gmail.com
  *   SMTP_PASS  <Google App Password>
- *   MAIL_FROM  Panda Number <pandanumb001@gmail.com>
+ *   MAIL_FROM  Panda Number <pandanumbersms@gmail.com>
  *
  * The older EMAIL_* names are still honoured so an existing deployment keeps
  * working after this change.
@@ -33,9 +33,7 @@ const SMTP_PASSWORD = process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || "";
 const SMTP_FROM =
   process.env.MAIL_FROM ||
   process.env.EMAIL_FROM ||
-  (SMTP_USER
-    ? `Panda Number <${SMTP_USER}>`
-    : "Panda Number <no-reply@pandanumber.test>");
+  "Panda Number <pandanumbersms@gmail.com>";
 
 /**
  * Port 465 is implicit TLS; 587 (and 25) use STARTTLS. Getting this backwards
@@ -200,6 +198,75 @@ export async function sendLoginNotificationEmail({ email, name }) {
   return send({
     to: email,
     subject: "You have successfully logged in to Panda Number",
+    text,
+    html,
+  });
+}
+
+export async function sendEmailVerificationEmail(email, code) {
+  const expiresInMinutes = RESET_CODE_TTL_MINUTES;
+  const html = renderLayout({
+    heading: "Verify your email address",
+    bodyHtml: `
+      <p style="margin:0 0 14px;color:#334155;line-height:1.6;">
+        Enter this code to finish creating your Panda Number account:
+      </p>
+      <div style="margin:0 0 16px;padding:18px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;text-align:center;font-size:32px;letter-spacing:10px;font-weight:700;color:#0f172a;">
+        ${escapeHtml(code)}
+      </div>
+      <p style="margin:0 0 14px;color:#334155;line-height:1.6;">
+        This code expires in ${expiresInMinutes} minutes and can be used once.
+      </p>
+      <p style="margin:0;color:#64748b;line-height:1.6;">
+        If you did not create a Panda Number account, you can ignore this email.
+      </p>
+    `,
+  });
+  const text = [
+    "Panda Number",
+    "",
+    `Your email verification code is: ${code}`,
+    "",
+    `This code expires in ${expiresInMinutes} minutes and can be used once.`,
+    "",
+    "If you did not create a Panda Number account, you can ignore this email.",
+  ].join("\n");
+
+  return send({
+    to: email,
+    subject: "Verify your Panda Number email",
+    text,
+    html,
+  });
+}
+
+export async function sendWelcomeEmail({ email, name }) {
+  const displayName = String(name || "").trim() || "there";
+  const safeName = escapeHtml(displayName);
+  const html = renderLayout({
+    heading: "Welcome to Panda Number",
+    bodyHtml: `
+      <p style="margin:0 0 14px;color:#334155;line-height:1.6;">Hello ${safeName},</p>
+      <p style="margin:0 0 14px;color:#334155;line-height:1.6;">
+        Your registration was successful. Welcome to Panda Number!
+      </p>
+      <p style="margin:0;color:#334155;line-height:1.6;">
+        You can now log in and start using the platform.
+      </p>
+    `,
+  });
+  const text = [
+    `Hello ${displayName},`,
+    "",
+    "Your registration was successful. Welcome to Panda Number!",
+    "Welcome to Panda Number!",
+    "",
+    "You can now log in and start using the platform.",
+  ].join("\n");
+
+  return send({
+    to: email,
+    subject: "Welcome to Panda Number",
     text,
     html,
   });

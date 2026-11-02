@@ -4,14 +4,12 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 
 import {
-  appendDepositTransactionIfMissing,
   appendUserNumber,
   appendUserTransaction,
   assertModeMatches as assertDepositModeMatches,
-  claimVirtualAccountSlot,
-  reclaimVirtualAccountSlot,
   clearWebhookEvent,
   createUser,
+  createEmailVerificationCode,
   createPasswordResetCode,
   createPasswordResetToken,
   createSession,
@@ -20,15 +18,19 @@ import {
   debitWallet,
   findUserForDeposit,
   getDepositByTransactionId,
+  getWebhookEvent,
   getVirtualAccountForUser,
+  listDepositsForAdmin,
   listDepositsForUser,
+  listVirtualAccountsForAdmin,
+  listWebhookEventsForAdmin,
   listUncreditedDeposits,
+  claimVirtualAccountSlot,
+  reclaimVirtualAccountSlot,
+  saveVirtualAccountDetails,
   markVirtualAccountFailure,
   recordConfirmedDeposit,
   recordUnconfirmedDeposit,
-  recordUnmatchedDeposit,
-  saveVirtualAccountDetails,
-  listUnmatchedDeposits,
   LEDGER_REASONS,
   ledgerBalance,
   markWebhookProcessed,
@@ -36,6 +38,7 @@ import {
   deleteAllSessionsForUser,
   deleteSessionByToken,
   getLatestPasswordResetCode,
+  getLatestEmailVerificationCode,
   getPasswordResetTokenByHash,
   getSessionFromToken,
   getUserByEmail,
@@ -43,20 +46,26 @@ import {
   getUserByPhone,
   hashToken,
   incrementPasswordResetAttempts,
+  incrementEmailVerificationAttempts,
   invalidatePasswordResetCodesForUser,
   invalidatePasswordResetTokensForUser,
   markPasswordResetCodeVerified,
   markPasswordResetTokenUsed,
   markPasswordResetUsed,
   safeUser,
+  updatePasswordAndCreateSession,
+  updateUserProfile,
   updateUserNumber,
   updateUserPassword,
+  verifyUserEmail,
 } from "./db.js";
 import {
   RESET_CODE_TTL_MINUTES,
   isEmailConfigured,
   sendLoginNotificationEmail,
   sendPasswordResetEmail,
+  sendEmailVerificationEmail,
+  sendWelcomeEmail,
 } from "./emailService.js";
 import db from "./db.js";
 import {
@@ -74,13 +83,11 @@ import {
 import smsProxyRouter from "./smsProxy.js";
 import smsRouter from "./smsRouter.js";
 import {
-  createPermanentVirtualAccount,
   describeConfig as describeFlutterwaveConfig,
+  createPermanentVirtualAccount,
   extractVirtualAccountNumber,
-  FlutterwaveError,
-  findVirtualAccounts,
-  isConfigured as isFlutterwaveConfigured,
   isTestKey as isFlutterwaveTestKey,
+  FlutterwaveError,
   verifyTransaction as verifyFlutterwaveTransaction,
 } from "./flutterwave.js";
 import { DEPOSIT_LIMITS } from "./depositLimits.js";
@@ -105,10 +112,21 @@ const PRICES_URL =
   "https://www.accnumbers.com/api/v1/guest/prices";
 
 const loginRateMap = new Map();
+const registrationRateMap = new Map();
+const verificationSendRateMap = new Map();
+const verificationCodeRateMap = new Map();
+const passwordChangeRateMap = new Map();
 const resetRateMap = new Map();
 // Codes are short (six digits), so guessing must be throttled separately from
 // requesting them. Keyed by "verify:<ip>:<email>".
 const resetCodeVerifyRateMap = new Map();
+const virtualAccountRateMap = new Map();
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 // Browser origins allowed to call this API with credentials. Vercel preview
 // deployments are allowed by suffix so a PR preview is not blocked either.
@@ -306,10 +324,16 @@ async function authMiddleware(req, res, next) {
   if (!user) {
     return fail(res, 401, "UNAUTHORIZED", "User no longer exists.");
   }
-
   req.user = user;
   req.token = token;
   next();
+}
+
+function adminMiddleware(req, res, next) {
+  if (!ADMIN_EMAILS.has(String(req.user?.email || "").toLowerCase())) {
+    return fail(res, 403, "FORBIDDEN", "This area is not available.");
+  }
+  return next();
 }
 
 app.get("/api/health/detail", async (req, res) => {
@@ -350,6 +374,16 @@ app.get("/api/health/detail", async (req, res) => {
   });
 });
 
+async function issueEmailVerificationCode(user) {
+  const code = String(crypto.randomInt(100000, 1000000));
+  const codeHash = await bcrypt.hash(code, 12);
+  const expiresAt = new Date(
+    Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000,
+  ).toISOString();
+  createEmailVerificationCode({ userId: user.id, codeHash, expiresAt });
+  return sendEmailVerificationEmail(user.email, code);
+}
+
 const registerHandler = async (req, res) => {
   const name = String(req.body.name || req.body.fullName || "").trim();
   const email = String(req.body.email || "")
@@ -358,12 +392,21 @@ const registerHandler = async (req, res) => {
   const password = String(req.body.password || "");
   const phone = String(req.body.phone || "").trim();
 
-  if (!name || !email || !password) {
+  if (!name || !email || !phone || !password) {
     return fail(
       res,
       400,
       "INVALID_INPUT",
-      "Name, email and password are required.",
+      "Name, email, phone number and password are required.",
+    );
+  }
+
+  if (name.length < 2 || name.length > 80 || !/^[a-zA-Z\s'-]+$/.test(name)) {
+    return fail(
+      res,
+      400,
+      "INVALID_NAME",
+      "Enter a valid name between 2 and 80 characters.",
     );
   }
 
@@ -373,6 +416,31 @@ const registerHandler = async (req, res) => {
       400,
       "INVALID_EMAIL",
       "Please enter a valid email address.",
+    );
+  }
+
+  const phoneDigits = phone.replace(/\D/g, "");
+  if (
+    !/^\+?[0-9\s-]+$/.test(phone) ||
+    phoneDigits.length < 7 ||
+    phoneDigits.length > 15
+  ) {
+    return fail(res, 400, "INVALID_PHONE", "Enter a valid phone number.");
+  }
+
+  if (
+    applyRateLimit(
+      registrationRateMap,
+      rateLimitKey(req.ip, email),
+      5,
+      60 * 60_000,
+    )
+  ) {
+    return fail(
+      res,
+      429,
+      "TOO_MANY_ATTEMPTS",
+      "Too many registration attempts. Please try again later.",
     );
   }
 
@@ -430,10 +498,14 @@ const registerHandler = async (req, res) => {
 
   const token = generateToken();
   createSession({ userId: user.id, token });
+  sendWelcomeEmail({ email: user.email, name: user.name }).catch((error) => {
+    console.error("[auth] welcome email error:", error?.message || error);
+  });
 
   return res.status(201).json({
     user: safeUser(user),
     token,
+    message: "Your account is ready.",
   });
 };
 
@@ -444,6 +516,141 @@ app.post("/api/auth/register", registerHandler);
 // re-dispatching the request through the router (which matched this same route
 // again and produced an empty response -> "Unexpected end of JSON input").
 app.post("/api/auth/signup", registerHandler);
+
+app.post("/api/auth/resend-verification", async (req, res) => {
+  const email = String(req.body.email || "")
+    .trim()
+    .toLowerCase();
+  if (!validateEmail(email)) {
+    return fail(
+      res,
+      400,
+      "INVALID_EMAIL",
+      "Please enter a valid email address.",
+    );
+  }
+  if (
+    applyRateLimit(
+      verificationSendRateMap,
+      rateLimitKey(req.ip, email),
+      3,
+      60_000,
+    )
+  ) {
+    return fail(
+      res,
+      429,
+      "TOO_MANY_ATTEMPTS",
+      "Too many verification requests. Please wait a minute and try again.",
+    );
+  }
+
+  const user = getUserByEmail(email);
+  if (user && !user.emailVerifiedAt) {
+    await issueEmailVerificationCode(user);
+  }
+  return res.json({
+    emailConfigured: isEmailConfigured(),
+    message:
+      "If this email has an account that still needs verification, a new code was requested.",
+  });
+});
+
+app.post("/api/auth/verify-email", async (req, res) => {
+  const email = String(req.body.email || "")
+    .trim()
+    .toLowerCase();
+  const code = String(req.body.code || "").trim();
+  if (!validateEmail(email)) {
+    return fail(
+      res,
+      400,
+      "INVALID_EMAIL",
+      "Please enter a valid email address.",
+    );
+  }
+  if (!/^\d{6}$/.test(code)) {
+    return fail(
+      res,
+      400,
+      "INVALID_CODE",
+      "Enter the 6-digit verification code.",
+    );
+  }
+  if (
+    applyRateLimit(
+      verificationCodeRateMap,
+      rateLimitKey(req.ip, email),
+      10,
+      60_000,
+    )
+  ) {
+    return fail(
+      res,
+      429,
+      "TOO_MANY_ATTEMPTS",
+      "Too many code attempts. Please wait a minute and try again.",
+    );
+  }
+
+  const user = getUserByEmail(email);
+  const verificationCode = user
+    ? getLatestEmailVerificationCode(user.id)
+    : null;
+  const invalidCode = () =>
+    fail(
+      res,
+      400,
+      "INVALID_CODE",
+      "The verification code is incorrect or has expired.",
+    );
+
+  if (!user || !verificationCode || verificationCode.used_at) {
+    return invalidCode();
+  }
+  if (new Date(verificationCode.expires_at).getTime() < Date.now()) {
+    return fail(
+      res,
+      400,
+      "CODE_EXPIRED",
+      "This verification code has expired. Request a new one.",
+    );
+  }
+  if (Number(verificationCode.attempts || 0) >= 5) {
+    return fail(
+      res,
+      400,
+      "CODE_LOCKED",
+      "Too many failed attempts. Request a new code.",
+    );
+  }
+
+  const matches = await bcrypt.compare(code, verificationCode.code_hash);
+  if (!matches) {
+    incrementEmailVerificationAttempts(verificationCode.id);
+    return invalidCode();
+  }
+
+  const result = verifyUserEmail({
+    userId: user.id,
+    codeId: verificationCode.id,
+  });
+  if (!result) return invalidCode();
+
+  const token = generateToken();
+  createSession({ userId: user.id, token });
+  if (result.verifiedNow) {
+    sendWelcomeEmail({ email: user.email, name: user.name }).catch((error) => {
+      console.error("[auth] welcome email error:", error?.message || error);
+    });
+  }
+
+  return res.json({
+    user: safeUser(getUserById(user.id)),
+    token,
+    message: "Your email has been verified.",
+  });
+});
 
 app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body.email || "")
@@ -522,6 +729,107 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
   return res.json({ user: safeUser(req.user) });
 });
 
+app.put("/api/auth/me", authMiddleware, (req, res) => {
+  const name = String(req.body.fullName || "").trim();
+  const phone = String(req.body.phone || "").trim();
+
+  if (name.length < 2 || name.length > 80) {
+    return fail(
+      res,
+      400,
+      "INVALID_NAME",
+      "Full name must be between 2 and 80 characters.",
+    );
+  }
+  if (phone && !/^\+?[0-9][0-9\s()-]{6,19}$/.test(phone)) {
+    return fail(res, 400, "INVALID_PHONE", "Enter a valid phone number.");
+  }
+
+  const existingPhoneUser = getUserByPhone(phone);
+  if (existingPhoneUser && existingPhoneUser.id !== req.user.id) {
+    return fail(
+      res,
+      409,
+      "PHONE_ALREADY_EXISTS",
+      "That phone number is already associated with another account.",
+    );
+  }
+
+  const user = updateUserProfile({ userId: req.user.id, name, phone });
+  return res.json({ user: safeUser(user) });
+});
+
+app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
+  if (
+    applyRateLimit(
+      passwordChangeRateMap,
+      rateLimitKey(req.ip, req.user.id),
+      5,
+      60 * 60 * 1000,
+    )
+  ) {
+    return fail(
+      res,
+      429,
+      "TOO_MANY_ATTEMPTS",
+      "Too many password change attempts. Please try again later.",
+    );
+  }
+
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword = String(req.body.newPassword || "");
+  if (!currentPassword || !newPassword) {
+    return fail(
+      res,
+      400,
+      "INVALID_INPUT",
+      "Current and new passwords are required.",
+    );
+  }
+  if (!validatePassword(newPassword)) {
+    return fail(
+      res,
+      400,
+      "WEAK_PASSWORD",
+      "Password must contain uppercase, lowercase, number and special character.",
+    );
+  }
+
+  const currentMatches = await bcrypt.compare(
+    currentPassword,
+    req.user.passwordHash,
+  );
+  if (!currentMatches) {
+    return fail(
+      res,
+      401,
+      "INVALID_CURRENT_PASSWORD",
+      "Your current password is incorrect.",
+    );
+  }
+  if (currentPassword === newPassword) {
+    return fail(
+      res,
+      400,
+      "PASSWORD_UNCHANGED",
+      "Choose a new password that differs from your current password.",
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  const token = generateToken();
+  updatePasswordAndCreateSession({
+    userId: req.user.id,
+    passwordHash,
+    token,
+  });
+  return res.json({
+    user: safeUser(getUserById(req.user.id)),
+    token,
+    message: "Password changed successfully. Other sessions were signed out.",
+  });
+});
+
 app.get("/api/wallet/balance", authMiddleware, (req, res) => {
   const user = getUserById(req.user.id);
   return res.json({
@@ -543,13 +851,6 @@ app.get("/api/wallet/balance", authMiddleware, (req, res) => {
  * 503 PAYMENT_NOT_CONFIGURED and /api/payments/config names what is missing.
  * Nothing here ever simulates a payment or invents bank details.
  * ------------------------------------------------------------------ */
-
-// One rate-limit map for the whole funding area: account creation is the only
-// endpoint that calls Flutterwave, and 5 attempts an hour per account is enough
-// for a legitimate retry (a wrong BVN, a transient outage) without letting a
-// script hammer the provider.
-const accountCreateRateMap = new Map();
-const ACCOUNT_CREATE_RATE_LIMIT = { max: 5, windowMs: 60 * 60_000 };
 
 /** The Flutterwave mode this process is running in: "test" or "live". */
 function flutterwaveMode() {
@@ -589,7 +890,7 @@ function publicAccount(account) {
   return {
     accountNumber: account.accountNumber || null,
     bankName: account.bankName || null,
-    accountName: account.accountName || account.narration || null,
+    accountName: account.accountName || null,
     narration: account.narration || null,
     currency: account.currency || "NGN",
     status: account.status,
@@ -597,34 +898,6 @@ function publicAccount(account) {
     mode: account.mode,
     createdAt: account.createdAt,
   };
-}
-
-/**
- * Collect the identity fields Flutterwave needs for a permanent account.
- *
- * The BVN/NIN lives in this local object for the duration of ONE provider call.
- * It is never written to the database, never logged, never included in an error
- * message and never returned to the browser.
- */
-function readIdentity(body) {
-  const bvn = String(body?.bvn ?? "").replace(/\s+/g, "");
-  const nin = String(body?.nin ?? "").replace(/\s+/g, "");
-  return {
-    bvn: bvn || undefined,
-    nin: nin || undefined,
-    firstName: String(body?.firstName ?? "").trim(),
-    lastName: String(body?.lastName ?? "").trim(),
-  };
-}
-
-function splitName(fullName) {
-  const parts = String(fullName || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (parts.length === 0) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
-  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
 /**
@@ -636,6 +909,15 @@ function splitName(fullName) {
 app.get("/api/wallet/virtual-account", authMiddleware, (req, res) => {
   const account = getVirtualAccountForUser(req.user.id);
   const config = describeFlutterwaveConfig();
+  const state = account?.accountNumber
+    ? account.status === "ACTIVE"
+      ? "ACTIVE"
+      : account.status || "PENDING"
+    : account?.pendingRef
+      ? "PENDING"
+      : account?.status === "FAILED"
+        ? "FAILED"
+        : "NOT_CREATED";
   return res.json({
     account: publicAccount(account),
     currency: "NGN",
@@ -643,195 +925,163 @@ app.get("/api/wallet/virtual-account", authMiddleware, (req, res) => {
     configured: config.configured,
     mode: config.mode,
     missing: config.missing,
-    // What the customer has to do next, in one word, so the UI can pick a state
-    // instead of guessing from a null. An account number is the ONLY thing that
-    // makes an account usable, so it is checked before the row's status: a failed
-    // attempt leaves an empty row behind, and that must read as "no account yet"
-    // (the form is shown) rather than as a pending account the UI can never fill.
-    //
-    // A row with no number can only mean "NOT_CREATED": POST below can always
-    // take it over and retry. Reporting PENDING instead left the Deposit page on
-    // a banner that told the user to wait, with no button that could ever finish
-    // the account.
-    state: !account
-      ? config.configured
-        ? "NOT_CREATED"
-        : "NOT_CONFIGURED"
-      : account.accountNumber
-        ? "ACTIVE"
-        : config.configured
-          ? "NOT_CREATED"
-          : "NOT_CONFIGURED",
+    accountCreationSupported: config.configured,
+    state,
   });
 });
 
-/**
- * B. Create my virtual account (idempotent, safe to retry).
- *
- * Sequence:
- *   1. Return the saved account if there is one - no provider call.
- *   2. Claim the user's slot in the database (UNIQUE(user_id) is the lock), so
- *      two concurrent clicks cannot create two accounts.
- *   3. Before calling Flutterwave, ask whether an account already exists for
- *      this email. That is what makes a retry after a timed-out create safe: it
- *      REPAIRS the outcome instead of sending a second creation request.
- *   4. Create, then persist the account number.
- *   5. On failure keep the user intact, mark the row FAILED and let them retry.
- */
 app.post("/api/wallet/virtual-account", authMiddleware, async (req, res) => {
+  const existing = getVirtualAccountForUser(req.user.id);
+  if (existing?.accountNumber) {
+    return res.json({
+      account: publicAccount(existing),
+      created: false,
+      state: existing.status || "PENDING",
+    });
+  }
+
+  if (!describeFlutterwaveConfig().configured) {
+    const config = describeFlutterwaveConfig();
+    return fail(
+      res,
+      503,
+      "PAYMENT_NOT_CONFIGURED",
+      `Bank transfer funding is unavailable. Configure ${config.missing.join(", ")} on the server.`,
+    );
+  }
+
   if (
     applyRateLimit(
-      accountCreateRateMap,
+      virtualAccountRateMap,
       rateLimitKey(req.ip, req.user.id),
-      ACCOUNT_CREATE_RATE_LIMIT.max,
-      ACCOUNT_CREATE_RATE_LIMIT.windowMs,
+      3,
+      60 * 60_000,
     )
   ) {
     return fail(
       res,
       429,
-      "TOO_MANY_REQUESTS",
-      "Too many attempts. Please try again later.",
+      "TOO_MANY_ATTEMPTS",
+      "Too many account setup attempts. Please wait and try again.",
     );
   }
 
-  const existing = getVirtualAccountForUser(req.user.id);
-  if (existing?.accountNumber) {
-    return res.json({
-      ok: true,
-      created: false,
-      account: publicAccount(existing),
-    });
-  }
-
-  if (!isFlutterwaveConfigured()) {
-    return res.status(503).json({
-      error: "PAYMENT_NOT_CONFIGURED",
-      message:
-        "Bank transfer funding is not available yet. Your balance was not changed.",
-      missing: describeFlutterwaveConfig().missing,
-    });
-  }
-
-  const identity = readIdentity(req.body);
-  const fallbackName = splitName(req.user.name);
-  const firstname = identity.firstName || fallbackName.firstName;
-  const lastname = identity.lastName || fallbackName.lastName;
-
-  // Fail BEFORE the claim when the request can never succeed, so a bad form
-  // submission does not leave a "pending" row behind.
-  if (!identity.bvn && !identity.nin) {
+  const bvn = typeof req.body?.bvn === "string" ? req.body.bvn.trim() : "";
+  const nin = typeof req.body?.nin === "string" ? req.body.nin.trim() : "";
+  if (Boolean(bvn) === Boolean(nin)) {
     return fail(
       res,
       400,
       "IDENTITY_REQUIRED",
-      "Enter your BVN or NIN to create a permanent account. It is sent to Flutterwave for this step only and is not stored.",
+      "Enter either your BVN or NIN to request a permanent bank account.",
+    );
+  }
+  if (
+    (bvn && !/^\d{11}$/.test(bvn)) ||
+    (nin && !/^\d{11}$/.test(nin))
+  ) {
+    return fail(
+      res,
+      400,
+      "IDENTITY_INVALID",
+      "BVN and NIN must contain exactly 11 digits.",
     );
   }
 
-  const mode = flutterwaveMode();
-  const pendingRef = `PN-${req.user.id}-${Date.now()}`;
-  // The account name the customer sees: the bank's wording when there is one,
-  // otherwise the narration the account was requested with.
-  void pendingRef;
+  const nameParts = String(req.user.name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (nameParts.length < 2) {
+    return fail(
+      res,
+      400,
+      "PROFILE_NAME_REQUIRED",
+      "Add your first and last name to your profile before setting up a bank account.",
+    );
+  }
 
-  const slot = claimVirtualAccountSlot({
-    userId: req.user.id,
-    mode,
-    customerEmail: req.user.email,
-    pendingRef,
-  });
-
-  // A row exists but has no account number: an earlier attempt never finished
-  // (crash, restart, or a lost answer). Without taking it over the user could
-  // never create an account again, because the UNIQUE(user_id) row blocks a new
-  // claim forever. Only an empty-number row is touched.
-
-  if (!slot.claimed && slot.account?.accountNumber) {
-    return res.json({
-      ok: true,
-      created: false,
-      account: publicAccount(slot.account),
+  let slot;
+  if (existing) {
+    if (existing.pendingRef) {
+      return fail(
+        res,
+        409,
+        "ACCOUNT_CREATION_PENDING",
+        "Account setup is still being confirmed. Please contact support before retrying.",
+      );
+    }
+    slot = reclaimVirtualAccountSlot(req.user.id);
+  } else {
+    slot = claimVirtualAccountSlot({
+      userId: req.user.id,
+      mode: isFlutterwaveTestKey() ? "test" : "live",
+      customerEmail: req.user.email,
+      pendingRef: `PN-${crypto.randomUUID()}`,
     });
   }
 
+  if (!slot?.claimed) {
+    const account = slot?.account || getVirtualAccountForUser(req.user.id);
+    if (account?.accountNumber) {
+      return res.json({ account: publicAccount(account), created: false });
+    }
+    return fail(
+      res,
+      409,
+      "ACCOUNT_CREATION_PENDING",
+      "Account setup is already in progress. Please wait before trying again.",
+    );
+  }
+
   try {
-    // Reconcile FIRST: a previous attempt may have created an account whose
-    // answer never arrived. Creating again would give the customer two accounts.
-    // Only visible to an earlier claimed attempt, which stamps order_ref on its
-    // row; nothing here is sent unless one exists.
-    const claimed = slot.claimed
-      ? slot
-      : reclaimVirtualAccountSlot(req.user.id);
-    if (!claimed.claimed && claimed.account?.accountNumber) {
-      // Another request finished the account while this one was starting.
-      return res.json({
-        ok: true,
-        created: false,
-        account: publicAccount(claimed.account),
-      });
-    }
-
-    const { accounts: found } = await findVirtualAccounts({
-      orderRefs: claimed.account?.orderRef ? [claimed.account.orderRef] : [],
+    const account = await createPermanentVirtualAccount({
+      email: req.user.email,
+      phonenumber: req.user.phone,
+      firstname: nameParts[0],
+      lastname: nameParts.slice(1).join(" "),
+      txRef:
+        slot.account?.pendingRef ||
+        getVirtualAccountForUser(req.user.id)?.pendingRef,
+      identity: bvn ? { bvn } : { nin },
     });
-    const recovered = found.find((entry) => entry && entry.account_number);
-
-    const details = recovered
-      ? {
-          accountNumber: String(recovered.account_number),
-          bankName: String(recovered.bank_name || ""),
-          accountName: String(
-            recovered.account_name || recovered.note || recovered.narration || "",
-          ),
-          narration: String(recovered.note || recovered.narration || ""),
-          orderRef: String(recovered.order_ref || recovered.account_number),
-          flwRef: recovered.flw_ref ? String(recovered.flw_ref) : null,
-          kind: "PERMANENT",
-          // The docs' virtual-account objects name the state `account_status`;
-          // `note` is the bank's display text.
-          status: String(
-            recovered.account_status || recovered.status || "ACTIVE",
-          ).toUpperCase(),
-        }
-      : await createPermanentVirtualAccount({
-          email: req.user.email,
-          phonenumber: req.user.phone || undefined,
-          firstname,
-          lastname,
-          narration: `Panda Number ${req.user.id.slice(0, 8)}`,
-          identity,
-        });
-
-    // Flutterwave hands the bank's own wording back as `note`; the create
-    // adapter normalises that and the recovered object does not, so both shapes
-    // land in the columns the Deposit page reads (bank name, account name).
-    if (!details.accountName && details.bankName) {
-      details.accountName = details.narration || details.bankName;
+    const saved = saveVirtualAccountDetails(req.user.id, {
+      ...account,
+      accountName: account.accountName,
+      status: account.accountStatus || "UNKNOWN",
+    });
+    if (!saved?.accountNumber) {
+      throw new Error("VIRTUAL_ACCOUNT_SAVE_FAILED");
     }
-
-    const saved = saveVirtualAccountDetails(req.user.id, details);
-    return res.status(recovered ? 200 : 201).json({
-      ok: true,
-      created: !recovered,
-      recovered: Boolean(recovered),
+    return res.status(201).json({
       account: publicAccount(saved),
+      created: true,
+      state: saved.status,
     });
   } catch (error) {
-    markVirtualAccountFailure(req.user.id);
-    const status = Number(error?.status) || 502;
-    // The provider's own text is logged, never returned: it can echo the request.
-    if (error?.details) {
-      console.warn(
-        `[flutterwave] account creation for ${req.user.id}: ${error.details}`,
+    const uncertain =
+      error?.code === "PROVIDER_TIMEOUT" ||
+      error?.code === "PROVIDER_UNREACHABLE" ||
+      Number(error?.status || 0) >= 500;
+    if (!uncertain) markVirtualAccountFailure(req.user.id);
+    console.error(
+      `[flutterwave] virtual account creation ${req.user.id} failed: ${error?.code || "PROVIDER_ERROR"}`,
+    );
+    if (error instanceof FlutterwaveError) {
+      return fail(
+        res,
+        error.status || 502,
+        error.code,
+        uncertain
+          ? "Flutterwave could not confirm whether the account was created. Contact support before trying again."
+          : error.message,
       );
     }
     return fail(
       res,
-      status,
-      String(error?.code || "ACCOUNT_CREATE_FAILED"),
-      error?.message ||
-        "Your bank account could not be created yet. Your balance was not changed - you can retry.",
+      502,
+      "ACCOUNT_CREATE_FAILED",
+      "Flutterwave could not complete bank account setup. Please try again later.",
     );
   }
 });
@@ -849,12 +1099,16 @@ app.get("/api/wallet/deposits", authMiddleware, (req, res) => {
   return res.json({
     deposits: page.deposits.map((deposit) => ({
       id: deposit.id,
-      reference: deposit.transactionId,
+      reference: deposit.txRef || deposit.transactionId,
+      transactionId: deposit.transactionId,
+      flutterwaveReference: deposit.flwRef,
       amount: deposit.amount,
       currency: deposit.currency,
       status: deposit.status,
       credited: Boolean(deposit.creditedAt),
       creditedAt: deposit.creditedAt,
+      previousBalance: deposit.previousBalance,
+      newBalance: deposit.newBalance,
       narration: deposit.narration,
       createdAt: deposit.createdAt,
     })),
@@ -864,6 +1118,60 @@ app.get("/api/wallet/deposits", authMiddleware, (req, res) => {
     balance: Number(getUserById(req.user.id)?.walletBalance || 0),
   });
 });
+
+app.get(
+  "/api/admin/me",
+  authMiddleware,
+  adminMiddleware,
+  (_req, res) => res.json({ isAdmin: true }),
+);
+
+app.get(
+  "/api/admin/payments/virtual-accounts",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const result = listVirtualAccountsForAdmin({
+      search: String(req.query.search || "").slice(0, 100),
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    return res.json(result);
+  },
+);
+
+app.get(
+  "/api/admin/payments/deposits",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const status = String(req.query.status || "").trim().toUpperCase();
+    if (status && !["CREDITED", "PENDING", "REVIEW", "FAILED"].includes(status)) {
+      return fail(res, 400, "INVALID_STATUS", "Choose a valid deposit status.");
+    }
+    return res.json(
+      listDepositsForAdmin({
+        status,
+        search: String(req.query.search || "").slice(0, 100),
+        limit: req.query.limit,
+        offset: req.query.offset,
+      }),
+    );
+  },
+);
+
+app.get(
+  "/api/admin/payments/webhooks",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) =>
+    res.json(
+      listWebhookEventsForAdmin({
+        limit: req.query.limit,
+        offset: req.query.offset,
+      }),
+    ),
+);
 
 /* ------------------------------------------------------------------ *
  * E. The transfer webhook
@@ -933,7 +1241,13 @@ app.post("/api/webhooks/flutterwave", async (req, res) => {
     },
   });
   if (duplicate) {
-    return res.json({ ok: true, duplicate: true });
+    const previous = getWebhookEvent(dedupeKey, "flutterwave");
+    if (
+      previous?.processed_at &&
+      ["SUCCESS", "ALREADY_CREDITED"].includes(previous.outcome)
+    ) {
+      return res.json({ ok: true, duplicate: true });
+    }
   }
 
   try {
@@ -1007,6 +1321,13 @@ async function processTransferWebhook({ payload, data }) {
     }
     throw error;
   }
+  if (Number(verified.id) !== transactionId) {
+    return { state: "REVIEW", reason: "TRANSACTION_ID_MISMATCH", transactionId };
+  }
+  const eventTxRef = String(data.tx_ref || payload.tx_ref || "").trim();
+  if (eventTxRef && verified.txRef && eventTxRef !== verified.txRef) {
+    return { state: "REVIEW", reason: "TRANSACTION_REFERENCE_MISMATCH", transactionId };
+  }
 
   // Who paid? The account number from the payload, then the customer email that
   // Flutterwave has for this transaction's customer.
@@ -1019,6 +1340,7 @@ async function processTransferWebhook({ payload, data }) {
     findUserForDeposit({
       accountNumber,
       customerEmail: verified.customerEmail,
+      txRef: verified.txRef,
     }) ?? (known ? getVirtualAccountForUser(known.userId) : null);
 
   if (!account) {
@@ -1047,6 +1369,22 @@ function settleVerifiedDeposit({ account, verified }) {
 
   if (!account.accountNumber) {
     return { state: "REVIEW", reason: "ACCOUNT_NOT_READY" };
+  }
+  if (!verified.txRef || verified.txRef !== account.txRef) {
+    recordUnconfirmedDeposit({
+      account,
+      mode,
+      transactionId: verified.id,
+      amount: verified.amount,
+      currency: verified.currency,
+      status: "REVIEW",
+      providerStatus: verified.status,
+      reason: "TRANSACTION_REFERENCE_MISMATCH",
+    });
+    return { state: "REVIEW", reason: "TRANSACTION_REFERENCE_MISMATCH" };
+  }
+  if (account.status !== "ACTIVE") {
+    return { state: "REVIEW", reason: "ACCOUNT_NOT_ACTIVE" };
   }
   if (!assertDepositModeMatches(account, mode)) {
     // A test-mode account must never fund a live wallet.
@@ -1081,6 +1419,25 @@ function settleVerifiedDeposit({ account, verified }) {
       narration: verified.processorResponse,
     });
     return { state: failed ? "FAILED" : "PENDING", transactionId: verified.id };
+  }
+
+  if (!verified.txRef || !/bank.?transfer/i.test(verified.paymentType || "")) {
+    recordUnconfirmedDeposit({
+      account,
+      mode,
+      transactionId: verified.id,
+      amount,
+      currency: verified.currency,
+      status: "REVIEW",
+      providerStatus: status,
+      reason: !verified.txRef ? "REFERENCE_MISSING" : "PAYMENT_METHOD_MISMATCH",
+      payerName: verified.customerName,
+      narration: verified.processorResponse,
+    });
+    return {
+      state: "REVIEW",
+      reason: !verified.txRef ? "REFERENCE_MISSING" : "PAYMENT_METHOD_MISMATCH",
+    };
   }
 
   if (
@@ -1936,6 +2293,7 @@ app.post("/api/numbers/:id/verify", authMiddleware, async (req, res) => {
     CANCELLED: "CANCELLED",
     STATUS_EXPIRED: "EXPIRED",
     EXPIRED: "EXPIRED",
+    STATUS_FINISH: "COMPLETED",
     STATUS_FINISHED: "COMPLETED",
     FINISHED: "COMPLETED",
     STATUS_USED: "COMPLETED",

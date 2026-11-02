@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getAuthToken } from "../auth/authStorage";
-import { getApiBaseUrl } from "../services/httpClient";
+import { getApiBaseUrl, readJson } from "../services/httpClient";
 import {
   getTransactions,
   setTransactions as saveTransactions,
@@ -25,7 +25,9 @@ async function fetchTransactionsFromApi({ signal } = {}) {
   });
   if (!response.ok) return null;
 
-  const data = await response.json();
+  const { data, parsed } = await readJson(response);
+  if (!parsed || data === null) return null;
+
   return Array.isArray(data?.transactions) ? data.transactions : null;
 }
 

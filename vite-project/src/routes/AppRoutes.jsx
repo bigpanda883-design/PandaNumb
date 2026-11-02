@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import App from "../App";
 import DashboardLayout from "../components/DashboardLayout";
 import ActiveSMS from "../pages/ActiveSMS";
+import AdminPayments from "../pages/AdminPayments";
 import Buy from "../pages/Buy";
 import DashboardHome from "../pages/DashboardHome";
 import Deposit from "../pages/Deposit";
@@ -31,6 +32,7 @@ function AppRoutes() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<DashboardHome />} />
+            <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/buy" element={<Buy />} />
             <Route path="/my-numbers" element={<MyNumbers />} />
             <Route path="/transactions" element={<Transactions />} />
