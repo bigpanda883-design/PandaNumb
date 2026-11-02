@@ -776,27 +776,52 @@
   flex: 1;
 }
 
-/* Identity setup: the BVN/NIN choice and the name fields that must match it. */
-.deposit-content .offer-toggle-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.deposit-content .offer-toggle {
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 10px 12px;
+.account-status {
+  margin: -6px 0 14px;
+  color: #64748b;
   font-size: 13px;
-  font-weight: 700;
-  color: #1e293b;
-  cursor: pointer;
 }
 
-.deposit-content .offer-toggle.active {
-  background: #eff6ff;
+.account-setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.identity-choice {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 4px;
+}
+
+.identity-choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.identity-input-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.account-identity-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  color: #0f172a;
+  font: inherit;
+  letter-spacing: 0.2em;
+  box-sizing: border-box;
+}
+
+.account-identity-input:focus {
+  outline: 2px solid #93c5fd;
   border-color: #005ce6;
-  color: #005ce6;
 }

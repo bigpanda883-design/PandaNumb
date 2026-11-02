@@ -10,7 +10,7 @@
  * keeps this dependency-free and in sync across components and tabs.
  */
 
-import { getApiBaseUrl } from "../services/httpClient";
+import { getApiBaseUrl, readJson } from "../services/httpClient";
 
 const WALLET_STORAGE_KEY = "panda-numbers-wallet";
 
@@ -135,7 +135,12 @@ export async function fetchBalance({ signal } = {}) {
     if (!response.ok) {
       throw new Error(`Balance request failed (${response.status})`);
     }
-    const data = await response.json();
+
+    const { data, parsed } = await readJson(response);
+    if (!parsed || data === null) {
+      throw new Error("Balance endpoint returned an unexpected response");
+    }
+
     const value =
       data.balance ??
       data.walletBalance ??

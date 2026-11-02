@@ -34,16 +34,18 @@ function check(label, ok, extra = "") { console.log((ok ? "PASS " : "FAIL ") + l
 
 const created = await mod.createPermanentVirtualAccount({
   email: "jane@example.com", firstname: "Jane", lastname: "Doe", identity: { bvn: "12345678901" },
+  txRef: "PN-jane-account-ref",
 });
 check("create: account number", created.accountNumber === "9587478607");
 check("create: accountStatus from account_status", created.accountStatus === "ACTIVE");
 check("create: narration from note", created.narration === "Please make a bank transfer to Jane Doe FLW");
 check("create: amountLimit null for 0.00", created.amountLimit === null);
 check("create: orderRef", created.orderRef === "URF_1781110210729_7253035");
+check("create: txRef is sent to Flutterwave", created.txRef === "PN-jane-account-ref");
 const postBody = seen.find(s => s.method === "POST").body;
-check("create: body has is_permanent+bvn, no nin", postBody.is_permanent === true && postBody.bvn === "12345678901" && !("nin" in postBody));
+check("create: body has is_permanent+bvn+tx_ref, no nin", postBody.is_permanent === true && postBody.bvn === "12345678901" && postBody.tx_ref === "PN-jane-account-ref" && !("nin" in postBody));
 
-try { await mod.createPermanentVirtualAccount({ email: "a@b.c", firstname: "A", lastname: "B", identity: {} }); check("create: rejects no identity", false); }
+try { await mod.createPermanentVirtualAccount({ email: "a@b.c", firstname: "A", lastname: "B", txRef: "PN-invalid-ref", identity: {} }); check("create: rejects no identity", false); }
 catch (e) { check("create: rejects no identity", e.code === "IDENTITY_REQUIRED" && e.status === 400); }
 
 const lookup = await mod.findVirtualAccounts({ orderRefs: ["URF_1781110210729_7253035"] });

@@ -5,3 +5,134 @@
 .active-sms-page .section-empty-panel {
   border-top: 3px solid #16a56a;
 }
+
+.active-log-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.active-log-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid #dbe3ee;
+  border-top: 3px solid #16a56a;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.active-log-details {
+  display: grid;
+  gap: 5px;
+  color: #64748b;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.active-log-number {
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.active-log-status {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.active-log-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.active-log-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #075fe4;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.active-log-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.active-log-code {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #047857;
+  overflow-wrap: anywhere;
+}
+
+.active-log-code strong {
+  color: #064e3b;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+
+.active-log-error,
+.active-log-page-error {
+  color: #b91c1c;
+}
+
+.active-log-error {
+  margin: 0;
+  font-size: 13px;
+}
+
+.active-log-hint {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.active-log-page-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fef2f2;
+}
+
+.active-log-page-error .active-log-button {
+  flex-shrink: 0;
+}
+
+.spin-icon {
+  animation: active-log-spin 1s linear infinite;
+}
+
+@keyframes active-log-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 520px) {
+  .active-log-card {
+    padding: 16px;
+  }
+
+  .active-log-page-error {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

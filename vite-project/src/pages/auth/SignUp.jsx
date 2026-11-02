@@ -12,7 +12,6 @@ import {
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { saveSession } from "../../auth/authStorage";
-import { registerLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import {
@@ -41,7 +40,6 @@ function SignUp() {
     confirmPassword: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Mobile Pop-up / Toast notification state. Without this, a failed sign-up
   // showed nothing at all on a phone: `errors.submit` was set but never
@@ -97,10 +95,15 @@ function SignUp() {
 
     // 3. Phone Validation
     const phoneTrimmed = values.phone.trim();
-    const phoneRegex = /^\+?[0-9\s-]{7,15}$/;
+    const phoneDigits = phoneTrimmed.replace(/\D/g, "");
+    const phoneRegex = /^\+?[0-9\s-]+$/;
     if (!phoneTrimmed) {
       nextErrors.phone = "Enter your phone number.";
-    } else if (!phoneRegex.test(phoneTrimmed)) {
+    } else if (
+      !phoneRegex.test(phoneTrimmed) ||
+      phoneDigits.length < 7 ||
+      phoneDigits.length > 15
+    ) {
       nextErrors.phone = "Enter a valid phone number.";
     }
 
@@ -127,10 +130,41 @@ function SignUp() {
     return nextErrors;
   };
 
+  const finishSignup = (payload) => {
+    const user = payload.user;
+    const fullName = user.fullName || user.name || values.fullName.trim();
+    const saved = saveSession(
+      {
+        fullName,
+        email: user.email || values.email.trim(),
+        phone: user.phone || values.phone.trim(),
+        initials: fullName
+          .split(/\s+/)
+          .map((part) => part[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase(),
+      },
+      payload.token,
+    );
+    if (!saved) {
+      throw new Error(
+        "This browser is blocking site data, so the account session cannot be saved. Enable site data and try again.",
+      );
+    }
+
+    pushNotification({
+      type: "security",
+      title: "Welcome to Panda Numbers",
+      description: "Your account is ready.",
+      path: "/security",
+    });
+    navigate("/dashboard", { replace: true });
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     const nextErrors = validate();
-
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       triggerToast(Object.values(nextErrors)[0], "error");
@@ -139,142 +173,50 @@ function SignUp() {
 
     setIsSubmitting(true);
     setErrors({});
-
     try {
-      let user;
-      let token = "";
-
-      try {
-        // Defensive body read: an empty/HTML response (offline phone, static
-        // host, proxy down) becomes a readable message rather than
-        // "Unexpected end of JSON input".
-        //
-        // The path is the backend's canonical route: server/index.js registers
-        // POST /api/auth/register (and /api/auth/signup as an alias). Both are
-        // session-bearing routes on the configured API host.
-        const payload = await requestJson("/api/auth/register", {
-          method: "POST",
-          operation: "sign up",
-          body: {
-            name: values.fullName.trim(),
-            fullName: values.fullName.trim(),
-            email: values.email.trim().toLowerCase(),
-            phone: values.phone.trim(),
-            password: values.password,
-          },
-        });
-        if (!payload?.user) {
-          throw new Error("The server returned an invalid sign-up response.");
-        }
-        if (!payload.token) {
-          throw new Error(
-            "The account was created, but no session token came back. Please log in.",
-          );
-        }
-        user = payload.user;
-        token = payload.token;
-      } catch (error) {
-        // The on-device account book is a fallback for a backend that is absent,
-        // never for a real rejection (409 EMAIL_ALREADY_EXISTS, 400
-        // WEAK_PASSWORD...) and never when the app is pointed at the static
-        // frontend host - there a "successful" local signup would create an
-        // account that only exists in this one browser.
-        if (!isBackendUnavailable(error) || isApiOnFrontendHost()) {
-          // Same rule as Login: name the URL that was actually called. Blaming
-          // the website host was wrong whenever VITE_API_URL pointed at a
-          // backend that does not resolve.
-          if (isBackendUnavailable(error)) {
-            const base = getApiBaseUrl();
-            const target = base
-              ? `${base}/api/auth/register`
-              : `${window.location.origin}/api/auth/register`;
-            throw new Error(
-              base
-                ? `Cannot reach the sign-up server at ${target}. ` +
-                    `The backend did not respond (${error?.status || "no response"}). ` +
-                    "Check that the backend is running and that VITE_API_URL on the hosting dashboard points to it."
-                : "This build has no API URL configured, so the sign-up request went to the website host instead of the API. " +
-                    "Set VITE_API_URL on the hosting dashboard and redeploy.",
-              { cause: error },
-            );
-          }
-          throw error;
-        }
-        const local = await registerLocalAccount({
+      const email = values.email.trim().toLowerCase();
+      const payload = await requestJson("/api/auth/register", {
+        method: "POST",
+        operation: "sign up",
+        body: {
+          name: values.fullName.trim(),
           fullName: values.fullName.trim(),
-          email: values.email.trim(),
+          email,
           phone: values.phone.trim(),
           password: values.password,
-        });
-        if (!local.ok) {
-          throw new Error(local.message, { cause: error });
-        }
-        user = local.user;
-      }
-
-      const fullName = user.fullName || user.name || values.fullName.trim();
-      const email = user.email || values.email.trim();
-      const phone = user.phone || values.phone.trim();
-
-      // User + token in one atomic step (see saveSession in authStorage.js):
-      // when a different account was signed in on this browser, its data is
-      // cleared first and the NEW token is written after, so the app can never
-      // end up with a signed-in user and a missing token.
-      const saved = saveSession(
-        {
-          fullName,
-          email,
-          phone,
-          initials: fullName
-            .split(/\s+/)
-            .map((part) => part[0])
-            .join("")
-            .slice(0, 2)
-            .toUpperCase(),
         },
-        token,
-      );
-
-      if (!saved) {
-        throw new Error(
-          "This browser is blocking site data, so the account session cannot be saved. Enable site data and try again.",
-        );
-      }
-
-      pushNotification({
-        type: "security",
-        title: "Welcome to Panda Numbers",
-        description: "Your account was created successfully.",
-        path: "/security",
       });
-
-      setShowSuccessModal(true);
-
-      window.setTimeout(() => {
-        navigate("/dashboard", { replace: true });
-      }, 1000);
+      if (!payload?.user || !payload?.token) {
+        throw new Error("The server did not create an authenticated account.");
+      }
+      finishSignup(payload);
     } catch (error) {
-      // requestJson only ever throws ApiError (or our own validation Error),
-      // so this message is always safe to show and is never a raw
-      // "Unexpected end of JSON input".
-      const message =
+      let message =
         error?.message || "Account creation failed. Please try again.";
-
-      // Put the error on the field that actually caused it. A taken phone
-      // number used to be reported only in the toast, which then faded - the
-      // phone input kept looking valid while the form refused to submit, and
-      // there was nothing left on screen explaining why. The server's message
-      // is kept verbatim; only WHERE it is shown changes.
+      if (isBackendUnavailable(error)) {
+        if (!isApiOnFrontendHost()) {
+          const base = getApiBaseUrl();
+          const target = base
+            ? `${base}/api/auth/register`
+            : `${window.location.origin}/api/auth/register`;
+          message = base
+            ? `Cannot reach the sign-up server at ${target}. The backend did not respond (${error?.status || "no response"}). Check that the backend is running and VITE_API_URL points to it.`
+            : "This build has no API URL configured. Set VITE_API_URL to the backend and redeploy.";
+        }
+      }
       const fieldErrorsByCode = {
         PHONE_ALREADY_EXISTS: "phone",
         EMAIL_ALREADY_EXISTS: "email",
         ACCOUNT_ALREADY_EXISTS: "email",
         INVALID_EMAIL: "email",
+        INVALID_NAME: "fullName",
+        INVALID_PHONE: "phone",
         WEAK_PASSWORD: "password",
       };
       const field = fieldErrorsByCode[error?.code];
-
-      setErrors(field ? { [field]: message, submit: message } : { submit: message });
+      setErrors(
+        field ? { [field]: message, submit: message } : { submit: message },
+      );
       triggerToast(message, "error");
     } finally {
       setIsSubmitting(false);
@@ -310,17 +252,6 @@ function SignUp() {
           >
             <FiX />
           </button>
-        </div>
-      )}
-
-      {/* Success Modal Popup */}
-      {showSuccessModal && (
-        <div className="auth-modal-overlay">
-          <div className="auth-modal">
-            <FiCheckCircle className="modal-icon" />
-            <h2>Account Created!</h2>
-            <p>Welcome aboard, redirecting to your dashboard...</p>
-          </div>
         </div>
       )}
 

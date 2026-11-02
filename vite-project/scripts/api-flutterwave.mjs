@@ -8,8 +8,8 @@
  * checks the money rules:
  *
  *   - unconfigured: no account, no credit, and no secret in the config response;
- *   - account creation requires a BVN/NIN, is idempotent, and reconciles instead
- *     of creating a second account when one already exists at Flutterwave;
+ *   - account creation requires a BVN/NIN, is idempotent, and ambiguous provider
+ *     responses never cause a duplicate create;
  *   - the BVN is never echoed in the response, the API, or the database file;
  *   - a webhook with the wrong verif-hash is refused;
  *   - FAILED / PENDING verifications credit nothing;
@@ -24,6 +24,7 @@
  */
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
+import Database from "better-sqlite3";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -55,8 +56,9 @@ const accountsByEmail = new Map();
 let nextAccountNumber = 820_000_0000;
 let nextTransactionId = 4_200_000;
 let createCalls = 0;
-/** When true, GET /virtual-account-numbers answers 200 with an error envelope. */
-let breakAccountLookup = false;
+let failNextCreate = false;
+const accountRefs = new Map();
+let activeDataDir = "";
 
 const mock = http.createServer((req, res) => {
   const url = new URL(req.url, MOCK);
@@ -80,6 +82,13 @@ const mock = http.createServer((req, res) => {
       if (!body.bvn && !body.nin) {
         return json(400, { status: "error", message: "bvn or nin required" });
       }
+      if (failNextCreate) {
+        failNextCreate = false;
+        return json(503, { status: "error", message: "temporary provider failure" });
+      }
+      if (!body.tx_ref || body.is_permanent !== true) {
+        return json(400, { status: "error", message: "static account fields required" });
+      }
       const accountNumber = String(nextAccountNumber++);
       const account = {
         account_number: accountNumber,
@@ -90,7 +99,9 @@ const mock = http.createServer((req, res) => {
         flw_ref: `FLW-${accountNumber}`,
         frequency: "NIP",
         status: "active",
+        tx_ref: body.tx_ref,
       };
+      accountRefs.set(accountNumber, body.tx_ref);
       const email = String(body.email).toLowerCase();
       accountsByEmail.set(email, [
         ...(accountsByEmail.get(email) || []),
@@ -106,11 +117,6 @@ const mock = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/v3/virtual-account-numbers") {
-    // A 200 that is NOT a success envelope must read as "unknown", never as
-    // "this customer has no account".
-    if (breakAccountLookup) {
-      return json(200, { status: "error", message: "could not list accounts" });
-    }
     const email = String(url.searchParams.get("email") || "").toLowerCase();
     return json(200, {
       status: "success",
@@ -155,7 +161,7 @@ function addTransfer({
     status,
     amount,
     currency,
-    txRef: `FLW-TX-${id}`,
+    txRef: accountRefs.get(String(accountNumber)) || `FLW-TX-${id}`,
     customerEmail: email || "payer@example.test",
     customerName: "Payer Name",
   });
@@ -169,8 +175,10 @@ const transferByAccount = new Map();
 
 function startServer(extraEnv) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "panda-flw-"));
+  activeDataDir = dataDir;
   const env = {
     ...process.env,
+    NODE_ENV: "test",
     PORT: String(PORT),
     DATA_DIR: dataDir,
     FRONTEND_ORIGINS: "http://localhost:5173",
@@ -180,6 +188,7 @@ function startServer(extraEnv) {
     FLW_PUBLIC_KEY: "FLWPUBK_TEST-not-a-real-key",
     FLW_WEBHOOK_SECRET_HASH: WEBHOOK_SECRET_HASH,
     ADMIN_RECONCILE_TOKEN: RECONCILE_TOKEN,
+    ADMIN_EMAILS: "admin@example.test",
     ...extraEnv,
   };
 
@@ -288,19 +297,38 @@ async function balance() {
   return (await call("GET", "/api/wallet/balance")).data?.balance;
 }
 
-async function signup(label) {
-  const email = `${label}-${Date.now()}-${crypto.randomUUID().slice(0, 4)}@example.test`;
-  const registered = await call("POST", "/api/auth/signup", {
-    auth: false,
-    body: {
-      fullName: "Ada Lovelace",
-      email,
-      phone: "",
-      password: "FundingPass1!",
-    },
-  });
-  token = registered.data?.token || "";
-  return { email, status: registered.status, data: registered.data };
+async function signup(label, requestedEmail = "") {
+  const email =
+    requestedEmail ||
+    `${label}-${Date.now()}-${crypto.randomUUID().slice(0, 4)}@example.test`;
+  const database = new Database(path.join(activeDataDir, "panda.db"));
+  const userId = crypto.randomUUID();
+  const sessionToken = crypto.randomBytes(32).toString("hex");
+  const now = new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO users
+         (id, name, email, phone, password_hash, email_verified_at,
+          created_at, updated_at)
+       VALUES (?, ?, ?, '', 'test-only', ?, ?, ?)`,
+    )
+    .run(userId, "Ada Lovelace", email, now, now, now);
+  database
+    .prepare(
+      `INSERT INTO sessions
+         (id, user_id, token_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      crypto.randomUUID(),
+      userId,
+      crypto.createHash("sha256").update(sessionToken).digest("hex"),
+      new Date(Date.now() + 60 * 60_000).toISOString(),
+      now,
+    );
+  database.close();
+  token = sessionToken;
+  return { email, status: 201, data: { user: { id: userId }, token } };
 }
 
 /* ------------------------------------------------------------------- tests */
@@ -404,12 +432,14 @@ try {
     body: { bvn: BVN, firstName: "Ada", lastName: "Lovelace" },
   });
   const accountNumber = created.data?.account?.accountNumber;
+  const accountTxRef = created.data?.account?.txRef;
   check(
     "a permanent account is created and returned",
     created.status === 201 &&
       /^\d{10}$/.test(String(accountNumber)) &&
       created.data?.account?.bankName === "Wema Bank" &&
-      created.data?.account?.kind === "PERMANENT",
+      created.data?.account?.kind === "PERMANENT" &&
+      /^[A-Za-z0-9_-]{8,50}$/.test(String(accountTxRef)),
     `status ${created.status}, account ${accountNumber}`,
   );
   check(
@@ -448,36 +478,35 @@ try {
     Object.keys(saved.data.account || {}).join(","),
   );
 
-  /* ---- an unreadable lookup refuses, it does not create a second account ---- */
+  /* ---- ambiguous provider response never triggers a duplicate create ----- */
   {
-    await signup("lookup-broken");
+    await signup("ambiguous-create");
     const callsBefore = createCalls;
-    breakAccountLookup = true;
-    const refused = await call("POST", "/api/wallet/virtual-account", {
+    failNextCreate = true;
+    const uncertain = await call("POST", "/api/wallet/virtual-account", {
       body: { bvn: BVN, firstName: "Ada", lastName: "Lovelace" },
     });
     check(
-      "an unreadable existing-account lookup creates no account",
-      refused.status === 502 && createCalls === callsBefore,
-      `status ${refused.status}, create calls ${createCalls - callsBefore}`,
+      "an uncertain provider result leaves the account pending",
+      uncertain.status === 502 && createCalls === callsBefore + 1,
+      `status ${uncertain.status}, create calls ${createCalls - callsBefore}`,
     );
     const state = await call("GET", "/api/wallet/virtual-account");
     check(
-      "the profile offers the setup form again after that refusal",
-      state.data?.state === "NOT_CREATED" && state.data?.account === null,
+      "the account is not silently reset after an ambiguous response",
+      state.data?.state === "PENDING" &&
+        state.data?.account?.accountNumber === null,
       `state ${state.data?.state}`,
     );
-    // The customer's retry once the provider works again.
-    breakAccountLookup = false;
-    const retried = await call("POST", "/api/wallet/virtual-account", {
+    const retry = await call("POST", "/api/wallet/virtual-account", {
       body: { bvn: BVN, firstName: "Ada", lastName: "Lovelace" },
     });
     check(
-      "the retry creates exactly one account",
-      retried.status === 201 &&
-        /^\d{10}$/.test(String(retried.data?.account?.accountNumber)) &&
+      "an ambiguous create is not blindly retried",
+      retry.status === 409 &&
+        retry.data?.error === "ACCOUNT_CREATION_PENDING" &&
         createCalls === callsBefore + 1,
-      `status ${retried.status}, create calls ${createCalls - callsBefore}`,
+      `status ${retry.status}, create calls ${createCalls - callsBefore}`,
     );
     token = savedToken;
   }
@@ -621,7 +650,9 @@ try {
   });
   check(
     "a NEW event for an already-credited transaction does not credit twice",
-    newEvent.data?.state === "ALREADY_CREDITED" && (await balance()) === 2500,
+    newEvent.data?.state === "SUCCESS" &&
+      newEvent.data?.alreadyApplied === true &&
+      (await balance()) === 2500,
     `state ${newEvent.data?.state}, balance ${await balance()}`,
   );
 
@@ -643,6 +674,58 @@ try {
     `balance ${deposits.data?.balance}`,
   );
 
+  /* ---- delayed notification settles an existing pending deposit -------- */
+  const delayedId = addTransfer({
+    accountNumber,
+    amount: 1250,
+    status: "pending",
+  });
+  const delayedPending = await sendWebhook({
+    "event.type": "transfer.completed",
+    id: delayedId,
+    data: {
+      id: delayedId,
+      status: "pending",
+      meta: { beneficiary_account: accountNumber },
+    },
+  });
+  check(
+    "a pending payment is recorded without credit",
+    delayedPending.data?.state === "PENDING" && (await balance()) === 2500,
+    JSON.stringify(delayedPending.data),
+  );
+  transactions.get(String(delayedId)).status = "successful";
+  const delayedSuccess = await sendWebhook({
+    "event.type": "transfer.completed",
+    id: `${delayedId}-success`,
+    data: {
+      id: delayedId,
+      status: "successful",
+      meta: { beneficiary_account: accountNumber },
+    },
+  });
+  check(
+    "a later successful notification settles the same pending transaction",
+    delayedSuccess.data?.state === "SUCCESS" && (await balance()) === 3750,
+    JSON.stringify(delayedSuccess.data),
+  );
+  const delayedReplay = await sendWebhook({
+    "event.type": "transfer.completed",
+    id: `${delayedId}-replay`,
+    data: {
+      id: delayedId,
+      status: "successful",
+      meta: { beneficiary_account: accountNumber },
+    },
+  });
+  check(
+    "the delayed success notification still credits only once",
+    delayedReplay.data?.state === "SUCCESS" &&
+      delayedReplay.data?.alreadyApplied === true &&
+      (await balance()) === 3750,
+    JSON.stringify(delayedReplay.data),
+  );
+
   /* ---- another user sees none of it ---------------------------------- */
   await signup("other");
   const otherDeposits = await call("GET", "/api/wallet/deposits");
@@ -652,6 +735,39 @@ try {
     (otherDeposits.data?.deposits || []).length === 0 &&
       otherAccount.data?.account === null,
     `deposits ${otherDeposits.data?.deposits?.length}`,
+  );
+  token = savedToken;
+
+  /* ---- admin payment views are read-only and allowlisted --------------- */
+  await signup("admin", "admin@example.test");
+  const adminToken = token;
+  const adminAccounts = await call("GET", "/api/admin/payments/virtual-accounts");
+  const adminDeposits = await call("GET", "/api/admin/payments/deposits");
+  const adminWebhooks = await call("GET", "/api/admin/payments/webhooks");
+  check(
+    "allowlisted administrator can view accounts, deposits, and webhooks",
+    adminAccounts.status === 200 &&
+      adminAccounts.data?.total >= 1 &&
+      adminDeposits.status === 200 &&
+      adminDeposits.data?.total >= 1 &&
+      adminWebhooks.status === 200,
+    `statuses ${adminAccounts.status}/${adminDeposits.status}/${adminWebhooks.status}`,
+  );
+  await signup("not-admin");
+  const deniedAdminView = await call("GET", "/api/admin/payments/deposits");
+  check(
+    "non-admin customer cannot view operations data",
+    deniedAdminView.status === 403,
+    `status ${deniedAdminView.status}`,
+  );
+  token = adminToken;
+  const manualSuccess = await call("POST", "/api/admin/payments/deposits", {
+    body: { transactionId: paidId, status: "CREDITED" },
+  });
+  check(
+    "admin API does not expose a manual-success mutation",
+    manualSuccess.status === 404 || manualSuccess.status === 405,
+    `status ${manualSuccess.status}`,
   );
   token = savedToken;
 
@@ -717,7 +833,7 @@ try {
       sweep.status === 200 &&
         secondSweep.status === 200 &&
         !mentions &&
-        balanceAfter === 2500,
+        balanceAfter === 3750,
       `mentioned ${mentions}, balance ${balanceAfter}`,
     );
 
