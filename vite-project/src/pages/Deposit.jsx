@@ -56,8 +56,6 @@ export default function Deposit() {
   const [depositsError, setDepositsError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [identityType, setIdentityType] = useState("bvn");
-  const [identityNumber, setIdentityNumber] = useState("");
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [accountSetupError, setAccountSetupError] = useState(null);
 
@@ -180,30 +178,21 @@ export default function Deposit() {
 
   const handleCreateAccount = async (event) => {
     event.preventDefault();
-    const identifier = identityNumber.trim();
-    if (!/^\d{11}$/.test(identifier)) {
-      setAccountSetupError(`${identityType.toUpperCase()} must contain 11 digits.`);
-      return;
-    }
-
     setIsCreatingAccount(true);
     setAccountSetupError(null);
     try {
-      const result = await createVirtualAccount({
-        [identityType]: identifier,
-      });
+      const result = await createVirtualAccount();
       setAccount(result?.account ?? null);
       setAccountState(result?.state || result?.account?.status || "PENDING");
       await load({ quiet: true });
     } catch (error) {
       setAccountSetupError(
-        errorText(error, "Flutterwave could not create your bank account."),
+        errorText(error, "NeuraPay could not create your bank account."),
       );
       if (error?.code === "ACCOUNT_CREATION_PENDING") {
         setAccountState("PENDING");
       }
     } finally {
-      setIdentityNumber("");
       setIsCreatingAccount(false);
     }
   };
@@ -243,8 +232,8 @@ export default function Deposit() {
           <div className="demo-text">
             <strong>Test mode</strong>
             <p>
-              This server is using a Flutterwave TEST key. Transfers here do not
-              move real money and are kept separate from live balances.
+              This server uses NeuraPay test credentials. Test transfers are
+              isolated from live wallets.
             </p>
           </div>
         </div>
@@ -313,8 +302,8 @@ export default function Deposit() {
           <p className="min-deposit-note" style={{ marginTop: "14px" }}>
             Open your bank app and transfer any amount to this account number.
             {account.status === "ACTIVE"
-              ? " This account is permanently yours. Your wallet is credited only after Flutterwave confirms the transfer."
-              : " Do not transfer until Flutterwave confirms that this account is active."}
+              ? " Your wallet is credited only after NeuraPay confirms the transfer. Use these current details; earlier deposit account details are no longer supported."
+              : " Do not transfer until NeuraPay confirms that this account is active."}
           </p>
 
           <p className="disclaimer-text">
@@ -324,75 +313,16 @@ export default function Deposit() {
         </div>
       )}
 
-      {!account && accountState === "UNAVAILABLE" && (
-        <div className="deposit-card">
-          <h3 className="card-title">Dedicated bank account unavailable</h3>
-          <p className="min-deposit-note">
-            Panda Number does not collect BVN or NIN. Flutterwave requires one
-            to create a permanent virtual account, so we cannot provide a
-            dedicated bank account until an ID-free funding option is available.
-          </p>
-        </div>
-      )}
-
       {!account &&
         configured &&
         ["NOT_CREATED", "FAILED"].includes(accountState) && (
           <div className="deposit-card">
-            <h3 className="card-title">Set up your permanent bank account</h3>
+            <h3 className="card-title">Set up your bank account</h3>
             <p className="min-deposit-note">
-              Flutterwave requires one identity number to issue a permanent
-              account. Enter it once; Panda Number sends it to Flutterwave for
-              account setup and does not save it.
+              Create a dedicated NeuraPay deposit account. No BVN or NIN is
+              required.
             </p>
             <form className="account-setup-form" onSubmit={handleCreateAccount}>
-              <div className="identity-choice" role="group" aria-label="Identity type">
-                <label>
-                  <input
-                    type="radio"
-                    name="identityType"
-                    value="bvn"
-                    checked={identityType === "bvn"}
-                    onChange={() => setIdentityType("bvn")}
-                    disabled={isCreatingAccount}
-                  />
-                  BVN
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="identityType"
-                    value="nin"
-                    checked={identityType === "nin"}
-                    onChange={() => setIdentityType("nin")}
-                    disabled={isCreatingAccount}
-                  />
-                  NIN
-                </label>
-              </div>
-              <label className="identity-input-label" htmlFor="account-identity">
-                {identityType.toUpperCase()}
-              </label>
-              <input
-                id="account-identity"
-                name="accountIdentity"
-                className="account-identity-input"
-                type="password"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={11}
-                value={identityNumber}
-                onChange={(event) =>
-                  setIdentityNumber(event.target.value.replace(/\D/g, "").slice(0, 11))
-                }
-                aria-describedby="account-identity-privacy"
-                required
-                disabled={isCreatingAccount}
-              />
-              <p id="account-identity-privacy" className="min-deposit-note">
-                Do not enter this on a shared device. Your identifier is not
-                stored in your Panda Number account.
-              </p>
               {accountSetupError && (
                 <p className="deposit-error" role="alert">
                   {accountSetupError}
@@ -401,9 +331,9 @@ export default function Deposit() {
               <button
                 type="submit"
                 className="primary-btn"
-                disabled={isCreatingAccount || identityNumber.length !== 11}
+                disabled={isCreatingAccount}
               >
-                {isCreatingAccount ? "Contacting Flutterwave…" : "Create bank account"}
+                {isCreatingAccount ? "Creating account…" : "Create bank account"}
               </button>
             </form>
           </div>
@@ -413,7 +343,7 @@ export default function Deposit() {
         <div className="deposit-card" role="status">
           <h3 className="card-title">Account setup is being confirmed</h3>
           <p className="min-deposit-note">
-            Flutterwave did not confirm whether it created the account. To
+            NeuraPay did not confirm whether it created the account. To
             prevent duplicate accounts, setup is paused while this is checked.
             Contact support before retrying.
           </p>
@@ -481,8 +411,8 @@ export default function Deposit() {
                 {deposit.reference && (
                   <span className="ref-text">
                     Reference: {deposit.reference}
-                    {deposit.flutterwaveReference
-                      ? ` · Flutterwave: ${deposit.flutterwaveReference}`
+                    {deposit.providerReference
+                      ? ` · Provider reference: ${deposit.providerReference}`
                       : ""}
                   </span>
                 )}

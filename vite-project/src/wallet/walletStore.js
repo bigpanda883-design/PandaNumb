@@ -10,7 +10,7 @@
  * keeps this dependency-free and in sync across components and tabs.
  */
 
-import { getApiBaseUrl, readJson } from "../services/httpClient";
+import { fetchWalletBalance } from "../services/apiClient.js";
 
 const WALLET_STORAGE_KEY = "panda-numbers-wallet";
 
@@ -20,7 +20,9 @@ export function getBalance() {
     const raw = localStorage.getItem(WALLET_STORAGE_KEY);
     if (raw === null) return null;
     const parsed = JSON.parse(raw);
-    return typeof parsed?.balance === "number" ? parsed.balance : null;
+    return Number.isFinite(parsed?.balance) && parsed.balance >= 0
+      ? parsed.balance
+      : null;
   } catch {
     return null;
   }
@@ -69,7 +71,7 @@ function writeBalance(balance, source) {
 
 /** Set the balance directly (e.g. after an authoritative fetch). */
 export function setBalance(balance, source = "sync") {
-  if (typeof balance !== "number" || Number.isNaN(balance)) return;
+  if (!Number.isFinite(balance) || balance < 0) return;
   writeBalance(balance, source);
 }
 
@@ -107,105 +109,9 @@ export function debitBalance(amount, source = "purchase") {
  * @returns {Promise<number>} the authoritative balance
  */
 export async function fetchBalance({ signal } = {}) {
-  // Resolve the endpoint the SAME way every other API call does.
-  //
-  // THE BUG: this used to build `${window.location.origin}/api/wallet/balance`,
-  // which is the FRONTEND host. On Vercel that is a static rewrite, so the
-  // dashboard balance 404'd on a phone while working on the laptop (where the
-  // Vite proxy forwards /api to Express). Using getApiBaseUrl() puts it on the
-  // configured backend - the same host login and signup use.
-  const endpoint = import.meta.env?.VITE_BALANCE_ENDPOINT ||
-    `${getApiBaseUrl()}/api/wallet/balance`;
-
-  // A real network request has latency; a localStorage read does not. Without
-  // this floor the loading state would resolve within a single frame and the
-  // skeleton would never paint. It only delays the *display* of the value -
-  // the value itself is always the authoritative one below.
-  const minimumLatency = new Promise((resolve) => setTimeout(resolve, 550));
-
-  if (endpoint) {
-    const token = localStorage.getItem("panda-numbers-auth-token");
-    const response = await fetch(endpoint, {
-      signal,
-      headers: {
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`Balance request failed (${response.status})`);
-    }
-
-    const { data, parsed } = await readJson(response);
-    if (!parsed || data === null) {
-      throw new Error("Balance endpoint returned an unexpected response");
-    }
-
-    const value =
-      data.balance ??
-      data.walletBalance ??
-      data.availableBalance ??
-      data.amount;
-    if (typeof value !== "number") {
-      throw new Error("Balance endpoint returned no numeric balance");
-    }
-    const balance = value;
-    await minimumLatency;
-    setBalance(balance, "fetch");
-    return balance;
-  }
-
-  // No endpoint configured: use the authenticated user's own balance if the
-  // session carries one. Never invent a figure.
-  // No initial value: the catch assigns null, and nothing reads this before
-  // one of the two branches has run.
-  let storedUser;
-  try {
-    storedUser = JSON.parse(
-      localStorage.getItem("panda-numbers-auth") || "null",
-    );
-  } catch {
-    storedUser = null;
-  }
-
-  const sessionBalance =
-    typeof storedUser?.balance === "number" ? storedUser.balance : 0;
-
-  // Prefer an existing wallet value when it is NEWER than the auth record.
-  //
-  // A deposit updates the wallet immediately while the auth record only
-  // reflects it afterwards, so blindly trusting the auth value here would roll
-  // a confirmed deposit back on the next page load.
-  const existingWallet = getBalance();
-  const walletIsNewer = hasNewerWalletValue();
-  const balance =
-    existingWallet !== null && walletIsNewer ? existingWallet : sessionBalance;
-
-  await minimumLatency;
-  setBalance(balance, "session");
+  const balance = await fetchWalletBalance({ signal });
+  setBalance(balance, "fetch");
   return balance;
-}
-
-/**
- * Has the wallet been written more recently than the auth record?
- * Used to decide which of the two is authoritative when there is no API.
- */
-function hasNewerWalletValue() {
-  try {
-    const rawWallet = JSON.parse(
-      localStorage.getItem(WALLET_STORAGE_KEY) || "null",
-    );
-    const rawUser = JSON.parse(
-      localStorage.getItem("panda-numbers-auth") || "null",
-    );
-    if (!rawWallet || !rawUser) return false;
-
-    const walletTime = rawWallet.updatedAt || 0;
-    const authTime = rawUser.balanceUpdatedAt || 0;
-    return walletTime > authTime;
-  } catch {
-    return false;
-  }
 }
 
 /** Subscribe to balance changes; returns an unsubscribe function. */

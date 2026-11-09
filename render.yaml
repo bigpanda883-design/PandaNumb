@@ -16,9 +16,52 @@ services:
         value: production
       - key: DATA_DIR
         value: /var/data
-      - key: FLW_SECRET_KEY
+      - key: FRONTEND_URL
+        value: https://panda-numb.vercel.app
+      - key: GOOGLE_CLIENT_ID
         sync: false
-      - key: FLW_WEBHOOK_SECRET_HASH
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: GOOGLE_EMAIL
+        sync: false
+      - key: NEURAPAY_MODE
+        value: live
+      - key: NEURAPAY_SECRET_KEY
+        sync: false
+      - key: NEURAPAY_BUSINESS_ID
+        sync: false
+      - key: NEURAPAY_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+  - type: web
+    name: pandanumbers-api-staging
+    runtime: node
+    plan: starter
+    rootDir: vite-project
+    buildCommand: npm ci
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    disk:
+      name: pandanumbers-staging-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: NEURAPAY_MODE
+        value: test
+      - key: NEURAPAY_SECRET_KEY
+        sync: false
+      - key: NEURAPAY_BUSINESS_ID
+        sync: false
+      - key: NEURAPAY_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: FRONTEND_URL
         sync: false
       - key: ADMIN_EMAILS
         sync: false

@@ -11,6 +11,6 @@ export const DEPOSIT_LIMITS = {
   minimum: Number(process.env.MIN_DEPOSIT_NAIRA || 100),
   /** Largest amount a single transfer is expected to be (naira). */
   maximum: Number(process.env.MAX_DEPOSIT_NAIRA || 500000),
-  /** Flutterwave NGN virtual accounts only. */
+  /** NGN virtual-account funding. */
   currency: "NGN",
 };

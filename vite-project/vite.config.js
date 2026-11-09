@@ -30,12 +30,13 @@ export default defineConfig({
         // request before it could be served, and a browser fetch() that is
         // cut off rejects as a "network" error - the Buy page then showed
         // "Could not reach the price catalogue" even though the API was up.
-        // Keep this below the client's 30s budget so the client always gets a
-        // real HTTP status instead of a silent socket close.
+        // The client waits on /api/prices/status while the backend warms its
+        // cache, then downloads the large catalogue response. Keep enough time
+        // for that response on slower local/mobile connections.
         // NOTE: also `proxyTimeout` - Vite/http-proxy applies that to the
         // upstream socket, and a static-file route must wait for the full body.
-        timeout: 25000,
-        proxyTimeout: 25000,
+        timeout: 90000,
+        proxyTimeout: 90000,
       },
     },
   },
@@ -54,8 +55,8 @@ export default defineConfig({
       "/api": {
         target: `http://127.0.0.1:${process.env.PORT || 8787}`,
         changeOrigin: true,
-        timeout: 25000,
-        proxyTimeout: 25000,
+        timeout: 90000,
+        proxyTimeout: 90000,
       },
     },
   },

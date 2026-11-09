@@ -23,8 +23,10 @@ function resolvePricesUrl() {
 const PRICES_URL = resolvePricesUrl();
 const PRICES_STATUS_URL = `${PRICES_URL}/status`;
 
-const FETCH_TIMEOUT_MS = 90 * 1000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const CATALOGUE_READY_TIMEOUT_MS = 200 * 1000;
+const FETCH_TIMEOUT_MS = CATALOGUE_READY_TIMEOUT_MS + 90 * 1000;
+const STATUS_POLL_INTERVAL_MS = 2000;
 
 let cache = null;
 
@@ -67,6 +69,52 @@ export async function fetchCatalogueStatus({ signal } = {}) {
 
     return null;
   }
+}
+
+function waitForStatusPoll(signal, delay) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The request was aborted.", "AbortError"));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delay);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("The request was aborted.", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Wait for the backend's catalogue warm-up before requesting the large
+ * response, keeping the catalogue fetch itself within hosting proxy limits.
+ */
+async function waitForCatalogueReady(signal) {
+  const deadline = Date.now() + CATALOGUE_READY_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const status = await fetchCatalogueStatus({ signal });
+    if (status?.ready) return;
+    if (!status?.loading) return;
+
+    await waitForStatusPoll(
+      signal,
+      Math.min(STATUS_POLL_INTERVAL_MS, deadline - Date.now()),
+    );
+  }
+
+  const error = new Error(
+    "The price catalogue is still loading. Please try again shortly.",
+  );
+  error.retryable = true;
+  throw error;
 }
 
 /**
@@ -176,6 +224,8 @@ function labelFromSlug(slug) {
  * Fetch and normalize the real ACC catalogue through our backend.
  */
 async function fetchFresh(signal, force = false) {
+  await waitForCatalogueReady(signal);
+
   let response;
 
   try {
