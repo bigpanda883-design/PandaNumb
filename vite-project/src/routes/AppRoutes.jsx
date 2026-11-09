@@ -15,6 +15,7 @@ import Transactions from "../pages/Transactions";
 import Login from "../pages/auth/Login";
 import SignUp from "../pages/auth/SignUp";
 import ForgotPassword from "../pages/auth/ForgotPassword";
+import ResetPassword from "../pages/auth/ResetPassword";
 import NotFound from "../pages/NotFound";
 import ScrollToTop from "../components/ScrollToTop";
 import ProtectedRoute from "./ProtectedRoute";
@@ -28,6 +29,7 @@ function AppRoutes() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/help" element={<Navigate to="/help-center" replace />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>

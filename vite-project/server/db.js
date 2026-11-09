@@ -156,16 +156,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_webhook_events_recent
   ON webhook_events(received_at DESC);
 
-  -- Flutterwave virtual accounts (wallet funding).
-  --
-  -- ONE row per user: UNIQUE(user_id) is what makes account creation idempotent
-  -- at the database level, not just in application logic, so two concurrent
-  -- requests can never attach two accounts to one person. pending_ref is the
-  -- "creation in progress" marker used to reconcile a lost answer.
+  -- Provider virtual accounts. A user can retain a historical account for a
+  -- previous provider while creating one with the currently active provider.
   CREATE TABLE IF NOT EXISTS virtual_accounts (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL UNIQUE,
-    provider TEXT NOT NULL DEFAULT 'flutterwave',
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'neurapay',
     mode TEXT NOT NULL DEFAULT 'live',
     account_number TEXT NOT NULL,
     bank_name TEXT NOT NULL DEFAULT '',
@@ -184,9 +180,14 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- One bank account number can only ever belong to one Panda user.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_user_provider
+  ON virtual_accounts(provider, user_id);
+
+  -- Empty account numbers are pending slots, not usable bank accounts. Exclude
+  -- them so separate users can create accounts concurrently.
   CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_number
-  ON virtual_accounts(provider, account_number);
+  ON virtual_accounts(provider, account_number)
+  WHERE account_number <> '';
 
   CREATE INDEX IF NOT EXISTS idx_virtual_accounts_pending
   ON virtual_accounts(provider, pending_ref)
@@ -202,7 +203,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     virtual_account_id TEXT,
-    provider TEXT NOT NULL DEFAULT 'flutterwave',
+    provider TEXT NOT NULL DEFAULT 'neurapay',
     mode TEXT NOT NULL DEFAULT 'live',
     flw_transaction_id TEXT NOT NULL UNIQUE,
     flw_ref TEXT,
@@ -286,6 +287,71 @@ if (!hasColumn("deposits", "reversed_at")) {
 if (!hasColumn("virtual_accounts", "tx_ref")) {
   db.exec("ALTER TABLE virtual_accounts ADD COLUMN tx_ref TEXT");
 }
+
+function hasUniqueSingleColumnIndex(table, column) {
+  return db
+    .prepare(`PRAGMA index_list(${table})`)
+    .all()
+    .filter((index) => index.unique)
+    .some((index) => {
+      const safeName = String(index.name).replaceAll('"', '""');
+      const columns = db.prepare(`PRAGMA index_info("${safeName}")`).all();
+      return columns.length === 1 && columns[0].name === column;
+    });
+}
+
+if (hasUniqueSingleColumnIndex("virtual_accounts", "user_id")) {
+  db.pragma("foreign_keys = OFF");
+  db.exec(`
+    BEGIN IMMEDIATE;
+    CREATE TABLE virtual_accounts_migrated (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'neurapay',
+      mode TEXT NOT NULL DEFAULT 'live',
+      account_number TEXT NOT NULL,
+      bank_name TEXT NOT NULL DEFAULT '',
+      account_name TEXT NOT NULL DEFAULT '',
+      narration TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL DEFAULT 'NGN',
+      kind TEXT NOT NULL DEFAULT 'PERMANENT',
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      customer_email TEXT NOT NULL DEFAULT '',
+      order_ref TEXT NOT NULL DEFAULT '',
+      tx_ref TEXT,
+      flw_ref TEXT,
+      pending_ref TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    INSERT INTO virtual_accounts_migrated (
+      id, user_id, provider, mode, account_number, bank_name, account_name,
+      narration, currency, kind, status, customer_email, order_ref, tx_ref,
+      flw_ref, pending_ref, created_at, updated_at
+    )
+    SELECT
+      id, user_id, provider, mode, account_number, bank_name, account_name,
+      narration, currency, kind, status, customer_email, order_ref, tx_ref,
+      flw_ref, pending_ref, created_at, updated_at
+    FROM virtual_accounts;
+    DROP TABLE virtual_accounts;
+    ALTER TABLE virtual_accounts_migrated RENAME TO virtual_accounts;
+    COMMIT;
+  `);
+  db.pragma("foreign_keys = ON");
+}
+
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_user_provider
+    ON virtual_accounts(provider, user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_number
+    ON virtual_accounts(provider, account_number)
+    WHERE account_number <> '';
+  CREATE INDEX IF NOT EXISTS idx_virtual_accounts_pending
+    ON virtual_accounts(provider, pending_ref)
+    WHERE pending_ref IS NOT NULL;
+`);
 
 db.exec(
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_virtual_accounts_tx_ref
@@ -494,6 +560,26 @@ export const updatePasswordAndCreateSession = db.transaction(
     updateUserPassword(userId, passwordHash);
     deleteAllSessionsForUser(userId);
     return createSession({ userId, token });
+  },
+);
+
+export const completePasswordReset = db.transaction(
+  ({ userId, passwordHash, resetTokenId, sessionToken }) => {
+    const now = nowIso();
+    const tokenUpdate = db
+      .prepare(
+        `UPDATE password_reset_tokens
+         SET used_at = ?
+         WHERE id = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?`,
+      )
+      .run(now, resetTokenId, userId, now);
+    if (tokenUpdate.changes !== 1) return null;
+
+    updateUserPassword(userId, passwordHash);
+    invalidatePasswordResetCodesForUser(userId);
+    invalidatePasswordResetTokensForUser(userId, resetTokenId);
+    deleteAllSessionsForUser(userId);
+    return createSession({ userId, token: sessionToken });
   },
 );
 
@@ -1133,7 +1219,7 @@ export function recordWebhookEvent({ provider, eventKey, payload }) {
   }
 }
 
-export function markWebhookProcessed(eventKey, outcome, provider = "flutterwave") {
+export function markWebhookProcessed(eventKey, outcome, provider = "neurapay") {
   db.prepare(
     `UPDATE webhook_events SET processed_at = ?, outcome = ?
      WHERE provider = ? AND event_key = ?`,
@@ -1144,13 +1230,13 @@ export function markWebhookProcessed(eventKey, outcome, provider = "flutterwave"
  * Forget a delivery that FAILED to process, so the provider's retry is handled
  * instead of being acknowledged as a duplicate of a broken attempt.
  */
-export function clearWebhookEvent(eventKey, provider = "flutterwave") {
+export function clearWebhookEvent(eventKey, provider = "neurapay") {
   db.prepare(
     "DELETE FROM webhook_events WHERE provider = ? AND event_key = ?",
   ).run(provider, eventKey);
 }
 
-export function getWebhookEvent(eventKey, provider = "flutterwave") {
+export function getWebhookEvent(eventKey, provider = "neurapay") {
   return (
     db
       .prepare(
@@ -1161,7 +1247,7 @@ export function getWebhookEvent(eventKey, provider = "flutterwave") {
 }
 
 /* ------------------------------------------------------------------ *
- * Flutterwave virtual accounts (wallet funding)
+ * Provider virtual accounts (wallet funding)
  *
  * The wallet stays exactly where it was: users.wallet_balance plus the
  * wallet_ledger rows, updated together by creditWallet(). These functions only
@@ -1185,7 +1271,7 @@ function normalizeVirtualAccount(row) {
     customerEmail: row.customer_email,
     orderRef: row.order_ref,
     txRef: row.tx_ref || null,
-    flwRef: row.flw_ref,
+    providerReference: row.flw_ref,
     pendingRef: row.pending_ref,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1204,7 +1290,7 @@ function normalizeDeposit(row) {
     provider: row.provider,
     mode: row.mode,
     transactionId: row.flw_transaction_id,
-    flwRef: row.flw_ref,
+    providerReference: row.flw_ref,
     txRef: row.tx_ref,
     accountRef: row.account_ref,
     amount: Number(row.amount),
@@ -1226,15 +1312,15 @@ function normalizeDeposit(row) {
   };
 }
 
-export function getVirtualAccountForUser(userId) {
+export function getVirtualAccountForUser(userId, { provider = "neurapay" } = {}) {
   return normalizeVirtualAccount(
     db
-      .prepare("SELECT * FROM virtual_accounts WHERE user_id = ?")
-      .get(String(userId || "")),
+      .prepare("SELECT * FROM virtual_accounts WHERE user_id = ? AND provider = ?")
+      .get(String(userId || ""), provider),
   );
 }
 
-export function getVirtualAccountByNumber(accountNumber, { provider = "flutterwave" } = {}) {
+export function getVirtualAccountByNumber(accountNumber, { provider = "neurapay" } = {}) {
   return normalizeVirtualAccount(
     db
       .prepare(
@@ -1246,7 +1332,7 @@ export function getVirtualAccountByNumber(accountNumber, { provider = "flutterwa
 
 export function getVirtualAccountByTransactionRef(
   txRef,
-  { provider = "flutterwave" } = {},
+  { provider = "neurapay" } = {},
 ) {
   const reference = String(txRef || "").trim();
   if (!reference) return null;
@@ -1262,7 +1348,7 @@ export function getVirtualAccountByTransactionRef(
 /**
  * Claim the right to create an account for this user.
  *
- * The INSERT is the lock: `user_id` is UNIQUE, so of two concurrent requests
+ * The INSERT is the lock: `(provider, user_id)` is UNIQUE, so of two concurrent requests
  * exactly one inserts. The loser gets `{ claimed: false, account }` and must use
  * the row that already exists instead of calling Flutterwave again.
  *
@@ -1270,8 +1356,8 @@ export function getVirtualAccountByTransactionRef(
  * leaves a marker that reconciliation can find.
  */
 export const claimVirtualAccountSlot = db.transaction(
-  ({ userId, provider = "flutterwave", mode = "live", customerEmail = "", pendingRef }) => {
-    const existing = getVirtualAccountForUser(userId);
+  ({ userId, provider = "neurapay", mode = "live", customerEmail = "", pendingRef }) => {
+    const existing = getVirtualAccountForUser(userId, { provider });
     if (existing) return { claimed: false, account: existing };
 
     const now = nowIso();
@@ -1294,9 +1380,12 @@ export const claimVirtualAccountSlot = db.transaction(
       });
       return { claimed: true, account: null };
     } catch (error) {
-      // Lost the race on UNIQUE(user_id): the winner's row is the account.
+      // Lost the race on UNIQUE(provider, user_id): the winner's row is the account.
       if (String(error?.message || "").includes("UNIQUE")) {
-        return { claimed: false, account: getVirtualAccountForUser(userId) };
+        return {
+          claimed: false,
+          account: getVirtualAccountForUser(userId, { provider }),
+        };
       }
       throw error;
     }
@@ -1316,8 +1405,8 @@ export const claimVirtualAccountSlot = db.transaction(
  *
  * @returns {{claimed:boolean, account:object|null}}
  */
-export function reclaimVirtualAccountSlot(userId) {
-  const current = getVirtualAccountForUser(userId);
+export function reclaimVirtualAccountSlot(userId, { provider = "neurapay" } = {}) {
+  const current = getVirtualAccountForUser(userId, { provider });
   if (!current) return { claimed: false, account: null };
   if (current.accountNumber) return { claimed: false, account: current };
 
@@ -1325,29 +1414,32 @@ export function reclaimVirtualAccountSlot(userId) {
     .prepare(
       `UPDATE virtual_accounts
           SET status = 'PENDING', pending_ref = @pendingRef, updated_at = @now
-        WHERE user_id = @userId AND account_number = ''`,
+        WHERE user_id = @userId AND provider = @provider AND account_number = ''`,
     )
     .run({
       userId,
+      provider,
       pendingRef: `PN-${userId}-${Date.now()}`,
       now: nowIso(),
     });
 
   return {
     claimed: result.changes > 0,
-    account: getVirtualAccountForUser(userId),
+    account: getVirtualAccountForUser(userId, { provider }),
   };
 }
 
 /**
- * Store the account Flutterwave returned. Fills the row claimed above.
+ * Store provider account details in the row claimed above.
  *
  * A retry for a DIFFERENT account number on an already-numbered row is ignored
  * (the first one wins): an account number is permanent, and silently swapping it
  * would send the customer's money to an account we no longer show them.
  */
 export function saveVirtualAccountDetails(userId, details) {
-  const current = getVirtualAccountForUser(userId);
+  const current = getVirtualAccountForUser(userId, {
+    provider: details.provider || "neurapay",
+  });
   if (!current) return null;
   if (current.accountNumber && current.accountNumber !== details.accountNumber) {
     return current;
@@ -1363,12 +1455,13 @@ export function saveVirtualAccountDetails(userId, details) {
        status = @status,
        order_ref = @orderRef,
        tx_ref = @txRef,
-       flw_ref = @flwRef,
+       flw_ref = @providerReference,
        pending_ref = NULL,
        updated_at = @updatedAt
-     WHERE user_id = @userId`,
+     WHERE user_id = @userId AND provider = @provider`,
   ).run({
     userId,
+    provider: current.provider,
     accountNumber: details.accountNumber,
     bankName: details.bankName || "",
     accountName: details.accountName || "",
@@ -1377,11 +1470,11 @@ export function saveVirtualAccountDetails(userId, details) {
     status: details.status || "UNKNOWN",
     orderRef: details.orderRef || "",
     txRef: details.txRef || null,
-    flwRef: details.flwRef || null,
+    providerReference: details.providerReference || null,
     updatedAt: nowIso(),
   });
 
-  return getVirtualAccountForUser(userId);
+  return getVirtualAccountForUser(userId, { provider: current.provider });
 }
 
 /**
@@ -1389,13 +1482,13 @@ export function saveVirtualAccountDetails(userId, details) {
  * setup form again. The provider error text is NOT stored: it can echo the
  * request, and it is already in the server log.
  */
-export function markVirtualAccountFailure(userId) {
+export function markVirtualAccountFailure(userId, { provider = "neurapay" } = {}) {
   db.prepare(
     `UPDATE virtual_accounts
         SET status = 'FAILED', pending_ref = NULL, updated_at = ?
-      WHERE user_id = ? AND account_number = ''`,
-  ).run(nowIso(), userId);
-  return getVirtualAccountForUser(userId);
+      WHERE user_id = ? AND provider = ? AND account_number = ''`,
+  ).run(nowIso(), userId, provider);
+  return getVirtualAccountForUser(userId, { provider });
 }
 
 /**
@@ -1417,7 +1510,7 @@ export function findUserForDeposit({
   accountNumber,
   customerEmail,
   txRef,
-  provider = "flutterwave",
+  provider = "neurapay",
 }) {
   if (accountNumber) {
     const byNumber = getVirtualAccountByNumber(accountNumber, { provider });
@@ -1464,12 +1557,13 @@ export const recordConfirmedDeposit = db.transaction(
   ({
     account,
     mode,
+    provider = account?.provider || "neurapay",
     transactionId,
     amount,
     currency,
     providerStatus,
     txRef = "",
-    flwRef = null,
+    providerReference = null,
     payerName = null,
     narration = null,
     eventKey = null,
@@ -1480,7 +1574,10 @@ export const recordConfirmedDeposit = db.transaction(
     const existing = db
       .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
       .get(String(transactionId));
-    if (existing?.credited_at) {
+      if (existing && existing.provider !== provider) {
+        return { ok: false, reason: "TRANSACTION_PROVIDER_MISMATCH" };
+      }
+      if (existing?.credited_at) {
       return {
         ok: true,
         alreadyApplied: true,
@@ -1491,7 +1588,6 @@ export const recordConfirmedDeposit = db.transaction(
     if (existing && existing.user_id !== account.userId) {
       return { ok: false, reason: "TRANSACTION_OWNER_MISMATCH" };
     }
-
     // A test-mode account (or a server running on a test key) must never fund a
     // live wallet, and vice versa.
     if (!assertModeMatches(account, mode)) {
@@ -1506,8 +1602,9 @@ export const recordConfirmedDeposit = db.transaction(
       db.prepare(
         `UPDATE deposits SET
            virtual_account_id = @virtualAccountId,
+           provider = @provider,
            mode = @mode,
-           flw_ref = @flwRef,
+           flw_ref = @providerReference,
            tx_ref = @txRef,
            account_ref = @accountRef,
            amount = @amount,
@@ -1522,8 +1619,9 @@ export const recordConfirmedDeposit = db.transaction(
          WHERE flw_transaction_id = @transactionId AND credited_at IS NULL`,
       ).run({
         virtualAccountId: account.id,
+        provider,
         mode,
-        flwRef,
+        providerReference,
         txRef,
         accountRef: account.accountNumber,
         amount: value,
@@ -1542,17 +1640,18 @@ export const recordConfirmedDeposit = db.transaction(
             flw_ref, tx_ref, account_ref, amount, currency, status,
             provider_status, payer_name, narration, failure_reason, credited_at,
             webhook_event_key, created_at, updated_at)
-         VALUES (@id, @userId, @virtualAccountId, 'flutterwave', @mode,
-                 @transactionId, @flwRef, @txRef, @accountRef, @amount, @currency,
+         VALUES (@id, @userId, @virtualAccountId, @provider, @mode,
+                 @transactionId, @providerReference, @txRef, @accountRef, @amount, @currency,
                  'PENDING', @providerStatus, @payerName, @narration, NULL, NULL,
                  @eventKey, @now, @now)`,
       ).run({
         id,
         userId: account.userId,
         virtualAccountId: account.id,
+        provider,
         mode,
         transactionId: String(transactionId),
-        flwRef,
+        providerReference,
         txRef,
         accountRef: account.accountNumber,
         amount: value,
@@ -1569,9 +1668,9 @@ export const recordConfirmedDeposit = db.transaction(
       userId: account.userId,
       amount: value,
       reason: LEDGER_REASONS.DEPOSIT,
-      reference: `flw:${transactionId}`,
+      reference: `${provider === "flutterwave" ? "flw" : provider}:${transactionId}`,
       metadata: {
-        provider: "flutterwave",
+        provider,
         mode,
         transactionId,
         accountRef: account.accountNumber,
@@ -1593,13 +1692,13 @@ export const recordConfirmedDeposit = db.transaction(
       db.prepare(
         `UPDATE deposits
             SET status = 'CREDITED', credited_at = @now, provider_status = @providerStatus,
-                     failure_reason = NULL, flw_ref = @flwRef, tx_ref = @txRef,
+                     failure_reason = NULL, flw_ref = @providerReference, tx_ref = @txRef,
                      amount = @amount, currency = @currency, updated_at = @now
                WHERE flw_transaction_id = @transactionId`,
       ).run({
         transactionId: String(transactionId),
         providerStatus,
-        flwRef,
+        providerReference,
         txRef,
         amount: value,
         currency: String(currency || "NGN").toUpperCase(),
@@ -1638,12 +1737,22 @@ export const recordConfirmedDeposit = db.transaction(
       };
     }
 
+    db.prepare(
+      `UPDATE deposits
+          SET status = 'CREDITED', credited_at = @now,
+              failure_reason = NULL, updated_at = @now
+        WHERE flw_transaction_id = @transactionId
+          AND provider = @provider AND credited_at IS NULL`,
+    ).run({
+      transactionId: String(transactionId),
+      provider,
+      now,
+    });
+
     return {
       ok: true,
       alreadyApplied: false,
-      deposit: normalizeDeposit(
-        db.prepare("SELECT * FROM deposits WHERE id = ?").get(id),
-      ),
+      deposit: normalizeDeposit(db.prepare("SELECT * FROM deposits WHERE id = ?").get(id)),
       balance: credit.balance,
     };
   },
@@ -1665,6 +1774,7 @@ export const recordConfirmedDeposit = db.transaction(
 export function recordUnconfirmedDeposit({
   account,
   mode,
+  provider = account?.provider || "neurapay",
   transactionId,
   amount = null,
   currency = null,
@@ -1677,9 +1787,12 @@ export function recordUnconfirmedDeposit({
 }) {
   const key = String(transactionId ?? "");
   const existing = key
-    ? db.prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?").get(key)
+    ? db
+        .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ? AND provider = ?")
+        .get(key, provider)
     : null;
   if (existing) {
+    if (existing.provider !== provider) return null;
     if (existing.credited_at) return null;
     return normalizeDeposit(existing);
   }
@@ -1700,14 +1813,15 @@ export function recordUnconfirmedDeposit({
           flw_ref, tx_ref, account_ref, amount, currency, status,
           provider_status, payer_name, narration, failure_reason, credited_at,
           webhook_event_key, created_at, updated_at)
-       VALUES (@id, @userId, @virtualAccountId, 'flutterwave', @mode,
-               @transactionId, NULL, '', @accountRef, @amount, @currency, @status,
+       VALUES (@id, @userId, @virtualAccountId, @provider, @mode,
+               @transactionId, NULL, @transactionId, @accountRef, @amount, @currency, @status,
                @providerStatus, @payerName, @narration, @reason, NULL, @eventKey,
                @now, @now)`,
     ).run({
       id,
       userId: account.userId,
       virtualAccountId: account.id,
+      provider,
       mode,
       transactionId: key || `unverified:${id}`,
       accountRef: account.accountNumber,
@@ -1724,7 +1838,9 @@ export function recordUnconfirmedDeposit({
   } catch (error) {
     if (String(error?.message || "").includes("UNIQUE")) {
       return normalizeDeposit(
-        db.prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?").get(key),
+        db
+          .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ? AND provider = ?")
+          .get(key, provider),
       );
     }
     throw error;
@@ -1744,7 +1860,10 @@ export function listDepositsForUser(userId, { limit = 20, offset = 0 } = {}) {
          FROM deposits
          LEFT JOIN wallet_ledger
            ON wallet_ledger.user_id = deposits.user_id
-          AND wallet_ledger.reference = 'flw:' || deposits.flw_transaction_id
+          AND wallet_ledger.reference = CASE
+            WHEN deposits.provider = 'flutterwave' THEN 'flw:' || deposits.flw_transaction_id
+            ELSE deposits.provider || ':' || deposits.flw_transaction_id
+          END
           AND wallet_ledger.reason = 'deposit'
         WHERE deposits.user_id = ?
         ORDER BY deposits.created_at DESC
@@ -1856,7 +1975,10 @@ export function listDepositsForAdmin({
          JOIN users ON users.id = deposits.user_id
          LEFT JOIN wallet_ledger
            ON wallet_ledger.user_id = deposits.user_id
-          AND wallet_ledger.reference = 'flw:' || deposits.flw_transaction_id
+          AND wallet_ledger.reference = CASE
+            WHEN deposits.provider = 'flutterwave' THEN 'flw:' || deposits.flw_transaction_id
+            ELSE deposits.provider || ':' || deposits.flw_transaction_id
+          END
           AND wallet_ledger.reason = 'deposit'
         WHERE ${where}
         ORDER BY deposits.created_at DESC
@@ -1923,6 +2045,7 @@ export function listWebhookEventsForAdmin({ limit, offset } = {}) {
  * @returns the stored row, or null when it could not be filed.
  */
 export function recordUnmatchedDeposit({
+  provider = "neurapay",
   mode,
   transactionId = null,
   amount = null,
@@ -1948,12 +2071,13 @@ export function recordUnmatchedDeposit({
           flw_ref, tx_ref, account_ref, amount, currency, status,
           provider_status, payer_name, narration, failure_reason, credited_at,
           webhook_event_key, created_at, updated_at)
-       VALUES (@id, NULL, NULL, 'flutterwave', @mode, @transactionId,
+       VALUES (@id, NULL, NULL, @provider, @mode, @transactionId,
                NULL, '', @accountRef, @amount, @currency, 'REVIEW',
                @providerStatus, @payerName, @narration, @reason, NULL, @eventKey,
                @now, @now)`,
     ).run({
       id,
+      provider,
       mode,
       transactionId: key,
       accountRef,
@@ -2020,7 +2144,8 @@ export function listUncreditedDeposits({ limit = 50 } = {}) {
   return db
     .prepare(
       `SELECT * FROM deposits
-        WHERE credited_at IS NULL AND status IN ('PENDING', 'REVIEW', 'FAILED')
+        WHERE provider = 'neurapay'
+          AND credited_at IS NULL AND status IN ('PENDING', 'REVIEW', 'FAILED')
         ORDER BY created_at ASC
         LIMIT ?`,
     )
@@ -2028,11 +2153,14 @@ export function listUncreditedDeposits({ limit = 50 } = {}) {
     .map(normalizeDeposit);
 }
 
-export function getDepositByTransactionId(transactionId) {
+export function getDepositByTransactionId(
+  transactionId,
+  { provider = "neurapay" } = {},
+) {
   return normalizeDeposit(
     db
-      .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ?")
-      .get(String(transactionId)),
+      .prepare("SELECT * FROM deposits WHERE flw_transaction_id = ? AND provider = ?")
+      .get(String(transactionId), provider),
   );
 }
 

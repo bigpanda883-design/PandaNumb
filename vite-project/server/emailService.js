@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import crypto from "node:crypto";
 
 /**
  * Panda Numbers - outgoing email
@@ -34,6 +35,18 @@ const SMTP_FROM =
   process.env.MAIL_FROM ||
   process.env.EMAIL_FROM ||
   "Panda Number <pandanumbersms@gmail.com>";
+const GOOGLE_CLIENT_ID =
+  process.env.GOOGLE_CLIENT_ID || process.env.GMAIL_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET =
+  process.env.GOOGLE_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || "";
+const GOOGLE_REFRESH_TOKEN =
+  process.env.GOOGLE_REFRESH_TOKEN || process.env.GMAIL_REFRESH_TOKEN || "";
+const GOOGLE_EMAIL =
+  process.env.GOOGLE_EMAIL ||
+  process.env.GMAIL_USER ||
+  process.env.SMTP_USER ||
+  process.env.EMAIL_USER ||
+  "pandanumbersms@gmail.com";
 
 /**
  * Port 465 is implicit TLS; 587 (and 25) use STARTTLS. Getting this backwards
@@ -63,9 +76,15 @@ const transporter =
       })
     : null;
 
+const hasGmailApiCredentials = () =>
+  Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REFRESH_TOKEN);
+
+let cachedAccessToken = "";
+let cachedAccessTokenExpiresAt = 0;
+
 /** True when SMTP is configured. Never exposes the credentials themselves. */
 export function isEmailConfigured() {
-  return Boolean(transporter);
+  return Boolean(transporter || hasGmailApiCredentials());
 }
 
 export function getEmailSender() {
@@ -117,6 +136,22 @@ function escapeHtml(value) {
  * @returns {Promise<{delivered:boolean, reason?:string}>}
  */
 async function send({ to, subject, text, html }) {
+  if (hasGmailApiCredentials()) {
+    try {
+      await sendWithGmailApi({ to, subject, text, html });
+      return { delivered: true };
+    } catch (error) {
+      console.error(
+        `[email] Gmail API delivery failed for "${subject}":`,
+        error?.code || error?.status || error?.message || "SEND_FAILED",
+      );
+      return {
+        delivered: false,
+        reason: error?.code || error?.status || "SEND_FAILED",
+      };
+    }
+  }
+
   if (!transporter) {
     // No SMTP configured (local development). Never print the body: it can
     // contain a reset code.
@@ -139,6 +174,90 @@ async function send({ to, subject, text, html }) {
       delivered: false,
       reason: error?.code || error?.responseCode || "SEND_FAILED",
     };
+  }
+}
+
+async function getGmailAccessToken() {
+  if (cachedAccessToken && cachedAccessTokenExpiresAt > Date.now() + 60_000) {
+    return cachedAccessToken;
+  }
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    }),
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.access_token) {
+    const error = new Error("GOOGLE_OAUTH_TOKEN_FAILED");
+    error.code = payload?.error || "GOOGLE_OAUTH_TOKEN_FAILED";
+    error.status = response.status;
+    throw error;
+  }
+
+  cachedAccessToken = payload.access_token;
+  cachedAccessTokenExpiresAt =
+    Date.now() + Number(payload.expires_in || 3600) * 1000;
+  return cachedAccessToken;
+}
+
+function encodeMimeMessage({ to, subject, text, html }) {
+  const boundary = `panda-${crypto.randomUUID()}`;
+  const safeTo = String(to || "").replace(/[\r\n]/g, "");
+  const safeSubject = String(subject || "").replace(/[\r\n]/g, "");
+  const safeFrom = String(GOOGLE_EMAIL || "").replace(/[\r\n<>]/g, "");
+  const message = [
+    `From: Panda Number <${safeFrom}>`,
+    `To: ${safeTo}`,
+    `Subject: ${safeSubject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    text,
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    html,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+  return Buffer.from(message, "utf8").toString("base64url");
+}
+
+async function sendWithGmailApi({ to, subject, text, html }) {
+  const accessToken = await getGmailAccessToken();
+  const response = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raw: encodeMimeMessage({ to, subject, text, html }),
+      }),
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    const error = new Error("GMAIL_API_SEND_FAILED");
+    error.code = "GMAIL_API_SEND_FAILED";
+    error.status = response.status;
+    throw error;
   }
 }
 
@@ -314,6 +433,54 @@ export async function sendPasswordResetEmail(email, code) {
   return send({
     to: email,
     subject: "Panda Number password reset code",
+    text,
+    html,
+  });
+}
+
+export async function sendPasswordResetLinkEmail(
+  email,
+  { resetUrl, expiresInMinutes = 15 },
+) {
+  const safeUrl = escapeHtml(resetUrl);
+  const html = renderLayout({
+    heading: "Reset your password",
+    bodyHtml: `
+      <p style="margin:0 0 14px;color:#334155;line-height:1.6;">
+        We received a request to reset the password for your Panda Number account.
+        Use the secure button below to choose a new password.
+      </p>
+      <p style="margin:24px 0;text-align:center;">
+        <a href="${safeUrl}" style="display:inline-block;padding:13px 22px;background:#0066ff;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:700;">
+          Reset your password
+        </a>
+      </p>
+      <p style="margin:0 0 14px;color:#334155;line-height:1.6;">
+        This link expires in ${expiresInMinutes} minutes and can only be used once.
+      </p>
+      <p style="margin:0 0 14px;color:#64748b;line-height:1.6;">
+        If the button does not work, copy and paste this link into your browser:
+        <br /><a href="${safeUrl}" style="color:#0066ff;overflow-wrap:anywhere;">${safeUrl}</a>
+      </p>
+      <p style="margin:0;color:#64748b;line-height:1.6;">
+        If you did not request a password reset, ignore this email. Your password
+        will not change unless the link is used.
+      </p>
+    `,
+  });
+  const text = [
+    "Panda Number password reset",
+    "",
+    "We received a request to reset the password for your Panda Number account.",
+    `Reset your password: ${resetUrl}`,
+    "",
+    `This single-use link expires in ${expiresInMinutes} minutes.`,
+    "If you did not request this, ignore this email. Your password will not change.",
+  ].join("\n");
+
+  return send({
+    to: email,
+    subject: "Reset Your Panda Number Password",
     text,
     html,
   });

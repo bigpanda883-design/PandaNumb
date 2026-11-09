@@ -1,16 +1,34 @@
-# React + Vite
+# Panda Number
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Panda Number is a React/Vite client backed by an Express API and SQLite. Wallet
+deposits use NeuraPay; number purchases and SMS verification use the existing
+Yankee Verify integration.
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Install dependencies with `npm ci`.
+2. Create `np_live_pk_f3926aa3089052fef9ef9c4700a84739` using the variable names in
+   [`.env.example`](./.env.example). This file is gitignored.
+3. For NeuraPay local testing, set `NEURAPAY_MODE=live`,
+   `np_live_sk_b25a5d99277b5013cc20abc129bbb764`, `mer_7710331425659347`, and
+   `whsec_8cf2125af06e7092e4a615c0ed050076` in `.env.server`. Keep the actual values
+   private; never put credentials in the client or commit them.
+4. Run `npm run dev` to start the API and Vite together. Stop that process with
+   Ctrl+C before starting it again.
 
-## React Compiler
+Check `http://localhost:8787/api/payments/config` to confirm which provider
+the local API is serving and which settings are missing. The NeuraPay webhook
+route is `/api/webhooks/neurapay`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The local NeuraPay contract test uses a mock provider and does not make live
+requests:
 
-## Expanding the ESLint configuration
+```powershell
+node scripts/api-neurapay.mjs
+npm live
+npm run lint
+npm run build
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+See [`docs/neurapay.md`](./docs/neurapay.md) for staging, production, webhook,
+and settlement configuration.

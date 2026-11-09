@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
-const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "panda-flw-ledger-"));
+const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "panda-neurapay-ledger-"));
 process.env.DATA_DIR = dataDirectory;
 
 const {
@@ -28,15 +28,16 @@ after(() => {
   fs.rmSync(dataDirectory, { recursive: true, force: true });
 });
 
-test("pending verified deposit can settle once with exact ledger balances", () => {
+test("a confirmed NeuraPay deposit settles once and preserves exact ledger balances", () => {
   const user = createUser({
     name: "Ada Lovelace",
-    email: `flw-${crypto.randomUUID()}@example.test`,
+    email: `np-${crypto.randomUUID()}@example.test`,
     passwordHash: "test-hash",
   });
   const txRef = `PN-${crypto.randomUUID()}`;
   const claim = claimVirtualAccountSlot({
     userId: user.id,
+    provider: "neurapay",
     mode: "test",
     customerEmail: user.email,
     pendingRef: txRef,
@@ -44,22 +45,25 @@ test("pending verified deposit can settle once with exact ledger balances", () =
   assert.equal(claim.claimed, true);
 
   const account = saveVirtualAccountDetails(user.id, {
+    provider: "neurapay",
     accountNumber: "1234567890",
-    bankName: "Flutterwave MFB",
-    accountName: "",
-    narration: "Test account",
+    bankName: "Paga",
+    accountName: user.name,
+    narration: "",
     kind: "PERMANENT",
     status: "ACTIVE",
-    orderRef: "provider-order-ref",
+    orderRef: txRef,
     txRef,
-    flwRef: "provider-reference",
+    providerReference: "account-provider-reference",
   });
   assert.equal(account.txRef, txRef);
+  assert.equal(account.provider, "neurapay");
 
   recordUnconfirmedDeposit({
     account,
+    provider: "neurapay",
     mode: "test",
-    transactionId: 90001,
+    transactionId: "TXN-90001",
     amount: 1250,
     currency: "NGN",
     status: "PENDING",
@@ -69,13 +73,14 @@ test("pending verified deposit can settle once with exact ledger balances", () =
 
   const settled = recordConfirmedDeposit({
     account,
+    provider: "neurapay",
     mode: "test",
-    transactionId: 90001,
+    transactionId: "TXN-90001",
     amount: 1250,
     currency: "NGN",
     providerStatus: "successful",
-    txRef,
-    flwRef: "provider-reference",
+    txRef: "TXN-90001",
+    providerReference: "provider-reference",
   });
   assert.equal(settled.ok, true);
   assert.equal(settled.alreadyApplied, false);
@@ -84,13 +89,14 @@ test("pending verified deposit can settle once with exact ledger balances", () =
 
   const replay = recordConfirmedDeposit({
     account,
+    provider: "neurapay",
     mode: "test",
-    transactionId: 90001,
+    transactionId: "TXN-90001",
     amount: 1250,
     currency: "NGN",
     providerStatus: "successful",
-    txRef,
-    flwRef: "provider-reference",
+    txRef: "TXN-90001",
+    providerReference: "provider-reference",
   });
   assert.equal(replay.alreadyApplied, true);
   assert.equal(getUserById(user.id).walletBalance, 1250);
@@ -98,22 +104,60 @@ test("pending verified deposit can settle once with exact ledger balances", () =
   const history = listDepositsForUser(user.id);
   assert.equal(history.total, 1);
   assert.equal(history.deposits[0].status, "CREDITED");
+  assert.equal(history.deposits[0].providerReference, "provider-reference");
   assert.equal(history.deposits[0].previousBalance, 0);
   assert.equal(history.deposits[0].newBalance, 1250);
-  assert.equal(history.deposits[0].txRef, txRef);
+  assert.equal(history.deposits[0].txRef, "TXN-90001");
 
   assert.equal(listVirtualAccountsForAdmin({ search: user.email }).total, 1);
   const adminDeposits = listDepositsForAdmin({
     status: "CREDITED",
-    search: txRef,
+    search: "TXN-90001",
   });
   assert.equal(adminDeposits.total, 1);
   assert.equal(adminDeposits.items[0].newBalance, 1250);
 
   recordWebhookEvent({
-    provider: "flutterwave",
-    eventKey: "charge.completed:90001",
-    payload: { type: "charge.completed", transactionId: 90001 },
+    provider: "neurapay",
+    eventKey: "payment.successful:TXN-90001",
+    payload: { type: "payment.successful", transactionId: "TXN-90001" },
   });
-  markWebhookProcessed("charge.completed:90001", "SUCCESS");
+  markWebhookProcessed("payment.successful:TXN-90001", "SUCCESS");
+});
+
+test("separate providers and users can claim independent account slots", () => {
+  const firstUser = createUser({
+    name: "Grace Hopper",
+    email: `np-a-${crypto.randomUUID()}@example.test`,
+    passwordHash: "test-hash",
+  });
+  const secondUser = createUser({
+    name: "Katherine Johnson",
+    email: `np-b-${crypto.randomUUID()}@example.test`,
+    passwordHash: "test-hash",
+  });
+  assert.equal(
+    claimVirtualAccountSlot({
+      userId: firstUser.id,
+      provider: "neurapay",
+      pendingRef: "NP-FIRST",
+    }).claimed,
+    true,
+  );
+  assert.equal(
+    claimVirtualAccountSlot({
+      userId: secondUser.id,
+      provider: "neurapay",
+      pendingRef: "NP-SECOND",
+    }).claimed,
+    true,
+  );
+  assert.equal(
+    claimVirtualAccountSlot({
+      userId: firstUser.id,
+      provider: "legacy-provider",
+      pendingRef: "OLD-FIRST",
+    }).claimed,
+    true,
+  );
 });

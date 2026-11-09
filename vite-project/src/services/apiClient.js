@@ -33,18 +33,18 @@ export { ApiError };
  *
  * wallet
  *   GET  /api/wallet/balance     -> { balance: number }            (naira)
- *   GET  /api/payments/config    -> { configured, missing[], mode, currency }
+ *   GET  /api/payments/config    -> { provider, configured, missing[], mode, currency }
  *   GET  /api/wallet/virtual-account
  *                                -> { account, state, configured, mode, missing[] }
  *   POST /api/wallet/virtual-account
- *                                -> 503 while no ID-free Flutterwave account
- *                                   creation option is configured
+ *                                -> { account, state, created } after creating
+ *                                   a NeuraPay virtual account
  *   GET  /api/wallet/deposits?limit&offset
  *                                -> { deposits[], total, balance }
  *
  * There is deliberately NO "credit my wallet" call: a balance only grows when
- * Flutterwave confirms a bank transfer into a user's virtual account (see
- * server/flutterwave.js and the webhook in server/index.js), and the old
+ * NeuraPay confirms a bank transfer into a user's virtual account (see
+ * server/neurapay.js and the webhook in server/index.js), and the old
  * POST /api/wallet/deposit answers 410 DEPOSIT_ENDPOINT_REMOVED.
  *
  * transactions
@@ -227,13 +227,16 @@ export async function fetchWalletBalance({ signal } = {}) {
     headers: authHeaders(),
   });
 
-  return typeof payload?.balance === "number" ? payload.balance : 0;
+  if (!Number.isFinite(payload?.balance) || payload.balance < 0) {
+    throw new Error("The server returned an invalid wallet balance.");
+  }
+
+  return payload.balance;
 }
 
 /**
  * What bank-transfer funding still needs before it can run. Public and
- * secret-free: it reports which settings are present and whether the server is
- * on a Flutterwave test or live key - never a key, prefix or length.
+ * secret-free: it reports configuration state and test/live mode, never keys.
  */
 export async function fetchPaymentsConfig({ signal } = {}) {
   return apiRequest("/api/payments/config", {
@@ -243,8 +246,8 @@ export async function fetchPaymentsConfig({ signal } = {}) {
 }
 
 /**
- * The user's saved virtual bank account (or `account: null` and an UNAVAILABLE
- * state). One indexed read on the server: this does not call Flutterwave.
+ * The user's saved virtual bank account. One indexed read on the server: this
+ * does not call NeuraPay.
  */
 export async function fetchVirtualAccount({ signal } = {}) {
   return apiRequest("/api/wallet/virtual-account", {
@@ -255,17 +258,15 @@ export async function fetchVirtualAccount({ signal } = {}) {
 }
 
 /**
- * Request a permanent account. BVN/NIN is sent only in this request and is
- * never persisted by the API or returned to the caller.
+ * Request a dedicated account without requesting BVN or NIN.
  */
-export async function createVirtualAccount(identity, { signal } = {}) {
+export async function createVirtualAccount({ signal } = {}) {
   const headers = authHeaders();
   return apiRequest("/api/wallet/virtual-account", {
     method: "POST",
     signal,
     operation: "create bank account",
     headers,
-    body: identity,
   });
 }
 

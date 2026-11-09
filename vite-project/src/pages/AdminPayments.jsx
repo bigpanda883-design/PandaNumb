@@ -97,7 +97,7 @@ function AdminPayments() {
       <header className="admin-payments-header">
         <div>
           <h1>Payment operations</h1>
-          <p>Read-only Flutterwave account, deposit, and webhook records.</p>
+          <p>Read-only NeuraPay account, deposit, and webhook records.</p>
         </div>
         <button
           type="button"
@@ -181,8 +181,8 @@ function AdminPayments() {
                           <span>{account.bankName || "Bank not reported"} · {account.status}</span>
                         </div>
                         <div>
-                          <span>{account.currency} · {account.mode}</span>
-                          <span>Flutterwave reference: {account.flwRef || "Not returned"}</span>
+                          <span>{account.provider} · {account.currency} · {account.mode}</span>
+                          <span>Provider reference: {account.providerReference || "Not returned"}</span>
                         </div>
                       </article>
                     ))}
@@ -208,7 +208,7 @@ function AdminPayments() {
                         </div>
                         <div>
                           <span>Transaction ID: {deposit.transactionId}</span>
-                          <span>Reference: {deposit.txRef || "Not reported"} · Flutterwave: {deposit.flwRef || "Not reported"}</span>
+                          <span>Reference: {deposit.txRef || "Not reported"} · Provider: {deposit.providerReference || "Not reported"}</span>
                         </div>
                         {deposit.creditedAt && (
                           <div>
@@ -269,7 +269,7 @@ function AdminPayments() {
               </div>
               <p className="admin-payments-note">
                 This dashboard is read-only. Deposits can only be credited by the
-                verified Flutterwave webhook flow.
+                verified NeuraPay webhook flow.
               </p>
             </>
           )}
