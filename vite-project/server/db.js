@@ -522,6 +522,14 @@ export function createSession({ userId, token }) {
   return { id, token, expiresAt };
 }
 
+export const createUserWithSession = db.transaction(
+  ({ name, email, passwordHash, phone = "", token }) => {
+    const user = createUser({ name, email, passwordHash, phone });
+    createSession({ userId: user.id, token });
+    return user;
+  },
+);
+
 export function getSessionFromToken(token) {
   const tokenHash = hashToken(token);
   const row = db

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FiLifeBuoy, FiLogOut } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import {
@@ -6,8 +6,13 @@ import {
   getAuthToken,
   getAuthUser,
   saveSession,
+  setAuthUser,
 } from "../auth/authStorage";
-import { logoutUser, updateUserProfile } from "../services/apiClient";
+import {
+  fetchCurrentUser,
+  logoutUser,
+  updateUserProfile,
+} from "../services/apiClient";
 import { pushNotification } from "../notifications/notificationStore";
 import { usePageLoading } from "../hooks/usePageLoading";
 import { ProfileSkeleton } from "../components/skeleton/PageSkeletons";
@@ -15,7 +20,7 @@ import "../CSS/dashboard/pages/Profile.css";
 
 function Profile() {
   const navigate = useNavigate();
-  const user = getAuthUser();
+  const [user, setUser] = useState(getAuthUser);
   const { isLoading } = usePageLoading();
 
   const [formData, setFormData] = useState({
@@ -26,6 +31,37 @@ function Profile() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  useEffect(() => {
+    if (user || !getAuthToken()) return undefined;
+    let active = true;
+
+    fetchCurrentUser()
+      .then((currentUser) => {
+        if (!active || !currentUser) return;
+        setAuthUser(currentUser);
+        setUser(currentUser);
+        setFormData({
+          fullName: currentUser.fullName || "",
+          email: currentUser.email || "",
+          phoneNumber: currentUser.phone || "",
+        });
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        if (requestError?.status === 401) {
+          clearAuthUser();
+          navigate("/login", { replace: true });
+          return;
+        }
+        console.error("[profile] failed to load the current user:", requestError);
+        setError("Unable to load your profile. Please try again.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [navigate, user]);
 
   // Calculate initials from Full Name
   const getInitials = (name) => {
@@ -64,6 +100,7 @@ function Profile() {
         return;
       }
 
+      setUser(updatedUser);
       setFormData({
         fullName: updatedUser.fullName || "",
         email: updatedUser.email || "",

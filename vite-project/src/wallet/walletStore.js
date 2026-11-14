@@ -6,8 +6,8 @@
  * purchase or deposit updates all of them at once instead of each page keeping
  * its own copy.
  *
- * Same localStorage + event pattern as authStorage / notificationStore, which
- * keeps this dependency-free and in sync across components and tabs.
+ * The server remains authoritative; this browser value is only a display cache
+ * so a recently fetched balance can paint before the next API request.
  */
 
 import { fetchWalletBalance } from "../services/apiClient.js";
@@ -36,32 +36,6 @@ function writeBalance(balance, source) {
     );
   } catch {
     // Storage unavailable - the in-memory React state still updates.
-  }
-
-  // Mirror the balance back onto the auth record as well.
-  //
-  // Without this the two drift apart: the wallet held the post-deposit figure
-  // while `panda-numbers-auth` still held the balance from sign-in, and any
-  // later fetchBalance() would overwrite the wallet with that stale value -
-  // which is exactly how a confirmed deposit appeared to vanish.
-  try {
-    const rawUser = localStorage.getItem("panda-numbers-auth");
-    if (rawUser) {
-      const user = JSON.parse(rawUser);
-      if (user && typeof user === "object") {
-        localStorage.setItem(
-          "panda-numbers-auth",
-          JSON.stringify({
-            ...user,
-            balance,
-            // Stamp the write so fetchBalance() can tell which record is newer.
-            balanceUpdatedAt: Date.now(),
-          }),
-        );
-      }
-    }
-  } catch {
-    // A malformed auth record is not worth failing the balance write over.
   }
 
   window.dispatchEvent(
@@ -100,11 +74,9 @@ export function debitBalance(amount, source = "purchase") {
 /**
  * Load the balance from the backend.
  *
- * No backend endpoint exists in this project yet, so this derives the opening
- * balance from the authenticated user record instead of inventing a number: it
- * reads whatever balance the auth/session payload already carries, and falls
- * back to 0 for a genuinely new account. Point `fetchBalance` at a real
- * endpoint by setting VITE_BALANCE_ENDPOINT; nothing else has to change.
+ * The balance is fetched from the authenticated backend endpoint; a network
+ * failure is surfaced to the caller rather than being replaced with a
+ * success-shaped local default.
  *
  * @returns {Promise<number>} the authoritative balance
  */

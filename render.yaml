@@ -18,6 +18,8 @@ services:
         value: /var/data
       - key: FRONTEND_URL
         value: https://panda-numb.vercel.app
+      - key: YANKEE_API_KEY
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -55,6 +57,8 @@ services:
         value: /var/data
       - key: NEURAPAY_MODE
         value: test
+      - key: YANKEE_API_KEY
+        sync: false
       - key: NEURAPAY_SECRET_KEY
         sync: false
       - key: NEURAPAY_BUSINESS_ID

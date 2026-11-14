@@ -1,17 +1,49 @@
+import { useEffect, useState } from "react";
 import { FiBell, FiMenu, FiMoon, FiSun } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
-import { getAuthUser } from "../auth/authStorage";
+import {
+  getAuthToken,
+  getAuthUser,
+  handleSessionExpired,
+  setAuthUser,
+} from "../auth/authStorage";
 import { useTheme } from "../context/themeStore";
 import { useNotifications } from "../hooks/useNotifications";
+import { fetchCurrentUser } from "../services/apiClient";
 import "../CSS/dashboard/components/DashboardHeader.css";
 
 function DashboardHeader({ onMenuToggle }) {
   const navigate = useNavigate();
   const { isDarkMode, toggleTheme } = useTheme();
-  const user = getAuthUser();
+  const [user, setUser] = useState(getAuthUser);
   const firstName = user?.fullName?.split(" ")[0] || "Big";
   // Live unread count straight from the notification store - never hardcoded.
   const { unreadCount } = useNotifications();
+
+  useEffect(() => {
+    if (user || !getAuthToken()) return undefined;
+    let active = true;
+
+    fetchCurrentUser()
+      .then((currentUser) => {
+        if (!active || !currentUser) return;
+        setAuthUser(currentUser);
+        setUser(currentUser);
+      })
+      .catch((error) => {
+        if (!active) return;
+        if (error?.status === 401) {
+          handleSessionExpired();
+          navigate("/login", { replace: true });
+          return;
+        }
+        console.error("[auth] failed to load the current user:", error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [navigate, user]);
 
   return (
     <header className="dashboard-header">

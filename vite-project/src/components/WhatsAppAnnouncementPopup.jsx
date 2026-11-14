@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { FiMessageSquare, FiX } from "react-icons/fi";
+import { isAuthenticated } from "../auth/authStorage";
 import "../CSS/WhatsAppPopup.css";
 
 /**
@@ -21,7 +22,7 @@ function WhatsAppAnnouncementPopup() {
 
   useEffect(() => {
     // Only announce inside an authenticated session.
-    const hasAuth = Boolean(localStorage.getItem("panda-numbers-auth"));
+    const hasAuth = isAuthenticated();
     // `alreadySeen` is only ever read once below; a failed storage read is
     // treated as "not seen", so the default and the catch agree.
     let alreadySeen;

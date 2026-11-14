@@ -29,9 +29,9 @@ by `npm run dev`). Add your privately rotated values using these exact names:
 
 dotenv
 NEURAPAY_MODE=live
-NEURAPAY_SECRET_KEY=np_live_sk_b25a5d99277b5013cc20abc129bbb764
-NEURAPAY_BUSINESS_ID=mer_7710331425659347
-NEURAPAY_WEBHOOK_SIGNING_SECRET=whsec_8cf2125af06e7092e4a615c0ed050076
+NEURAPAY_SECRET_KEY=YOUR_NEURAPAY_SECRET_KEY
+NEURAPAY_BUSINESS_ID=YOUR_NEURAPAY_BUSINESS_ID
+NEURAPAY_WEBHOOK_SIGNING_SECRET=YOUR_WEBHOOK_SIGNING_SECRET
 
 
 Fill those values locally; do not paste them into chat or commit `.env.server`.

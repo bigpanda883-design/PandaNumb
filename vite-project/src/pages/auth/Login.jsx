@@ -12,7 +12,6 @@ import {
 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { saveSession } from "../../auth/authStorage";
-import { authenticateLocalAccount } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
 import {
@@ -150,49 +149,27 @@ function Login() {
         user = payload.user;
         token = payload.token;
       } catch (error) {
-        // Only a backend that is genuinely unreachable or not our API may use
-        // the on-device account book. A real 401 (wrong password) or 429 stays
-        // an error, and a deployment pointed at the FRONTEND host is reported as
-        // such instead of silently signing in from stale local data - that
-        // "local login" is why a phone could appear to log in while talking to
-        // no server at all.
-        if (!isBackendUnavailable(error) || isApiOnFrontendHost()) {
-          // A mis-pointed API is a deployment fault, not a rejected password.
-          //
-          // THE OLD MESSAGE BLAMED THE WRONG HOST: it always said the request
-          // "went to the website host", even when VITE_API_URL pointed at a
-          // backend that did not resolve (a wrong Render service name). The
-          // person then went looking at Vercel and found nothing wrong. Name the
-          // URL that was actually called, and what came back, so the fix is
-          // obvious from the message itself.
-          if (isBackendUnavailable(error)) {
-            const base = getApiBaseUrl();
-            const target = base
-              ? `${base}/api/auth/login`
-              : `${window.location.origin}/api/auth/login`;
+        if (isBackendUnavailable(error)) {
+          const base = getApiBaseUrl();
+          const target = base
+            ? `${base}/api/auth/login`
+            : `${window.location.origin}/api/auth/login`;
+          if (isApiOnFrontendHost()) {
             throw new Error(
-              base
-                ? `Cannot reach the sign-in server at ${target}. ` +
-                    `The backend did not respond (${error?.status || "no response"}). ` +
-                    "Check that the backend is running and that VITE_API_URL on the hosting dashboard points to it."
-                : "This build has no API URL configured, so the sign-in request went to the website host instead of the API. " +
-                    "Set VITE_API_URL on the hosting dashboard and redeploy.",
+              "This build is not connected to the authentication server. Check VITE_API_URL and redeploy.",
               { cause: error },
             );
           }
-          throw error;
+          throw new Error(
+            base
+              ? `Cannot reach the sign-in server at ${target}. ` +
+                  `The backend did not respond (${error?.status || "no response"}). ` +
+                  "Check that the backend is running and that VITE_API_URL on the hosting dashboard points to it."
+              : "This build has no API URL configured. Set VITE_API_URL on the hosting dashboard and redeploy.",
+            { cause: error },
+          );
         }
-
-        const local = await authenticateLocalAccount({
-          email: values.email.trim(),
-          password: values.password,
-        });
-
-        if (!local.ok) {
-          throw new Error(local.message, { cause: error });
-        }
-
-        user = local.user;
+        throw error;
       }
 
       const fullName =
