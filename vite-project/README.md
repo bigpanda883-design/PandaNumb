@@ -4,15 +4,17 @@ Panda Number is a React/Vite client backed by an Express API and SQLite. Wallet
 deposits use NeuraPay; number purchases and SMS verification use the existing
 Yankee Verify integration.
 
+Authentication is handled by the API. Browser session credentials and the
+display profile are scoped to the current tab; user accounts are not created
+offline in localStorage.
+
 ## Local development
 
 1. Install dependencies with `npm ci`.
-2. Create `np_live_pk_f3926aa3089052fef9ef9c4700a84739` using the variable names in
-   [`.env.example`](./.env.example). This file is gitignored.
-3. For NeuraPay local testing, set `NEURAPAY_MODE=live`,
-   `np_live_sk_b25a5d99277b5013cc20abc129bbb764`, `mer_7710331425659347`, and
-   `whsec_8cf2125af06e7092e4a615c0ed050076` in `.env.server`. Keep the actual values
-   private; never put credentials in the client or commit them.
+2. Create `.env.server` using the variable names in [`.env.example`](./.env.example).
+3. For NeuraPay testing, configure `NEURAPAY_MODE` and your server-only
+   credentials in `.env.server`. Use provider test credentials for test mode.
+   Never put credentials in the client or commit them.
 4. Run `npm run dev` to start the API and Vite together. Stop that process with
    Ctrl+C before starting it again.
 

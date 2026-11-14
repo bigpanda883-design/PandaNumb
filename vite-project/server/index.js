@@ -9,7 +9,7 @@ import {
   assertModeMatches as assertDepositModeMatches,
   clearWebhookEvent,
   completePasswordReset,
-  createUser,
+  createUserWithSession,
   createEmailVerificationCode,
   createPasswordResetToken,
   createSession,
@@ -245,16 +245,21 @@ app.use((req, res, next) => {
 // cause of "my account exists locally but not on the live site". Only a COUNT is
 // reported: no email address, hash or token is ever returned.
 app.get("/api/health", (req, res) => {
-  let dbOk = true;
-  let accounts = null;
+  let accounts;
   try {
     accounts = db.prepare("SELECT COUNT(*) AS c FROM users").get()?.c ?? 0;
-  } catch {
-    dbOk = false;
+  } catch (error) {
+    console.error("[health] database check failed:", error?.message || error);
+    return res.status(503).json({
+      ok: false,
+      dbOk: false,
+      accounts: null,
+      persistentStorage: Boolean(process.env.DATA_DIR),
+    });
   }
   return res.json({
     ok: true,
-    dbOk,
+    dbOk: true,
     accounts,
     persistentStorage: Boolean(process.env.DATA_DIR),
   });
@@ -476,13 +481,15 @@ const registerHandler = async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
+  const token = generateToken();
   let user;
   try {
-    user = createUser({
+    user = createUserWithSession({
       name,
       email,
       passwordHash,
       phone,
+      token,
     });
   } catch (error) {
     if (
@@ -499,8 +506,6 @@ const registerHandler = async (req, res) => {
     throw error;
   }
 
-  const token = generateToken();
-  createSession({ userId: user.id, token });
   sendWelcomeEmail({ email: user.email, name: user.name }).catch((error) => {
     console.error("[auth] welcome email error:", error?.message || error);
   });
@@ -1324,45 +1329,50 @@ function settleVerifiedDeposit({ account, verified, eventKey = null }) {
   };
 }
 
-app.post("/api/health/neurapay/reconcile", authMiddleware, async (req, res) => {
-  const expected = String(process.env.ADMIN_RECONCILE_TOKEN || "").trim();
-  const provided = String(req.headers["x-reconcile-token"] || "").trim();
-  if (!expected || provided !== expected) {
-    return fail(res, 403, "FORBIDDEN", "This endpoint is not available.");
-  }
-
-  const pending = listUncreditedDeposits({ limit: 50 });
-  const outcomes = [];
-  for (const deposit of pending) {
-    try {
-      const account = getVirtualAccountForUser(deposit.userId, {
-        provider: DEPOSIT_PROVIDER,
-      });
-      if (!account) {
-        outcomes.push({ deposit: deposit.transactionId, state: "NO_ACCOUNT" });
-        continue;
-      }
-      const verified = await verifyNeuraPayTransaction(deposit.transactionId);
-      outcomes.push({
-        deposit: deposit.transactionId,
-        ...settleVerifiedDeposit({ account, verified }),
-      });
-    } catch (error) {
-      outcomes.push({
-        deposit: deposit.transactionId,
-        state: "ERROR",
-        code: error?.code || "PROVIDER_ERROR",
-      });
+app.post(
+  "/api/health/neurapay/reconcile",
+  authMiddleware,
+  adminMiddleware,
+  async (req, res) => {
+    const expected = String(process.env.ADMIN_RECONCILE_TOKEN || "").trim();
+    const provided = String(req.headers["x-reconcile-token"] || "").trim();
+    if (!expected || provided !== expected) {
+      return fail(res, 403, "FORBIDDEN", "This endpoint is not available.");
     }
-  }
-  return res.json({ checked: pending.length, outcomes });
-});
+
+    const pending = listUncreditedDeposits({ limit: 50 });
+    const outcomes = [];
+    for (const deposit of pending) {
+      try {
+        const account = getVirtualAccountForUser(deposit.userId, {
+          provider: DEPOSIT_PROVIDER,
+        });
+        if (!account) {
+          outcomes.push({ deposit: deposit.transactionId, state: "NO_ACCOUNT" });
+          continue;
+        }
+        const verified = await verifyNeuraPayTransaction(deposit.transactionId);
+        outcomes.push({
+          deposit: deposit.transactionId,
+          ...settleVerifiedDeposit({ account, verified }),
+        });
+      } catch (error) {
+        outcomes.push({
+          deposit: deposit.transactionId,
+          state: "ERROR",
+          code: error?.code || "PROVIDER_ERROR",
+        });
+      }
+    }
+    return res.json({ checked: pending.length, outcomes });
+  },
+);
 
 /**
  * Reconciliation: does every stored balance still equal its own ledger?
  * Read-only and operator-facing; it never changes money.
  */
-app.get("/api/health/ledger", (req, res) => {
+app.get("/api/health/ledger", authMiddleware, adminMiddleware, (req, res) => {
   const rows = db
     .prepare("SELECT id, wallet_balance FROM users")
     .all();
