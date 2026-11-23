@@ -148,6 +148,69 @@ html[data-theme="dark"] .dashboard-app .sidebar-overlay {
   background: rgba(2, 6, 16, 0.65);
 }
 
+html[data-theme="dark"] .dashboard-app .admin-console {
+  --admin-ink: #e6edfa;
+  --admin-muted: #9aa9be;
+  --admin-line: #28354b;
+  --admin-surface: #121c2d;
+  background: #0b1120;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-console-topbar,
+html[data-theme="dark"] .dashboard-app .admin-metric-card,
+html[data-theme="dark"] .dashboard-app .admin-panel,
+html[data-theme="dark"] .dashboard-app .admin-mini-metrics > div,
+html[data-theme="dark"] .dashboard-app .admin-filter-bar,
+html[data-theme="dark"] .dashboard-app .admin-empty-state,
+html[data-theme="dark"] .dashboard-app .admin-icon-button {
+  background-color: #121c2d;
+  border-color: #28354b;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-breadcrumb strong,
+html[data-theme="dark"] .dashboard-app .admin-user-chip strong,
+html[data-theme="dark"] .dashboard-app .admin-page-heading h1,
+html[data-theme="dark"] .dashboard-app .admin-panel-heading h2,
+html[data-theme="dark"] .dashboard-app .admin-metric-card strong,
+html[data-theme="dark"] .dashboard-app .admin-mini-metrics strong,
+html[data-theme="dark"] .dashboard-app .admin-table td,
+html[data-theme="dark"] .dashboard-app .admin-table td strong,
+html[data-theme="dark"] .dashboard-app .admin-empty-state h1,
+html[data-theme="dark"] .dashboard-app .admin-icon-button {
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-table th {
+  border-bottom-color: #28354b;
+  background: #182337;
+  color: #9aa9be;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-table td {
+  border-bottom-color: #202c41;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-search-field,
+html[data-theme="dark"] .dashboard-app .admin-filter-bar select {
+  border-color: #34425a;
+  background: #101a2b;
+  color: #e6edfa;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-integrity-note {
+  border-color: #24503f;
+  background: #10251f;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-integrity-note strong {
+  color: #8ce0b8;
+}
+
+html[data-theme="dark"] .dashboard-app .admin-integrity-note p {
+  color: #a4c7b5;
+}
+
 /* -----------------------------------------------------------------------------
    4. Mobile bottom navigation
    -------------------------------------------------------------------------- */

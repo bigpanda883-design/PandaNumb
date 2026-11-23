@@ -333,3 +333,56 @@ export async function fetchAdminWebhooks(options = {}) {
     },
   );
 }
+
+export async function fetchAdminPaymentSummary({ signal } = {}) {
+  return apiRequest("/api/admin/payments/summary", {
+    signal,
+    operation: "load payment summary",
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchAdminUsers(options = {}) {
+  return apiRequest(
+    `/api/admin/users${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load users",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function fetchAdminUser(userId, options = {}) {
+  const payload = await apiRequest(
+    `/api/admin/users/${encodeURIComponent(userId)}`,
+    {
+      signal: options.signal,
+      operation: "load user details",
+      headers: authHeaders(),
+    },
+  );
+  return payload?.user || null;
+}
+
+export async function fetchAdminPurchases(options = {}) {
+  return apiRequest(
+    `/api/admin/purchases${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load purchases",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function fetchAdminTransactions(options = {}) {
+  return apiRequest(
+    `/api/admin/transactions${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load transactions",
+      headers: authHeaders(),
+    },
+  );
+}

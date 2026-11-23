@@ -10,7 +10,7 @@ import {
   FiSun,
   FiX,
 } from "react-icons/fi";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { saveSession } from "../../auth/authStorage";
 import { pushNotification } from "../../notifications/notificationStore";
 import { useTheme } from "../../context/themeStore";
@@ -32,6 +32,10 @@ const initialValues = {
 
 function SignUp() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAdminSignup =
+    location.pathname === "/admin/signup" ||
+    new URLSearchParams(location.search).get("admin") === "true";
   const { isDarkMode, toggleTheme } = useTheme();
   const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState({});
@@ -40,6 +44,29 @@ function SignUp() {
     confirmPassword: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [setupAllowed, setSetupAllowed] = useState(!isAdminSignup);
+
+  useEffect(() => {
+    if (!isAdminSignup) return undefined;
+    let cancelled = false;
+    requestJson("/api/auth/admin/setup-status", {
+      operation: "check administrator setup",
+    })
+      .then((payload) => {
+        if (cancelled) return;
+        if (payload?.setupRequired) {
+          setSetupAllowed(true);
+        } else {
+          navigate("/login", { replace: true });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSetupAllowed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdminSignup, navigate]);
 
   // Mobile Pop-up / Toast notification state. Without this, a failed sign-up
   // showed nothing at all on a phone: `errors.submit` was set but never
@@ -138,6 +165,9 @@ function SignUp() {
         fullName,
         email: user.email || values.email.trim(),
         phone: user.phone || values.phone.trim(),
+        role: user.role || (isAdminSignup ? "super_admin" : "customer"),
+        isAdmin: Boolean(user.isAdmin),
+        permissions: user.permissions || {},
         initials: fullName
           .split(/\s+/)
           .map((part) => part[0])
@@ -159,11 +189,21 @@ function SignUp() {
       description: "Your account is ready.",
       path: "/security",
     });
-    navigate("/dashboard", { replace: true });
+    navigate(isAdminSignup ? "/admin/dashboard" : "/dashboard", {
+      replace: true,
+    });
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isAdminSignup && !setupAllowed) {
+      triggerToast(
+        "Super administrator setup has already been completed.",
+        "error",
+      );
+      navigate("/login", { replace: true });
+      return;
+    }
     const nextErrors = validate();
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -175,9 +215,13 @@ function SignUp() {
     setErrors({});
     try {
       const email = values.email.trim().toLowerCase();
-      const payload = await requestJson("/api/auth/register", {
+      const payload = await requestJson(
+        isAdminSignup
+          ? "/api/auth/admin/register"
+          : "/api/auth/register",
+        {
         method: "POST",
-        operation: "sign up",
+        operation: isAdminSignup ? "register Super Admin" : "sign up",
         body: {
           name: values.fullName.trim(),
           fullName: values.fullName.trim(),
@@ -185,7 +229,8 @@ function SignUp() {
           phone: values.phone.trim(),
           password: values.password,
         },
-      });
+        },
+      );
       if (!payload?.user || !payload?.token) {
         throw new Error("The server did not create an authenticated account.");
       }
@@ -306,8 +351,12 @@ function SignUp() {
           </div>
 
           <div className="auth-heading">
-            <h1>Create your account</h1>
-            <p>It takes less than a minute to get started.</p>
+            <h1>{isAdminSignup ? "Create administrator account" : "Create your account"}</h1>
+            <p>
+              {isAdminSignup
+                ? "Create the only public Super Administrator account."
+                : "It takes less than a minute to get started."}
+            </p>
           </div>
 
           <form className="auth-form" onSubmit={handleSubmit} noValidate>
