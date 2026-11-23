@@ -252,6 +252,18 @@ if (!hasColumn("users", "email_verified_at")) {
   ).run(nowIso());
 }
 
+if (!hasColumn("users", "role")) {
+  db.exec(
+    "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'customer'",
+  );
+}
+
+if (!hasColumn("users", "permissions")) {
+  db.exec(
+    "ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT '{}'",
+  );
+}
+
 if (!hasColumn("password_reset_codes", "verified_at")) {
   // Set when the six-digit code has been checked and accepted. A verified code
   // can no longer be used on its own to change the password - see
@@ -392,7 +404,14 @@ export function parseJson(value, fallback = []) {
   }
 }
 
-export function createUser({ name, email, passwordHash, phone = "" }) {
+export function createUser({
+  name,
+  email,
+  passwordHash,
+  phone = "",
+  role = "customer",
+  permissions = {},
+}) {
   const now = nowIso();
   const user = {
     id: crypto.randomUUID(),
@@ -400,6 +419,8 @@ export function createUser({ name, email, passwordHash, phone = "" }) {
     email: email.toLowerCase(),
     phone,
     password_hash: passwordHash,
+    role,
+    permissions: JSON.stringify(permissions),
     email_verified_at: null,
     wallet_balance: 0,
     transactions: "[]",
@@ -415,11 +436,11 @@ export function createUser({ name, email, passwordHash, phone = "" }) {
   db.prepare(
     `
       INSERT INTO users (
-        id, name, email, phone, password_hash, wallet_balance,
+        id, name, email, phone, password_hash, role, permissions, wallet_balance,
         transactions, notifications, purchased_numbers, activations,
         referral_data, profile_data, created_at, updated_at
       ) VALUES (
-        @id, @name, @email, @phone, @password_hash, @wallet_balance,
+        @id, @name, @email, @phone, @password_hash, @role, @permissions, @wallet_balance,
         @transactions, @notifications, @purchased_numbers, @activations,
         @referral_data, @profile_data, @created_at, @updated_at
       )
@@ -427,6 +448,32 @@ export function createUser({ name, email, passwordHash, phone = "" }) {
   ).run(user);
 
   return getUserById(user.id);
+}
+
+export function setUserRole({ userId, role, permissions = {} }) {
+  db.prepare(
+    "UPDATE users SET role = ?, permissions = ?, updated_at = ? WHERE id = ?",
+  ).run(role, JSON.stringify(permissions), nowIso(), userId);
+  return getUserById(userId);
+}
+
+export function hasUserWithRole(role) {
+  return Boolean(
+    db.prepare("SELECT 1 FROM users WHERE role = ? LIMIT 1").get(role),
+  );
+}
+
+export function syncAllowlistedAdminRoles(emails) {
+  for (const email of emails) {
+    const user = getUserByEmail(email);
+    if (user && user.role === "customer") {
+      setUserRole({
+        userId: user.id,
+        role: "super_admin",
+        permissions: { "*": true },
+      });
+    }
+  }
 }
 
 export function getUserByEmail(email) {
@@ -470,6 +517,8 @@ function normalizeUser(row) {
     name: row.name,
     fullName: row.name,
     email: row.email,
+    role: row.role || "customer",
+    permissions: parseJson(row.permissions, {}),
     emailVerifiedAt: row.email_verified_at || null,
     phone: row.phone || "",
     passwordHash: row.password_hash,
@@ -487,11 +536,21 @@ function normalizeUser(row) {
 
 export function safeUser(user) {
   if (!user) return null;
+  const role = user.role || "customer";
   return {
     id: user.id,
     fullName: user.name || user.fullName,
     name: user.name || user.fullName,
     email: user.email,
+    role,
+    isAdmin: [
+      "super_admin",
+      "admin",
+      "finance_manager",
+      "support_agent",
+      "inventory_manager",
+    ].includes(role),
+    permissions: user.permissions || {},
     emailVerified: Boolean(user.emailVerifiedAt),
     phone: user.phone || "",
     walletBalance: Number(user.walletBalance || 0),
@@ -523,8 +582,23 @@ export function createSession({ userId, token }) {
 }
 
 export const createUserWithSession = db.transaction(
-  ({ name, email, passwordHash, phone = "", token }) => {
-    const user = createUser({ name, email, passwordHash, phone });
+  ({
+    name,
+    email,
+    passwordHash,
+    phone = "",
+    token,
+    role = "customer",
+    permissions = {},
+  }) => {
+    const user = createUser({
+      name,
+      email,
+      passwordHash,
+      phone,
+      role,
+      permissions,
+    });
     createSession({ userId: user.id, token });
     return user;
   },
@@ -2037,6 +2111,263 @@ export function listWebhookEventsForAdmin({ limit, offset } = {}) {
     })),
     total: Number(total || 0),
     ...page,
+  };
+}
+
+/**
+ * Read-only operator view of every customer account, bounded to one page.
+ *
+ * Deliberately returns an allow-listed shape and never password_hash: this is
+ * the ONLY admin read that touches the users table, so there is a single place
+ * to check that a secret cannot leak into the admin console.
+ */
+export function listUsersForAdmin({ search = "", limit, offset } = {}) {
+  const page = boundedPage({ limit, offset });
+  const needle = String(search || "").trim().toLowerCase();
+  const where = `(? = ''
+      OR instr(lower(users.name), ?) > 0
+      OR instr(lower(users.email), ?) > 0
+      OR instr(users.phone, ?) > 0)`;
+  const params = [needle, needle, needle, String(search || "").trim()];
+  const rows = db
+    .prepare(
+      `SELECT users.*,
+              (SELECT COUNT(*) FROM wallet_ledger
+                WHERE wallet_ledger.user_id = users.id) AS transaction_count
+         FROM users
+        WHERE ${where}
+        ORDER BY users.created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(...params, page.limit, page.offset);
+  const total = db
+    .prepare(`SELECT COUNT(*) AS c FROM users WHERE ${where}`)
+    .get(...params)?.c;
+  const items = rows.map((row) => {
+    const user = normalizeUser(row);
+    return {
+      id: user.id,
+      name: user.name,
+      fullName: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      emailVerified: Boolean(user.emailVerifiedAt),
+      walletBalance: user.walletBalance,
+      purchaseCount: user.numbers.length,
+      transactionCount: user.transactions.length || Number(row.transaction_count || 0),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  });
+  return { items, total: Number(total || 0), ...page };
+}
+
+/**
+ * One account plus its recent activity, for the user detail screen.
+ * Owner-independent (admin only), but still returns only an allow-listed shape.
+ */
+export function getUserDetailForAdmin(userId) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  const purchases = (user.numbers || []).slice().reverse();
+  const transactions = (user.transactions || []).slice().reverse();
+  const deposits = listDepositsForAdmin({ search: user.email, limit: 25, offset: 0 });
+  return {
+    id: user.id,
+    name: user.name,
+    fullName: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    emailVerified: Boolean(user.emailVerifiedAt),
+    walletBalance: user.walletBalance,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    purchases,
+    numbers: purchases,
+    transactions,
+    deposits: deposits.items.filter((deposit) => deposit.userId === user.id),
+  };
+}
+
+/**
+ * Every purchased number across all accounts, flattened and newest first.
+ * Numbers are stored as JSON inside users.purchased_numbers, so the rows are
+ * read per user and then sorted: there is no table to ORDER BY in SQL yet.
+ */
+export function listPurchasesForAdmin({ search = "", limit, offset } = {}) {
+  const page = boundedPage({ limit, offset });
+  const needle = String(search || "").trim().toLowerCase();
+  const users = db
+    .prepare(
+      `SELECT * FROM users
+        WHERE (? = ''
+           OR instr(lower(name), ?) > 0
+           OR instr(lower(email), ?) > 0)`,
+    )
+    .all(needle, needle, needle)
+    .map(normalizeUser);
+
+  const items = [];
+  for (const user of users) {
+    for (const number of user.numbers || []) {
+      const priceValue = Number(number.priceValue ?? number.price ?? 0);
+      const record = {
+        id: number.id || `${user.id}:${number.number || items.length}`,
+        number: number.number || "",
+        service: number.service || number.serviceId || "Service",
+        countryName: number.countryName || number.country || "",
+        priceValue,
+        status: number.status || "UNKNOWN",
+        createdAt: number.createdAt || number.purchasedAt || user.createdAt,
+        userId: user.id,
+        customerName: user.name,
+        customerEmail: user.email,
+      };
+      if (
+        !needle ||
+        record.number.toLowerCase().includes(needle) ||
+        record.service.toLowerCase().includes(needle) ||
+        record.status.toLowerCase().includes(needle)
+      ) {
+        items.push(record);
+      }
+    }
+  }
+  items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return {
+    items: items.slice(page.offset, page.offset + page.limit),
+    total: items.length,
+    ...page,
+  };
+}
+
+/**
+ * Wallet ledger across all accounts (deposits, purchases, corrections), newest
+ * first, joined to the owning account for the operator view.
+ */
+export function listTransactionsForAdmin({
+  search = "",
+  limit,
+  offset,
+} = {}) {
+  const page = boundedPage({ limit, offset });
+  const needle = String(search || "").trim().toLowerCase();
+  const where = `(? = ''
+      OR instr(lower(users.name), ?) > 0
+      OR instr(lower(users.email), ?) > 0
+      OR instr(lower(wallet_ledger.reference), ?) > 0
+      OR instr(lower(wallet_ledger.reason), ?) > 0)`;
+  const params = [needle, needle, needle, needle, String(search || "").trim()];
+  const rows = db
+    .prepare(
+      `SELECT wallet_ledger.*,
+              users.name AS user_name, users.email AS user_email
+         FROM wallet_ledger
+         JOIN users ON users.id = wallet_ledger.user_id
+        WHERE ${where}
+        ORDER BY wallet_ledger.created_at DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(...params, page.limit, page.offset);
+  const total = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+         FROM wallet_ledger
+         JOIN users ON users.id = wallet_ledger.user_id
+        WHERE ${where}`,
+    )
+    .get(...params)?.c;
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      reference: row.reference || row.id,
+      type: row.kind === "credit" ? "Credit" : "Debit",
+      reason: row.reason,
+      title: `${
+        row.kind === "credit" ? "Credit" : "Debit"
+      } · ${String(row.reason || "wallet").replace(/_/g, " ")}`,
+      amount: Number(row.amount || 0),
+      balanceAfter: Number(row.balance_after || 0),
+      status: row.kind === "credit" ? "COMPLETED" : "COMPLETED",
+      createdAt: row.created_at,
+      userId: row.user_id,
+      customerName: row.user_name,
+      customerEmail: row.user_email,
+    })),
+    total: Number(total || 0),
+    ...page,
+  };
+}
+
+/**
+ * Financial totals for the operator dashboard, computed from the database rather
+ * than from the current page of records. Every figure is a real sum: deposits
+ * are counted by their provider-confirmed status, and wallet liabilities are the
+ * sum of every customer's balance (money the platform owes its users).
+ */
+export function getAdminPaymentSummary() {
+  const depositRow = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN status = 'CREDITED' THEN amount ELSE 0 END), 0) AS credited_total,
+         SUM(CASE WHEN status = 'CREDITED' THEN 1 ELSE 0 END) AS credited_count,
+         SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count,
+         SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed_count,
+         SUM(CASE WHEN status = 'REVIEW' THEN 1 ELSE 0 END) AS review_count
+       FROM deposits`,
+    )
+    .get();
+  const userRow = db
+    .prepare(
+      `SELECT COUNT(*) AS users,
+              COALESCE(SUM(wallet_balance), 0) AS liabilities
+         FROM users`,
+    )
+    .get();
+  const accountRow = db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) AS active,
+              SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+              SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed
+         FROM virtual_accounts`,
+    )
+    .get();
+  const webhookRow = db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN processed_at IS NOT NULL THEN 1 ELSE 0 END) AS processed,
+              MAX(received_at) AS last_received_at
+         FROM webhook_events`,
+    )
+    .get();
+  return {
+    deposits: {
+      total: Number(depositRow?.total || 0),
+      creditedTotal: Number(depositRow?.credited_total || 0),
+      credited: Number(depositRow?.credited_count || 0),
+      pending: Number(depositRow?.pending_count || 0),
+      failed: Number(depositRow?.failed_count || 0),
+      review: Number(depositRow?.review_count || 0),
+    },
+    wallets: {
+      users: Number(userRow?.users || 0),
+      liabilities: Math.round(Number(userRow?.liabilities || 0) * 100) / 100,
+    },
+    accounts: {
+      total: Number(accountRow?.total || 0),
+      active: Number(accountRow?.active || 0),
+      pending: Number(accountRow?.pending || 0),
+      failed: Number(accountRow?.failed || 0),
+    },
+    webhooks: {
+      total: Number(webhookRow?.total || 0),
+      processed: Number(webhookRow?.processed || 0),
+      lastReceivedAt: webhookRow?.last_received_at || null,
+    },
   };
 }
 

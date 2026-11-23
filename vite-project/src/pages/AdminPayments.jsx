@@ -1,18 +1,64 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  FiActivity,
+  FiBarChart2,
+  FiBell,
+  FiChevronDown,
+  FiCreditCard,
+  FiGrid,
+  FiHelpCircle,
+  FiLogOut,
+  FiMenu,
+  FiMoon,
+  FiRefreshCw,
+  FiSearch,
+  FiSettings,
+  FiShield,
+  FiSmartphone,
+  FiTag,
+  FiTrendingUp,
+  FiUsers,
+  FiX,
+} from "react-icons/fi";
+import { useLocation, useNavigate } from "react-router-dom";
+import {
   fetchAdminDeposits,
+  fetchAdminPaymentSummary,
   fetchAdminStatus,
   fetchAdminVirtualAccounts,
   fetchAdminWebhooks,
+  logoutUser,
 } from "../services/apiClient";
+import { clearAuthUser } from "../auth/authStorage";
 import "../CSS/dashboard/pages/AdminPayments.css";
 
-const PAGE_SIZE = 25;
+const mainNavigation = [
+  { label: "Dashboard", Icon: FiGrid, path: "/admin/dashboard" },
+  { label: "Users", Icon: FiUsers, path: "/admin/users" },
+  { label: "Purchases", Icon: FiShoppingBag, path: "/admin/purchases" },
+  { label: "Transactions", Icon: FiActivity, path: "/admin/transactions" },
+  { label: "Numbers Inventory", Icon: FiTag, path: "/admin/inventory" },
+  { label: "Wallet & Payments", Icon: FiCreditCard, path: "/admin/payments" },
+];
+
+const managementNavigation = [
+  { label: "Admin & Staff", Icon: FiShield, path: "/admin/staff" },
+  { label: "Announcements", Icon: FiBell, path: "/admin/announcements" },
+  { label: "Support Tickets", Icon: FiHelpCircle, path: "/admin/support" },
+];
+
+const systemNavigation = [
+  { label: "Activity Logs", Icon: FiActivity, path: "/admin/activity-logs" },
+  { label: "Settings", Icon: FiSettings, path: "/admin/settings" },
+];
+
+function FiShoppingBag(props) {
+  return <FiCreditCard {...props} />;
+}
 
 function formatNaira(value) {
   return `₦${Number(value || 0).toLocaleString("en-NG", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   })}`;
 }
 
@@ -20,21 +66,38 @@ function formatDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "Unknown date"
-    : date.toLocaleString("en-NG");
+    : date.toLocaleString("en-NG", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+}
+
+function StatusBadge({ value }) {
+  const status = String(value || "Unknown").toUpperCase();
+  const tone =
+    status === "CREDITED" || status === "SUCCESS" || status === "ACTIVE"
+      ? "success"
+      : status === "PENDING" || status === "RECEIVED"
+        ? "pending"
+        : status === "FAILED" || status === "ERROR"
+          ? "danger"
+          : "neutral";
+  return <span className={`admin-status-pill ${tone}`}>{status}</span>;
 }
 
 function AdminPayments() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [accounts, setAccounts] = useState([]);
   const [deposits, setDeposits] = useState([]);
   const [webhooks, setWebhooks] = useState([]);
-  const [totals, setTotals] = useState({ accounts: 0, deposits: 0, webhooks: 0 });
-  const [search, setSearch] = useState("");
-  const [appliedSearch, setAppliedSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [offset, setOffset] = useState(0);
+  const [totals, setTotals] = useState({ users: 0, accounts: 0, deposits: 0, webhooks: 0 });
+  const [summary, setSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [hasAccess, setHasAccess] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -42,240 +105,387 @@ function AdminPayments() {
     try {
       await fetchAdminStatus();
       setHasAccess(true);
-      const options = {
-        search: appliedSearch,
-        status,
-        limit: PAGE_SIZE,
-        offset,
-      };
-      const [accountPage, depositPage, webhookPage] = await Promise.all([
-        fetchAdminVirtualAccounts(options),
-        fetchAdminDeposits(options),
-        fetchAdminWebhooks({ limit: PAGE_SIZE, offset }),
+      const [accountPage, depositPage, webhookPage, paymentSummary] = await Promise.all([
+        fetchAdminVirtualAccounts({ limit: 25, offset: 0 }),
+        fetchAdminDeposits({ limit: 25, offset: 0 }),
+        fetchAdminWebhooks({ limit: 25, offset: 0 }),
+        fetchAdminPaymentSummary(),
       ]);
       setAccounts(accountPage.items || []);
       setDeposits(depositPage.items || []);
       setWebhooks(webhookPage.items || []);
+      setSummary(paymentSummary || null);
       setTotals({
+        users: Number(paymentSummary?.wallets?.users || 0),
         accounts: Number(accountPage.total || 0),
         deposits: Number(depositPage.total || 0),
-        webhooks: Number(webhookPage.total || 0),
+        webhooks: Number(paymentSummary?.webhooks?.total || webhookPage.total || 0),
       });
+      setLastUpdated(new Date());
     } catch (loadError) {
-      if (loadError?.status === 403) {
-        setHasAccess(false);
-        setError("Administrator access is not enabled for this account.");
-      } else {
-        setError(
-          loadError?.message || "Payment operations could not be loaded.",
-        );
-      }
+      setHasAccess(loadError?.status === 403 ? false : null);
+      setError(
+        loadError?.status === 403
+          ? "Administrator access is not enabled for this account."
+          : loadError?.message || "Admin data could not be loaded.",
+      );
     } finally {
       setIsLoading(false);
     }
-  }, [appliedSearch, offset, status]);
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void Promise.resolve().then(() => {
-      if (!cancelled) return load();
-      return undefined;
-    });
-    return () => {
-      cancelled = true;
-    };
+    load();
   }, [load]);
 
-  const submitSearch = (event) => {
-    event.preventDefault();
-    setOffset(0);
-    setAppliedSearch(search.trim());
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // Clear the local session regardless of API availability.
+    } finally {
+      clearAuthUser();
+      navigate("/login", { replace: true });
+    }
   };
 
+  const creditedDeposits = deposits.filter(
+    (deposit) => String(deposit.status).toUpperCase() === "CREDITED",
+  );
+  const creditedTotal = creditedDeposits.reduce(
+    (sum, deposit) => sum + Number(deposit.amount || 0),
+    0,
+  );
+
+  const renderNavigation = (items) =>
+    items.map(({ label, Icon, path }) => (
+      <button
+        type="button"
+        key={label}
+        className={`admin-side-item${location.pathname === path ? " active" : ""}`}
+        onClick={() => {
+          setSidebarOpen(false);
+          navigate(path);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      >
+        <Icon aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+    ));
+
   return (
-    <section className="admin-payments">
-      <header className="admin-payments-header">
-        <div>
-          <h1>Payment operations</h1>
-          <p>Read-only NeuraPay account, deposit, and webhook records.</p>
-        </div>
+    <main className="admin-dashboard-shell">
+      {sidebarOpen && (
         <button
           type="button"
-          className="admin-refresh-btn"
-          onClick={load}
-          disabled={isLoading}
-        >
-          {isLoading ? "Refreshing…" : "Refresh"}
-        </button>
-      </header>
-
-      {error && (
-        <p className="admin-payments-error" role="alert">
-          {error}
-        </p>
-      )}
-      {hasAccess === false && (
-        <p className="admin-payments-note">
-          Add this verified account’s email to the server-side
-          {" "}ADMIN_EMAILS allowlist to grant access.
-        </p>
+          className="admin-mobile-overlay"
+          aria-label="Close menu"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
-      {hasAccess !== false && (
-        <>
-          <div className="admin-payment-counts" aria-label="Record totals">
-            <div><strong>{totals.accounts}</strong><span>Virtual accounts</span></div>
-            <div><strong>{totals.deposits}</strong><span>Deposits</span></div>
-            <div><strong>{totals.webhooks}</strong><span>Webhook events</span></div>
+      <aside className={`admin-dashboard-sidebar${sidebarOpen ? " open" : ""}`}>
+        <div className="admin-side-brand">
+          <div className="admin-side-logo">P</div>
+          <div>
+            <strong>Panda Number</strong>
+            <span><FiShield aria-hidden="true" /> Admin Panel</span>
           </div>
+          <button
+            type="button"
+            className="admin-side-close"
+            aria-label="Close menu"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <FiX />
+          </button>
+        </div>
 
-          <form className="admin-payment-filters" onSubmit={submitSearch}>
-            <label>
-              Search customers or references
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                maxLength={100}
-                placeholder="Name, email, account, transaction reference"
-              />
-            </label>
-            <label>
-              Deposit status
-              <select
-                value={status}
-                onChange={(event) => {
-                  setOffset(0);
-                  setStatus(event.target.value);
-                }}
-              >
-                <option value="">All statuses</option>
-                <option value="CREDITED">Confirmed</option>
-                <option value="PENDING">Pending</option>
-                <option value="REVIEW">Under review</option>
-                <option value="FAILED">Failed</option>
-              </select>
-            </label>
-            <button type="submit" className="admin-refresh-btn">
-              Search
+        <nav className="admin-side-nav" aria-label="Admin navigation">
+          <p>MAIN MENU</p>
+          {renderNavigation(mainNavigation)}
+          <p>MANAGEMENT</p>
+          {renderNavigation(managementNavigation)}
+          <p>SYSTEM</p>
+          {renderNavigation(systemNavigation)}
+        </nav>
+
+        <button type="button" className="admin-side-logout" onClick={handleLogout}>
+          <FiLogOut aria-hidden="true" />
+          <span>Log out</span>
+        </button>
+      </aside>
+
+      <section className="admin-dashboard-main">
+        <header className="admin-dashboard-header">
+          <button
+            type="button"
+            className="admin-menu-button"
+            aria-label="Open menu"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <FiMenu />
+          </button>
+          <div>
+            <span>Good morning,</span>
+            <strong>Admin</strong>
+          </div>
+          <div className="admin-header-actions">
+            <button type="button" className="admin-header-icon" aria-label="Notifications">
+              <FiBell />
+              {totals.webhooks > 0 && <span>{Math.min(totals.webhooks, 9)}</span>}
             </button>
-          </form>
+            <button type="button" className="admin-header-icon" aria-label="Toggle theme">
+              <FiMoon />
+            </button>
+            <button type="button" className="admin-profile-button" aria-label="Administrator profile">
+              AD <FiChevronDown aria-hidden="true" />
+            </button>
+          </div>
+        </header>
 
-          {isLoading ? (
-            <p className="admin-payments-note" role="status">Loading payment records…</p>
+        <div className="admin-dashboard-content">
+          {error && (
+            <div className="admin-dashboard-alert" role="alert">
+              <FiShield aria-hidden="true" />
+              <span>{error}</span>
+              {hasAccess !== false && (
+                <button type="button" onClick={load}>
+                  <FiRefreshCw aria-hidden="true" /> Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {hasAccess === false ? (
+            <section className="admin-access-state">
+              <FiShield aria-hidden="true" />
+              <h1>Administrator access required</h1>
+              <p>Sign in with an account approved in the server&apos;s <code>ADMIN_EMAILS</code> setting.</p>
+              <button type="button" onClick={() => navigate("/login")}>Sign in</button>
+            </section>
           ) : (
             <>
-              <section className="admin-payment-section">
-                <h2>Virtual accounts</h2>
-                {accounts.length === 0 ? (
-                  <p className="admin-payments-note">No accounts in this page.</p>
-                ) : (
-                  <div className="admin-payment-list">
-                    {accounts.map((account) => (
-                      <article className="admin-payment-row" key={account.id}>
-                        <div>
-                          <strong>{account.userName || "Customer"}</strong>
-                          <span>{account.userEmail}</span>
-                        </div>
-                        <div>
-                          <strong>{account.accountNumber || "No account number"}</strong>
-                          <span>{account.bankName || "Bank not reported"} · {account.status}</span>
-                        </div>
-                        <div>
-                          <span>{account.provider} · {account.currency} · {account.mode}</span>
-                          <span>Provider reference: {account.providerReference || "Not returned"}</span>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
+              <section className="admin-hero-banner">
+                <div>
+                  <span><FiTrendingUp aria-hidden="true" /> Admin Dashboard</span>
+                  <h1>Welcome back, Admin!</h1>
+                  <p>Here&apos;s what&apos;s happening with Panda Number today.</p>
+                </div>
+                <button type="button" onClick={load} disabled={isLoading}>
+                  <FiRefreshCw aria-hidden="true" />
+                  {isLoading ? "Refreshing" : "Refresh"}
+                </button>
               </section>
 
-              <section className="admin-payment-section">
-                <h2>Deposits</h2>
-                {deposits.length === 0 ? (
-                  <p className="admin-payments-note">No deposits in this page.</p>
-                ) : (
-                  <div className="admin-payment-list">
-                    {deposits.map((deposit) => (
-                      <article className="admin-payment-row" key={deposit.id}>
-                        <div>
-                          <strong>{deposit.userName || "Customer"} · {deposit.status}</strong>
-                          <span>{deposit.userEmail}</span>
-                        </div>
-                        <div>
-                          <strong>{formatNaira(deposit.amount)} {deposit.currency}</strong>
-                          <span>{formatDate(deposit.createdAt)}</span>
-                        </div>
-                        <div>
-                          <span>Transaction ID: {deposit.transactionId}</span>
-                          <span>Reference: {deposit.txRef || "Not reported"} · Provider: {deposit.providerReference || "Not reported"}</span>
-                        </div>
-                        {deposit.creditedAt && (
+              <section className="admin-kpi-grid" aria-label="Payment overview">
+                <article className="admin-kpi-card">
+                  <span className="admin-kpi-icon blue"><FiUsers /></span>
+                  <div>
+                    <small>Total Users</small>
+                    <strong>{isLoading ? "—" : totals.users.toLocaleString("en-NG")}</strong>
+                  </div>
+                  <span className="admin-kpi-live">Live accounts</span>
+                </article>
+                <article className="admin-kpi-card">
+                  <span className="admin-kpi-icon green"><FiShoppingBag /></span>
+                  <div>
+                    <small>Total Purchases</small>
+                    <strong>{isLoading ? "—" : totals.accounts.toLocaleString("en-NG")}</strong>
+                  </div>
+                  <span className="admin-kpi-live">Recorded</span>
+                </article>
+                <article className="admin-kpi-card">
+                  <span className="admin-kpi-icon purple"><FiCreditCard /></span>
+                  <div>
+                    <small>Confirmed Deposits</small>
+                    <strong>{isLoading ? "—" : formatNaira(summary?.deposits?.creditedTotal ?? creditedTotal)}</strong>
+                  </div>
+                  <span className="admin-kpi-live">
+                    {summary ? `${summary.deposits.credited} credited` : "Credited"}
+                  </span>
+                </article>
+                <article className="admin-kpi-card">
+                  <span className="admin-kpi-icon orange"><FiActivity /></span>
+                  <div>
+                    <small>Webhook Events</small>
+                    <strong>{isLoading ? "—" : totals.webhooks.toLocaleString("en-NG")}</strong>
+                  </div>
+                  <span className="admin-kpi-live">Live provider events</span>
+                </article>
+              </section>
+
+              <section className="admin-overview-grid">
+                <article className="admin-data-card admin-sales-card">
+                  <div className="admin-card-heading">
+                    <div>
+                      <span className="admin-card-title-icon"><FiBarChart2 /></span>
+                      <h2>Deposit Overview</h2>
+                    </div>
+                    <strong>{formatNaira(creditedTotal)}</strong>
+                  </div>
+                  <div className="admin-chart" aria-label="Recent deposit chart">
+                    <div className="admin-chart-grid">
+                      <i /><i /><i /><i /><i />
+                    </div>
+                    <svg viewBox="0 0 700 210" role="img" aria-label="Deposit trend">
+                      <defs>
+                        <linearGradient id="depositArea" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#1682ff" stopOpacity=".22" />
+                          <stop offset="100%" stopColor="#1682ff" stopOpacity=".02" />
+                        </linearGradient>
+                      </defs>
+                      <path d="M20 175 C85 160 120 120 185 126 S280 170 345 92 S455 62 520 78 S615 55 680 38 L680 196 L20 196 Z" fill="url(#depositArea)" />
+                      <path d="M20 175 C85 160 120 120 185 126 S280 170 345 92 S455 62 520 78 S615 55 680 38" fill="none" stroke="#1682ff" strokeWidth="5" strokeLinecap="round" />
+                      {[20,185,345,520,680].map((cx, index) => (
+                        <circle key={cx} cx={cx} cy={[175,126,92,78,38][index]} r="7" fill="#1682ff" stroke="#fff" strokeWidth="4" />
+                      ))}
+                    </svg>
+                  </div>
+                </article>
+
+                <article className="admin-data-card admin-activity-card">
+                  <div className="admin-card-heading">
+                    <div>
+                      <span className="admin-card-title-icon"><FiUsers /></span>
+                      <h2>Recent Deposits</h2>
+                    </div>
+                    <span className="admin-live-dot">Live</span>
+                  </div>
+                  <div className="admin-activity-list">
+                    {isLoading ? (
+                      <p className="admin-empty-copy">Loading deposit records…</p>
+                    ) : deposits.length === 0 ? (
+                      <p className="admin-empty-copy">No deposit activity yet.</p>
+                    ) : (
+                      deposits.slice(0, 5).map((deposit) => (
+                        <div className="admin-activity-row" key={deposit.id}>
+                          <span className="admin-person-avatar">
+                            {(deposit.userName || "C").slice(0, 1).toUpper
+                              ? (deposit.userName || "C").slice(0, 1).toUpperCase()
+                              : "C"}
+                          </span>
                           <div>
-                            <span>Balance before: {formatNaira(deposit.previousBalance)}</span>
-                            <span>Balance after: {formatNaira(deposit.newBalance)}</span>
+                            <strong>{deposit.userName || "Customer"}</strong>
+                            <small>{deposit.status || "Deposit"} via {deposit.provider || "Payment"}</small>
                           </div>
-                        )}
-                      </article>
-                    ))}
+                          <span>{formatNaira(deposit.amount)}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
-                )}
+                </article>
+
+                <article className="admin-balance-card">
+                  <span>Total wallet liabilities</span>
+                  <strong>{formatNaira(summary?.wallets?.liabilities ?? creditedTotal)}</strong>
+                  <button type="button" onClick={() => navigate("/admin/payments")}>
+                    View records
+                  </button>
+                  <div className="admin-balance-art"><FiCreditCard /></div>
+                </article>
+
+                <article className="admin-actions-card">
+                  <h2>Quick Actions</h2>
+                  <div>
+                    <button type="button" onClick={() => document.querySelector(".admin-recent-table")?.scrollIntoView({ behavior: "smooth" })}>
+                      <FiUsers /><span>Manage Users</span>
+                    </button>
+                    <button type="button" onClick={load}>
+                      <FiRefreshCw /><span>Refresh Data</span>
+                    </button>
+                    <button type="button" onClick={() => document.querySelector(".admin-recent-table")?.scrollIntoView({ behavior: "smooth" })}>
+                      <FiBarChart2 /><span>View Reports</span>
+                    </button>
+                  </div>
+                </article>
               </section>
 
-              <section className="admin-payment-section">
-                <h2>Webhook processing</h2>
-                {webhooks.length === 0 ? (
-                  <p className="admin-payments-note">No webhook events in this page.</p>
+              <section className="admin-recent-table admin-data-card">
+                <div className="admin-card-heading">
+                  <div>
+                    <span className="admin-card-title-icon"><FiActivity /></span>
+                    <h2>Recent Transactions</h2>
+                  </div>
+                  <label className="admin-table-search">
+                    <FiSearch aria-hidden="true" />
+                    <input aria-label="Search transactions" placeholder="Search records" />
+                  </label>
+                </div>
+                {isLoading ? (
+                  <p className="admin-empty-copy">Loading live records…</p>
+                ) : deposits.length === 0 ? (
+                  <p className="admin-empty-copy">No deposit transactions have been recorded.</p>
                 ) : (
-                  <div className="admin-payment-list">
-                    {webhooks.map((event) => (
-                      <article className="admin-payment-row" key={`${event.provider}-${event.eventKey}`}>
-                        <div>
-                          <strong>{event.provider} · {event.outcome || "Received"}</strong>
-                          <span>{event.eventKey}</span>
-                        </div>
-                        <div>
-                          <span>Received: {formatDate(event.receivedAt)}</span>
-                          <span>Processed: {event.processedAt ? formatDate(event.processedAt) : "Not processed"}</span>
-                        </div>
-                        <div>
-                          <span>Transaction ID: {event.payload?.transactionId || "Not reported"}</span>
-                          <span>Event: {event.payload?.type || "Unknown"}</span>
-                        </div>
-                      </article>
-                    ))}
+                  <div className="admin-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Customer</th>
+                          <th>Reference</th>
+                          <th>Amount</th>
+                          <th>Status</th>
+                          <th>Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deposits.slice(0, 8).map((deposit) => (
+                          <tr key={deposit.id}>
+                            <td>
+                              <strong>{deposit.userName || "Customer"}</strong>
+                              <small>{deposit.userEmail || "No email"}</small>
+                            </td>
+                            <td>{deposit.txRef || deposit.transactionId || "Not reported"}</td>
+                            <td>{formatNaira(deposit.amount)} <small>{deposit.currency || "NGN"}</small></td>
+                            <td><StatusBadge value={deposit.status} /></td>
+                            <td>{formatDate(deposit.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </section>
 
-              <div className="admin-payment-pagination">
-                <button
-                  type="button"
-                  className="admin-refresh-btn"
-                  onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
-                  disabled={offset === 0 || isLoading}
-                >
-                  Previous
-                </button>
-                <span>Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, Math.max(totals.accounts, totals.deposits, totals.webhooks))}</span>
-                <button
-                  type="button"
-                  className="admin-refresh-btn"
-                  onClick={() => setOffset((current) => current + PAGE_SIZE)}
-                  disabled={isLoading || offset + PAGE_SIZE >= Math.max(totals.accounts, totals.deposits, totals.webhooks)}
-                >
-                  Next
-                </button>
-              </div>
-              <p className="admin-payments-note">
-                This dashboard is read-only. Deposits can only be credited by the
-                verified NeuraPay webhook flow.
-              </p>
+              {accounts.length > 0 && (
+                <section className="admin-recent-table admin-data-card">
+                  <div className="admin-card-heading">
+                    <div>
+                      <span className="admin-card-title-icon"><FiCreditCard /></span>
+                      <h2>Virtual Accounts</h2>
+                    </div>
+                    <span className="admin-table-total">{totals.accounts} total</span>
+                  </div>
+                  <div className="admin-table-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>Customer</th><th>Account</th><th>Bank</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {accounts.slice(0, 6).map((account) => (
+                          <tr key={account.id}>
+                            <td><strong>{account.userName || "Customer"}</strong><small>{account.userEmail}</small></td>
+                            <td>{account.accountNumber || "Not reported"}</td>
+                            <td>{account.bankName || account.provider || "Not reported"}</td>
+                            <td><StatusBadge value={account.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              <footer className="admin-dashboard-footer">
+                <span>Panda Number · Admin console</span>
+                <span>{lastUpdated ? `Last updated ${formatDate(lastUpdated)}` : "Waiting for live data"}</span>
+              </footer>
             </>
           )}
-        </>
-      )}
-    </section>
+        </div>
+      </section>
+    </main>
   );
 }
 

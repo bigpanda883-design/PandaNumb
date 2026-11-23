@@ -13,7 +13,12 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { saveSession } from "../../auth/authStorage";
 import { useTheme } from "../../context/themeStore";
-import { requestJson } from "../../services/httpClient";
+import {
+  getApiBaseUrl,
+  isApiOnFrontendHost,
+  isBackendUnavailable,
+  requestJson,
+} from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
 import "../../CSS/auth/ResetPassword.css";
 
@@ -36,6 +41,7 @@ function ResetPassword() {
       ? ""
       : new URLSearchParams(window.location.search).get("token") || "",
   );
+  setResetRole(payload.user.role || "customer");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -44,6 +50,7 @@ function ResetPassword() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [sessionSaved, setSessionSaved] = useState(false);
+  const [resetRole, setResetRole] = useState("customer");
   const [toast, setToast] = useState(null);
 
   const passedRules = useMemo(
@@ -64,11 +71,23 @@ function ResetPassword() {
   useEffect(() => {
     if (!success || !sessionSaved) return undefined;
     const timer = window.setTimeout(
-      () => navigate("/dashboard", { replace: true }),
+      () => {
+        const adminRoles = [
+          "super_admin",
+          "admin",
+          "finance_manager",
+          "support_agent",
+          "inventory_manager",
+        ];
+        navigate(
+          adminRoles.includes(resetRole) ? "/admin/dashboard" : "/dashboard",
+          { replace: true },
+        );
+      },
       1500,
     );
     return () => window.clearTimeout(timer);
-  }, [navigate, sessionSaved, success]);
+  }, [navigate, resetRole, sessionSaved, success]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -113,6 +132,9 @@ function ResetPassword() {
           fullName,
           email: payload.user.email,
           phone: payload.user.phone || "",
+          role: payload.user.role || "customer",
+          isAdmin: Boolean(payload.user.isAdmin),
+          permissions: payload.user.permissions || {},
           initials: fullName
             .split(/\s+/)
             .map((part) => part[0])
@@ -130,9 +152,12 @@ function ResetPassword() {
         );
       }
     } catch (requestError) {
-      const message =
-        requestError?.message ||
-        "The reset link is invalid or expired. Request a new link.";
+      const message = isBackendUnavailable(requestError)
+        ? isApiOnFrontendHost()
+          ? "This site is not connected to the password reset server. Please contact support."
+          : `The password reset server is unavailable at ${getApiBaseUrl()}/api/auth/reset-password. Please try again later.`
+        : requestError?.message ||
+          "The reset link is invalid or expired. Request a new link.";
       setError(message);
       setToast(message);
       window.setTimeout(() => setToast(null), 4500);

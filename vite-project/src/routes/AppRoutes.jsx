@@ -19,6 +19,8 @@ import ResetPassword from "../pages/auth/ResetPassword";
 import NotFound from "../pages/NotFound";
 import ScrollToTop from "../components/ScrollToTop";
 import ProtectedRoute from "./ProtectedRoute";
+import ProtectedAdminRoute from "./ProtectedAdminRoute";
+import AdminManagement from "../pages/AdminManagement";
 
 function AppRoutes() {
   return (
@@ -28,13 +30,35 @@ function AppRoutes() {
         <Route path="/" element={<App />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
+        <Route path="/admin/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/help" element={<Navigate to="/help-center" replace />} />
+        <Route element={<ProtectedAdminRoute />}>
+          <Route path="/admin/dashboard" element={<AdminPayments />} />
+          <Route path="/admin/payments" element={<AdminManagement />} />
+          <Route path="/admin/users" element={<AdminManagement />} />
+          <Route path="/admin/users/:id" element={<AdminManagement />} />
+          <Route path="/admin/purchases" element={<AdminManagement />} />
+          <Route path="/admin/purchases/:id" element={<AdminManagement />} />
+          <Route path="/admin/transactions" element={<AdminManagement />} />
+          <Route path="/admin/transactions/:id" element={<AdminManagement />} />
+          <Route path="/admin/inventory" element={<AdminManagement />} />
+          <Route path="/admin/staff" element={<AdminManagement />} />
+          <Route path="/admin/staff/:id" element={<AdminManagement />} />
+          <Route path="/admin/announcements" element={<AdminManagement />} />
+          <Route path="/admin/support" element={<AdminManagement />} />
+          <Route path="/admin/support/:id" element={<AdminManagement />} />
+          <Route path="/admin/reports" element={<AdminManagement />} />
+          <Route path="/admin/referrals" element={<AdminManagement />} />
+          <Route path="/admin/activity-logs" element={<AdminManagement />} />
+          <Route path="/admin/settings" element={<AdminManagement />} />
+          <Route path="/admin/profile" element={<AdminManagement />} />
+          <Route path="/admin/notifications" element={<AdminManagement />} />
+        </Route>
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<DashboardHome />} />
-            <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/buy" element={<Buy />} />
             <Route path="/my-numbers" element={<MyNumbers />} />
             <Route path="/transactions" element={<Transactions />} />

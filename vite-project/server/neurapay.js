@@ -40,6 +40,30 @@ function modeFromEnvironment() {
   return secretKey().startsWith("np_test_sk_") ? "test" : "live";
 }
 
+function isProductionDeployment() {
+  return process.env.NODE_ENV === "production";
+}
+
+function isIsolatedStaging() {
+  return process.env.RENDER_SERVICE_NAME === STAGING_SERVICE;
+}
+
+/**
+ * The mode this server will ACTUALLY use.
+ *
+ * NeuraPay has no sandbox base URL: test and live keys talk to the same host,
+ * so the only thing that separates a real deposit from a test one is which key
+ * is loaded. Test mode is therefore allowed only on isolated staging (or a
+ * developer's machine) - a production service is always treated as live, even
+ * if NEURAPAY_MODE says otherwise or a test key was pasted by mistake. That
+ * turns a misconfiguration into a loud 503 instead of silently accepting test
+ * transfers on the live site.
+ */
+export function effectiveMode() {
+  if (isProductionDeployment() && !isIsolatedStaging()) return "live";
+  return modeFromEnvironment();
+}
+
 export function isTestKey() {
   return secretKey().startsWith("np_test_sk_");
 }
@@ -54,20 +78,16 @@ export function missingConfig() {
     missing.push("NEURAPAY_WEBHOOK_SIGNING_SECRET");
   }
 
-  const mode = modeFromEnvironment();
+  const mode = effectiveMode();
   if (mode !== "test" && mode !== "live") {
     missing.push("NEURAPAY_MODE (must be test or live)");
   } else if (mode === "test" && !isTestKey()) {
     missing.push("NEURAPAY_SECRET_KEY (test key required)");
   } else if (mode === "live" && isTestKey()) {
-    missing.push("NEURAPAY_MODE (test key cannot be used in live mode)");
+    missing.push("NEURAPAY_SECRET_KEY (a test key cannot run in live mode)");
   }
 
-  if (
-    process.env.NODE_ENV === "production" &&
-    mode === "test" &&
-    process.env.RENDER_SERVICE_NAME !== STAGING_SERVICE
-  ) {
+  if (isProductionDeployment() && mode === "test" && !isIsolatedStaging()) {
     missing.push("NEURAPAY_MODE (test mode is restricted to isolated staging)");
   }
 
@@ -80,7 +100,7 @@ export function describeConfig() {
     provider: "neurapay",
     configured: missing.length === 0,
     missing,
-    mode: modeFromEnvironment(),
+    mode: effectiveMode(),
     currency: "NGN",
   };
 }

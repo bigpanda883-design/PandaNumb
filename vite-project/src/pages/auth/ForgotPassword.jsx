@@ -10,7 +10,12 @@ import {
 } from "react-icons/fi";
 import { Link } from "react-router-dom";
 import { useTheme } from "../../context/themeStore";
-import { requestJson } from "../../services/httpClient";
+import {
+  getApiBaseUrl,
+  isApiOnFrontendHost,
+  isBackendUnavailable,
+  requestJson,
+} from "../../services/httpClient";
 import "../../CSS/auth/Login.css";
 
 function ForgotPassword() {
@@ -48,8 +53,17 @@ function ForgotPassword() {
       }
       setRequestSent(true);
     } catch (requestError) {
-      const message =
+      let message =
         requestError?.message || "Could not send the reset link. Try again.";
+      if (isBackendUnavailable(requestError)) {
+        const base = getApiBaseUrl();
+        const target = base
+          ? `${base}/api/auth/forgot-password`
+          : `${window.location.origin}/api/auth/forgot-password`;
+        message = isApiOnFrontendHost()
+          ? "This site is not connected to the password reset server. Please contact support."
+          : `The password reset server is unavailable at ${target}. Please try again later.`;
+      }
       setError(message);
       triggerToast(message);
     } finally {

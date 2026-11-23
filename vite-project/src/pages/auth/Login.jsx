@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FiAlertCircle,
   FiArrowLeft,
@@ -36,6 +36,23 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
+  const [showAdminSetup, setShowAdminSetup] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    requestJson("/api/auth/admin/setup-status", {
+      operation: "check administrator setup",
+    })
+      .then((payload) => {
+        if (!cancelled) setShowAdminSetup(payload?.setupRequired === true);
+      })
+      .catch(() => {
+        if (!cancelled) setShowAdminSetup(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Mobile Popup / Toast notification state
   const [toast, setToast] = useState({
@@ -188,6 +205,9 @@ function Login() {
           fullName,
           email,
           phone,
+          role: user.role || "customer",
+          isAdmin: Boolean(user.isAdmin),
+          permissions: user.permissions || {},
           initials: fullName.slice(0, 2).toUpperCase(),
         },
         token,
@@ -209,7 +229,18 @@ function Login() {
       triggerToast("Sign in successful! Redirecting...", "success");
 
       setTimeout(() => {
-        navigate("/dashboard", { replace: true });
+        const role = user.role || "customer";
+        const adminRoles = [
+          "super_admin",
+          "admin",
+          "finance_manager",
+          "support_agent",
+          "inventory_manager",
+        ];
+        navigate(
+          adminRoles.includes(role) ? "/admin/dashboard" : "/dashboard",
+          { replace: true },
+        );
       }, 500);
     } catch (error) {
       setNeedsVerification(error?.code === "EMAIL_NOT_VERIFIED");
@@ -413,6 +444,11 @@ function Login() {
           <p className="auth-switch">
             New to Panda Numbers? <Link to="/signup">Create one</Link>
           </p>
+          {showAdminSetup && (
+            <Link className="auth-admin-link" to="/admin/signup">
+              Set up the Super Admin account
+            </Link>
+          )}
         </div>
       </div>
     </main>

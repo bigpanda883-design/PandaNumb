@@ -19,8 +19,13 @@ import {
   getDepositByTransactionId,
   getWebhookEvent,
   getVirtualAccountForUser,
+  getAdminPaymentSummary,
+  getUserDetailForAdmin,
   listDepositsForAdmin,
   listDepositsForUser,
+  listPurchasesForAdmin,
+  listTransactionsForAdmin,
+  listUsersForAdmin,
   listVirtualAccountsForAdmin,
   listWebhookEventsForAdmin,
   listUncreditedDeposits,
@@ -44,6 +49,7 @@ import {
   getUserByEmail,
   getUserById,
   getUserByPhone,
+  hasUserWithRole,
   hashToken,
   incrementPasswordResetAttempts,
   incrementEmailVerificationAttempts,
@@ -52,6 +58,7 @@ import {
   markPasswordResetCodeVerified,
   markPasswordResetUsed,
   safeUser,
+  syncAllowlistedAdminRoles,
   updatePasswordAndCreateSession,
   updateUserProfile,
   updateUserNumber,
@@ -84,7 +91,6 @@ import smsRouter from "./smsRouter.js";
 import {
   describeConfig as describeNeuraPayConfig,
   createPermanentVirtualAccount,
-  isTestKey as isNeuraPayTestKey,
   NeuraPayError,
   verifyTransaction as verifyNeuraPayTransaction,
   verifyWebhookSignature,
@@ -126,6 +132,7 @@ const ADMIN_EMAILS = new Set(
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),
 );
+syncAllowlistedAdminRoles([...ADMIN_EMAILS]);
 
 // Browser origins allowed to call this API with credentials. Vercel preview
 // deployments are allowed by suffix so a PR preview is not blocked either.
@@ -338,11 +345,20 @@ async function authMiddleware(req, res, next) {
 }
 
 function adminMiddleware(req, res, next) {
-  if (!ADMIN_EMAILS.has(String(req.user?.email || "").toLowerCase())) {
+  const role = String(req.user?.role || "customer").toLowerCase();
+  const isAuthorizedAdmin = [
+    "super_admin",
+    "admin",
+    "finance_manager",
+    "support_agent",
+    "inventory_manager",
+  ].includes(role);
+  if (!isAuthorizedAdmin) {
     return fail(res, 403, "FORBIDDEN", "This area is not available.");
   }
   return next();
 }
+
 
 app.get("/api/health/detail", async (req, res) => {
   const pricing = getPricingConfig();
@@ -470,6 +486,15 @@ const registerHandler = async (req, res) => {
     );
   }
 
+  if (ADMIN_EMAILS.has(email)) {
+    return fail(
+      res,
+      403,
+      "ADMIN_ACCOUNT_REQUIRES_PROVISIONING",
+      "This email cannot be registered through public signup. Please contact support.",
+    );
+  }
+
   if (phone && getUserByPhone(phone)) {
     return fail(
       res,
@@ -516,6 +541,108 @@ const registerHandler = async (req, res) => {
     message: "Your account is ready.",
   });
 };
+
+app.get("/api/auth/admin/setup-status", (_req, res) => {
+  res.json({
+    setupRequired: !hasUserWithRole("super_admin"),
+  });
+});
+
+app.post("/api/auth/admin/register", async (req, res) => {
+  if (hasUserWithRole("super_admin")) {
+    return fail(
+      res,
+      403,
+      "ADMIN_SETUP_COMPLETE",
+      "Super administrator setup has already been completed.",
+    );
+  }
+
+  const name = String(req.body.name || req.body.fullName || "").trim();
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const phone = String(req.body.phone || "").trim();
+  const password = String(req.body.password || "");
+
+  if (!name || !email || !phone || !password) {
+    return fail(
+      res,
+      400,
+      "INVALID_INPUT",
+      "Name, email, phone number and password are required.",
+    );
+  }
+  if (name.length < 2 || name.length > 80 || !/^[a-zA-Z\s'-]+$/.test(name)) {
+    return fail(res, 400, "INVALID_NAME", "Enter a valid full name.");
+  }
+  if (!validateEmail(email)) {
+    return fail(res, 400, "INVALID_EMAIL", "Enter a valid email address.");
+  }
+  if (!/^\+?[0-9\s-]+$/.test(phone)) {
+    return fail(res, 400, "INVALID_PHONE", "Enter a valid phone number.");
+  }
+  if (!validatePassword(password)) {
+    return fail(
+      res,
+      400,
+      "WEAK_PASSWORD",
+      "Password must contain uppercase, lowercase, number and special character.",
+    );
+  }
+  if (getUserByEmail(email)) {
+    return fail(
+      res,
+      409,
+      "EMAIL_ALREADY_EXISTS",
+      "This email is already registered. Please log in.",
+    );
+  }
+  if (getUserByPhone(phone)) {
+    return fail(
+      res,
+      409,
+      "PHONE_ALREADY_EXISTS",
+      "This phone number is already registered.",
+    );
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const token = generateToken();
+  let user;
+  try {
+    user = createUserWithSession({
+      name,
+      email,
+      phone,
+      passwordHash,
+      token,
+      role: "super_admin",
+      permissions: { "*": true },
+    });
+  } catch (error) {
+    if (
+      String(error?.message || "").includes("UNIQUE") ||
+      String(error?.message || "").includes("unique")
+    ) {
+      return fail(
+        res,
+        409,
+        "ACCOUNT_ALREADY_EXISTS",
+        "This account or phone number is already registered.",
+      );
+    }
+    throw error;
+  }
+
+  sendWelcomeEmail({ email: user.email, name: user.name }).catch((error) => {
+    console.error("[auth] welcome email error:", error?.message || error);
+  });
+
+  return res.status(201).json({
+    user: safeUser(user),
+    token,
+    message: "Your Super Admin account is ready.",
+  });
+});
 
 app.post("/api/auth/register", registerHandler);
 
@@ -856,7 +983,9 @@ app.get("/api/wallet/balance", authMiddleware, (req, res) => {
 const DEPOSIT_PROVIDER = "neurapay";
 
 function depositMode() {
-  return isNeuraPayTestKey() ? "test" : "live";
+  // Mirrors the provider's effective mode: a production service is always live,
+  // so a mislabelled deposit is never written to the live database as "test".
+  return describeNeuraPayConfig().mode === "test" ? "test" : "live";
 }
 
 app.get("/api/payments/config", (req, res) =>
@@ -1077,6 +1206,7 @@ app.get("/api/admin/me", authMiddleware, adminMiddleware, (_req, res) =>
   res.json({ isAdmin: true }),
 );
 
+
 app.get(
   "/api/admin/payments/virtual-accounts",
   authMiddleware,
@@ -1118,6 +1248,55 @@ app.get(
   (req, res) =>
     res.json(
       listWebhookEventsForAdmin({
+        limit: req.query.limit,
+        offset: req.query.offset,
+      }),
+    ),
+);
+
+// The admin console reads these four feeds on every page. They are read-only
+// operator views: no write action is exposed here yet.
+app.get("/api/admin/payments/summary", authMiddleware, adminMiddleware, (_req, res) =>
+  res.json({
+    ...getAdminPaymentSummary(),
+    provider: describeNeuraPayConfig(),
+  }),
+);
+
+app.get("/api/admin/users", authMiddleware, adminMiddleware, (req, res) =>
+  res.json(
+    listUsersForAdmin({
+      search: String(req.query.search || "").slice(0, 100),
+      limit: req.query.limit,
+      offset: req.query.offset,
+    }),
+  ),
+);
+
+app.get("/api/admin/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const user = getUserDetailForAdmin(String(req.params.id || "").trim());
+  if (!user) return fail(res, 404, "NOT_FOUND", "That account does not exist.");
+  return res.json({ user });
+});
+
+app.get("/api/admin/purchases", authMiddleware, adminMiddleware, (req, res) =>
+  res.json(
+    listPurchasesForAdmin({
+      search: String(req.query.search || "").slice(0, 100),
+      limit: req.query.limit,
+      offset: req.query.offset,
+    }),
+  ),
+);
+
+app.get(
+  "/api/admin/transactions",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) =>
+    res.json(
+      listTransactionsForAdmin({
+        search: String(req.query.search || "").slice(0, 100),
         limit: req.query.limit,
         offset: req.query.offset,
       }),
@@ -2271,6 +2450,15 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     );
   }
 
+  if (!isEmailConfigured()) {
+    return fail(
+      res,
+      503,
+      "EMAIL_NOT_CONFIGURED",
+      "Password reset email is temporarily unavailable. Please try again later.",
+    );
+  }
+
   const user = getUserByEmail(email);
 
   // Same answer whether or not the address is registered. Returning "no such
@@ -2332,7 +2520,17 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     expiresInMinutes: 15,
   });
   if (!delivery?.delivered) {
-    console.warn("[auth] password reset link email was not delivered");
+    invalidatePasswordResetTokensForUser(user.id);
+    console.error(
+      "[auth] password reset link delivery failed:",
+      delivery?.reason || "UNKNOWN",
+    );
+    return fail(
+      res,
+      503,
+      "EMAIL_DELIVERY_FAILED",
+      "The password reset email could not be sent. Please try again later.",
+    );
   }
 
   return genericResponse();
