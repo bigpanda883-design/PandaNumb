@@ -5,6 +5,10 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "../notifications/notificationStore";
+import {
+  markAllNotificationsReadOnServer,
+  markNotificationReadOnServer,
+} from "../services/apiClient";
 import "../CSS/dashboard/pages/Notifications.css";
 import { usePageLoading } from "../hooks/usePageLoading";
 import { NotificationsSkeleton } from "../components/skeleton/PageSkeletons";
@@ -17,12 +21,20 @@ function Notifications() {
   const { isLoading } = usePageLoading();
 
   // Opening an individual notification clears its unread flag, which updates
-  // the header badge immediately through the shared store.
+  // the header badge immediately through the shared store. Announcements live
+  // on the server too, so the same id is marked read there (failure is ignored:
+  // the local state is still correct for this device).
   const handleCardClick = (item) => {
     markNotificationRead(item.id);
+    markNotificationReadOnServer(item.id).catch(() => {});
     if (item.path) {
       navigate(item.path);
     }
+  };
+
+  const handleMarkAll = () => {
+    markAllNotificationsRead();
+    markAllNotificationsReadOnServer().catch(() => {});
   };
 
   if (isLoading) return <NotificationsSkeleton />;
@@ -42,7 +54,7 @@ function Notifications() {
           <button
             type="button"
             className="notifications-mark-all-btn"
-            onClick={markAllNotificationsRead}
+            onClick={handleMarkAll}
           >
             <FiCheck aria-hidden="true" />
             Mark all as read

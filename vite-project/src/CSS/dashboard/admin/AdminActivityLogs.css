@@ -1,0 +1,157 @@
+/**
+ * AdminActivityLogs.jsx -> /admin/activity-logs
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-activity-page` ONLY.
+ */
+.admin-activity-page {
+  --act-radius: var(--admin-radius, 12px);
+  --act-border: var(--admin-line, #edf1f7);
+  --act-card-bg: var(--admin-surface, #fff);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-activity-page .admin-panel,
+.admin-activity-page .admin-stat-card {
+  border-radius: var(--act-radius);
+  border-color: var(--act-border);
+  background: var(--act-card-bg);
+}
+
+/* filter bar */
+.admin-activity-page .admin-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--act-border);
+  border-radius: calc(var(--act-radius) - 2px);
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-activity-page .admin-filter-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-activity-page .admin-filter-grid span {
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.admin-activity-page .admin-filter-grid select,
+.admin-activity-page .admin-filter-grid input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--act-border);
+  border-radius: 8px;
+  background: var(--admin-surface, #fff);
+  color: var(--admin-ink, #172033);
+  font: inherit;
+  font-size: 11px;
+  outline: 0;
+}
+
+.admin-activity-page .admin-filter-grid select:focus,
+.admin-activity-page .admin-filter-grid input:focus {
+  border-color: var(--admin-blue, #1767ff);
+  box-shadow: 0 0 0 3px rgba(23, 103, 255, 0.1);
+}
+
+/* log rows */
+.admin-activity-page .admin-table thead th {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+
+.admin-activity-page .admin-table tbody td {
+  font-size: 11px;
+}
+
+.admin-activity-page .admin-table tbody tr:hover td {
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-activity-page .admin-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0 0 0 16px;
+  list-style: none;
+  border-left: 1px solid var(--act-border);
+}
+
+.admin-activity-page .admin-timeline > li {
+  position: relative;
+  padding: 10px 0 10px 14px;
+}
+
+.admin-activity-page .admin-timeline > li::before {
+  content: "";
+  position: absolute;
+  left: -21px;
+  top: 16px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--admin-surface, #fff);
+  border-radius: 50%;
+  background: var(--admin-blue, #1767ff);
+}
+
+.admin-activity-page .admin-timeline strong {
+  display: block;
+  font-size: 11px;
+}
+
+.admin-activity-page .admin-timeline small {
+  display: block;
+  margin-top: 2px;
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+}
+
+/* pagination */
+.admin-activity-page .admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--admin-muted, #7c899e);
+  font-size: 10px;
+}
+
+.admin-activity-page .admin-pagination button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--act-border);
+  border-radius: 7px;
+  background: var(--admin-surface, #fff);
+  color: var(--admin-ink-2, #536176);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.admin-activity-page .admin-pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+html[data-theme="dark"] .admin-activity-page .admin-filter-grid {
+  background: var(--admin-surface-2, #17233a);
+}
+
+html[data-theme="dark"] .admin-activity-page .admin-timeline > li::before {
+  border-color: var(--admin-surface, #121c2d);
+}

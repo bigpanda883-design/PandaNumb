@@ -1,0 +1,71 @@
+/**
+ * NotificationsPage -> /admin/notifications
+ * Scoped to `.admin-notifications-page` ONLY.
+ */
+.admin-notifications-page {
+  --ntf-border: var(--admin-line, #edf1f7);
+  --ntf-radius: var(--admin-radius, 12px);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-notifications-page .admin-panel {
+  border-radius: var(--ntf-radius);
+  border-color: var(--ntf-border);
+}
+
+.admin-notifications-page .admin-notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-notifications-page .admin-notification-list > li {
+  padding: 12px 14px;
+  border: 1px solid var(--ntf-border);
+  border-left: 3px solid var(--ntf-border);
+  border-radius: calc(var(--ntf-radius) - 3px);
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-notifications-page .admin-notification-list > li.is-unread {
+  border-left-color: var(--admin-blue, #1767ff);
+  background: var(--admin-blue-soft, #edf4ff);
+}
+
+.admin-notifications-page .admin-notification-list strong {
+  display: block;
+  font-size: 12px;
+}
+
+.admin-notifications-page .admin-notification-list p {
+  margin: 4px 0 6px;
+  color: var(--admin-ink-2, #536176);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.admin-notifications-page .admin-notification-list small {
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+}
+
+html[data-theme="dark"]
+  .admin-notifications-page
+  .admin-notification-list
+  > li {
+  background: var(--admin-surface-2, #17233a);
+}
+
+html[data-theme="dark"]
+  .admin-notifications-page
+  .admin-notification-list
+  > li.is-unread {
+  background: rgba(59, 130, 246, 0.12);
+}

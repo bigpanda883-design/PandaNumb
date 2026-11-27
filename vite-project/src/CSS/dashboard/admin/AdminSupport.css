@@ -1,0 +1,116 @@
+/**
+ * AdminSupport.jsx -> /admin/support  (Support Tickets)
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-support-page` ONLY.
+ */
+.admin-support-page {
+  --sup-radius: var(--admin-radius, 12px);
+  --sup-border: var(--admin-line, #edf1f7);
+  --sup-card-bg: var(--admin-surface, #fff);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-support-page .admin-panel,
+.admin-support-page .admin-stat-card {
+  border-radius: var(--sup-radius);
+  border-color: var(--sup-border);
+  background: var(--sup-card-bg);
+}
+
+.admin-support-page .admin-panel-head h2 {
+  font-size: 15px;
+}
+
+/* ticket queue */
+.admin-support-page .admin-ticket-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-support-page .admin-ticket {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--sup-border);
+  border-radius: calc(var(--sup-radius) - 2px);
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-support-page .admin-ticket:hover {
+  border-color: var(--admin-blue, #1767ff);
+}
+
+.admin-support-page .admin-ticket strong {
+  display: block;
+  font-size: 12px;
+}
+
+.admin-support-page .admin-ticket small {
+  display: block;
+  margin-top: 3px;
+  color: var(--admin-muted, #7c899e);
+  font-size: 10px;
+}
+
+.admin-support-page .admin-ticket p {
+  margin: 5px 0 0;
+  color: var(--admin-ink-2, #536176);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.admin-support-page .admin-status-tag.is-open {
+  background: var(--admin-amber-tone, #fff4df);
+  color: var(--admin-amber-ink, #a66508);
+}
+
+.admin-support-page .admin-status-tag.is-resolved {
+  background: var(--admin-green-tone, #e3f8ed);
+  color: var(--admin-green-ink, #087c50);
+}
+
+/* FAQ / help block */
+.admin-support-page .admin-support-help {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.admin-support-page .admin-support-help > div {
+  padding: 12px;
+  border: 1px solid var(--sup-border);
+  border-radius: calc(var(--sup-radius) - 2px);
+}
+
+.admin-support-page .admin-support-help strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.admin-support-page .admin-support-help p {
+  margin: 0;
+  color: var(--admin-muted, #7c899e);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .admin-support-page .admin-ticket {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+}
+
+html[data-theme="dark"] .admin-support-page .admin-ticket {
+  background: var(--admin-surface-2, #17233a);
+}

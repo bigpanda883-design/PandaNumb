@@ -1,0 +1,68 @@
+/**
+ * AdminPayments.jsx -> /admin/payments  (Wallet & Payments)
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-payments-page` ONLY.
+ * Edit this file to restyle the payments page without touching the Overview.
+ */
+.admin-payments-page {
+  --pay-radius: var(--admin-radius, 12px);
+  --pay-border: var(--admin-line, #edf1f7);
+  --pay-card-bg: var(--admin-surface, #fff);
+  --pay-stat-icon-bg: var(--admin-blue-soft, #edf4ff);
+  --pay-row-hover: var(--admin-surface-3, #f9fbfd);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-payments-page .admin-stat-card {
+  border-radius: var(--pay-radius);
+  border-color: var(--pay-border);
+  background: var(--pay-card-bg);
+}
+
+.admin-payments-page .admin-stat-card strong {
+  font-size: 18px;
+}
+
+.admin-payments-page .admin-panel {
+  border-radius: var(--pay-radius);
+  border-color: var(--pay-border);
+  background: var(--pay-card-bg);
+}
+
+.admin-payments-page .admin-panel-head h2 {
+  font-size: 15px;
+}
+
+.admin-payments-page .admin-table thead th {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+
+.admin-payments-page .admin-table tbody td {
+  font-size: 11px;
+}
+
+.admin-payments-page .admin-table tbody tr:hover td {
+  background: var(--pay-row-hover);
+}
+
+.admin-payments-page .admin-reference {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--admin-ink, #172033);
+}
+
+.admin-payments-page .admin-amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 760px) {
+  .admin-payments-page .admin-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

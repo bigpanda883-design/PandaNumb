@@ -1,0 +1,77 @@
+/**
+ * AdminStaff.jsx -> /admin/staff  (Admin & Staff)
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-staff-page` ONLY.
+ */
+.admin-staff-page {
+  --stf-radius: var(--admin-radius, 12px);
+  --stf-border: var(--admin-line, #edf1f7);
+  --stf-card-bg: var(--admin-surface, #fff);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-staff-page .admin-panel,
+.admin-staff-page .admin-stat-card {
+  border-radius: var(--stf-radius);
+  border-color: var(--stf-border);
+  background: var(--stf-card-bg);
+}
+
+.admin-staff-page .admin-table thead th {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+
+.admin-staff-page .admin-table tbody td {
+  font-size: 11px;
+}
+
+.admin-staff-page .admin-table tbody tr:hover td {
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+/* role tiles */
+.admin-staff-page .admin-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.admin-staff-page .admin-status-grid > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--stf-border);
+  border-radius: calc(var(--stf-radius) - 2px);
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-staff-page .admin-status-tile-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--admin-blue-soft, #edf4ff);
+  color: var(--admin-blue, #1767ff);
+}
+
+.admin-staff-page .admin-status-grid strong {
+  display: block;
+  font-size: 15px;
+}
+
+.admin-staff-page .admin-status-grid small {
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+}
+
+html[data-theme="dark"] .admin-staff-page .admin-status-grid > div {
+  background: var(--admin-surface-2, #17233a);
+}

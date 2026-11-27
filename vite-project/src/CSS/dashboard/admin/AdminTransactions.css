@@ -1,0 +1,70 @@
+/**
+ * AdminTransactions.jsx -> /admin/transactions
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-transactions-page` ONLY.
+ */
+.admin-transactions-page {
+  --txn-radius: var(--admin-radius, 12px);
+  --txn-border: var(--admin-line, #edf1f7);
+  --txn-card-bg: var(--admin-surface, #fff);
+  --txn-th-font: 9px;
+  --txn-td-font: 11px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-transactions-page .admin-panel {
+  border-radius: var(--txn-radius);
+  border-color: var(--txn-border);
+  background: var(--txn-card-bg);
+}
+
+.admin-transactions-page .admin-panel-head h2 {
+  font-size: 15px;
+}
+
+.admin-transactions-page .admin-table thead th {
+  font-size: var(--txn-th-font);
+  letter-spacing: 0.5px;
+}
+
+.admin-transactions-page .admin-table tbody td {
+  font-size: var(--txn-td-font);
+}
+
+.admin-transactions-page .admin-table tbody tr:hover td {
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+/* money direction: credit is green, debit is neutral ink */
+.admin-transactions-page .admin-amount.is-credit {
+  color: var(--admin-green-ink, #087c50);
+  font-weight: 800;
+}
+
+.admin-transactions-page .admin-amount.is-debit {
+  color: var(--admin-ink, #172033);
+  font-weight: 800;
+}
+
+.admin-transactions-page .admin-type-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--admin-blue-soft, #edf4ff);
+  color: var(--admin-blue, #1767ff);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+@media (max-width: 760px) {
+  .admin-transactions-page .admin-table tbody td {
+    font-size: 10px;
+  }
+}

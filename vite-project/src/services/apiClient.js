@@ -343,11 +343,39 @@ export async function fetchAdminPaymentSummary({ signal } = {}) {
 }
 
 export async function fetchAdminUsers(options = {}) {
+  // `presence` is "online" | "offline" | "". The server decides it from a live
+  // session with a recent heartbeat, so it is never an account-status guess.
   return apiRequest(
-    `/api/admin/users${adminQuery(options)}`,
+    `/api/admin/users${adminQuery(options)}${queryString({
+      presence: options.presence,
+    })}`,
     {
       signal: options.signal,
       operation: "load users",
+      headers: authHeaders(),
+    },
+  );
+}
+
+/** Staff members (every role except "customer"). */
+export async function fetchAdminStaff(options = {}) {
+  return apiRequest(
+    `/api/admin/staff${adminQuery(options)}`,
+    {
+      signal: options.signal,
+      operation: "load staff",
+      headers: authHeaders(),
+    },
+  );
+}
+
+/** One customer's live sessions, for the Admin & Staff / Security screens. */
+export async function fetchAdminUserSessions(userId, options = {}) {
+  return apiRequest(
+    `/api/admin/users/${encodeURIComponent(userId)}/sessions`,
+    {
+      signal: options.signal,
+      operation: "load user sessions",
       headers: authHeaders(),
     },
   );
@@ -385,4 +413,256 @@ export async function fetchAdminTransactions(options = {}) {
       headers: authHeaders(),
     },
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Admin console: presence, inventory, announcements, audit and settings      */
+/* -------------------------------------------------------------------------- */
+
+function queryString(params) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    search.set(key, String(value));
+  }
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+/** Customers currently online (live session + recent browser heartbeat). */
+export async function fetchAdminPresence({ signal } = {}) {
+  return apiRequest("/api/admin/presence", {
+    signal,
+    operation: "load online status",
+    headers: authHeaders(),
+  });
+}
+
+/** The admin's own heartbeat. Marks this session online for the console. */
+export async function sendPresenceHeartbeat({ signal } = {}) {
+  return apiRequest("/api/presence/heartbeat", {
+    method: "POST",
+    signal,
+    operation: "send presence heartbeat",
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchAdminInventory(options = {}) {
+  return apiRequest(
+    `/api/admin/inventory${queryString({
+      search: options.search,
+      country: options.country,
+      card: options.card,
+      limit: options.limit,
+      offset: options.offset,
+    })}`,
+    {
+      signal: options.signal,
+      operation: "load inventory",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function refreshAdminInventory(options = {}) {
+  return apiRequest("/api/admin/inventory/refresh", {
+    method: "POST",
+    signal: options.signal,
+    operation: "refresh inventory",
+    headers: authHeaders(),
+  });
+}
+
+export async function updateSellingPrice({ countrySlug, cardId, variantId, price }) {
+  return apiRequest("/api/admin/inventory/price", {
+    method: "PUT",
+    operation: "save selling price",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ countrySlug, cardId, variantId, price }),
+  });
+}
+
+export async function bulkUpdateSellingPrice({ countrySlug, cardId, price }) {
+  return apiRequest("/api/admin/inventory/prices/bulk", {
+    method: "PUT",
+    operation: "save bulk prices",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ countrySlug, cardId, price }),
+  });
+}
+
+export async function resetSellingPrice({ countrySlug, cardId, variantId }) {
+  return apiRequest(
+    `/api/admin/inventory/price${queryString({ countrySlug, cardId, variantId })}`,
+    {
+      method: "DELETE",
+      operation: "reset selling price",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function setServiceEnabled({ cardId, sellable }) {
+  return apiRequest("/api/admin/inventory/service", {
+    method: "PUT",
+    operation: sellable ? "enable service" : "disable service",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ cardId, sellable }),
+  });
+}
+
+export async function fetchAdminAnnouncements(options = {}) {
+  return apiRequest(
+    `/api/admin/announcements${queryString({
+      status: options.status,
+      limit: options.limit,
+      offset: options.offset,
+    })}`,
+    {
+      signal: options.signal,
+      operation: "load announcements",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function fetchAnnouncementAudience({ signal } = {}) {
+  return apiRequest("/api/admin/announcements/audience", {
+    signal,
+    operation: "load announcement audience",
+    headers: authHeaders(),
+  });
+}
+
+/**
+ * Save an announcement. `send: true` asks the server to create one
+ * notification per recipient; the response reports created/failed counts.
+ */
+export async function saveAnnouncement(payload) {
+  return apiRequest("/api/admin/announcements", {
+    method: "POST",
+    operation: payload.send ? "send announcement" : "save announcement",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAnnouncement(id, payload) {
+  return apiRequest(`/api/admin/announcements/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    operation: "update announcement",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAnnouncement(id) {
+  return apiRequest(`/api/admin/announcements/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    operation: "delete announcement",
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchAdminActivityLogs(options = {}) {
+  return apiRequest(
+    `/api/admin/activity-logs${queryString({
+      search: options.search,
+      actorId: options.actorId,
+      action: options.action,
+      status: options.status,
+      from: options.from,
+      to: options.to,
+      limit: options.limit,
+      offset: options.offset,
+    })}`,
+    {
+      signal: options.signal,
+      operation: "load activity logs",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function fetchAdminSettings({ signal } = {}) {
+  return apiRequest("/api/admin/settings", {
+    signal,
+    operation: "load settings",
+    headers: authHeaders(),
+  });
+}
+
+export async function saveAdminProfile({ fullName, phone, email, avatar }) {
+  return apiRequest("/api/admin/settings/profile", {
+    method: "PUT",
+    operation: "save profile",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ fullName, phone, email, avatar }),
+  });
+}
+
+export async function saveAdminPreferences(patch) {
+  return apiRequest("/api/admin/settings/preferences", {
+    method: "PUT",
+    operation: "save preferences",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function endOtherSessions() {
+  return apiRequest("/api/admin/settings/sessions", {
+    method: "DELETE",
+    operation: "sign out other sessions",
+    headers: authHeaders(),
+  });
+}
+
+export async function endSession(sessionId) {
+  return apiRequest(
+    `/api/admin/settings/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: "DELETE",
+      operation: "end session",
+      headers: authHeaders(),
+    },
+  );
+}
+
+export async function endUserSession(userId, sessionId) {
+  return apiRequest(
+    `/api/admin/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: "DELETE",
+      operation: "end user session",
+      headers: authHeaders(),
+    },
+  );
+}
+
+/* ---- Customer side ------------------------------------------------------ */
+
+export async function fetchNotifications({ signal } = {}) {
+  return apiRequest("/api/notifications", {
+    signal,
+    operation: "load notifications",
+    headers: authHeaders(),
+  });
+}
+
+export async function markNotificationReadOnServer(id) {
+  return apiRequest(`/api/notifications/${encodeURIComponent(id)}/read`, {
+    method: "POST",
+    operation: "mark notification read",
+    headers: authHeaders(),
+  });
+}
+
+export async function markAllNotificationsReadOnServer() {
+  return apiRequest("/api/notifications/read-all", {
+    method: "POST",
+    operation: "mark all notifications read",
+    headers: authHeaders(),
+  });
 }

@@ -3,6 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
+import { applySellingPriceOverride } from "./priceOverrides.js";
+
 const databaseDir = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.join(process.cwd(), "server", "data");
@@ -263,6 +265,126 @@ if (!hasColumn("users", "permissions")) {
     "ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT '{}'",
   );
 }
+
+// Presence is NOT account status. `last_seen_at` is written by a heartbeat from
+// the browser and by every authenticated request (see touchPresence in
+// index.js), so a logged-out customer goes offline by simply going quiet.
+if (!hasColumn("users", "last_seen_at")) {
+  db.exec("ALTER TABLE users ADD COLUMN last_seen_at TEXT");
+}
+
+// Interface preferences chosen in the admin console (theme, sidebar, density).
+// Stored per user so they survive a refresh and the next login.
+if (!hasColumn("users", "preferences")) {
+  db.exec("ALTER TABLE users ADD COLUMN preferences TEXT NOT NULL DEFAULT '{}'");
+}
+
+// Device/label metadata for a session, so the Security screen can list and end
+// individual devices. Existing sessions simply have an empty label.
+if (!hasColumn("sessions", "last_seen_at")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT");
+}
+if (!hasColumn("sessions", "user_agent")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT DEFAULT ''");
+}
+if (!hasColumn("sessions", "ip_address")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN ip_address TEXT DEFAULT ''");
+}
+
+// Set only by the browser's own heartbeat, never by an ordinary request. This
+// is what "Online" is read from, so a session created by a sign-in (or by a
+// script) cannot claim a customer is online until their page says so.
+if (!hasColumn("sessions", "presence_confirmed_at")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN presence_confirmed_at TEXT");
+}
+
+// Operator-set SELLING price for one catalogue variant. The provider cost is a
+// property of the upstream catalogue and is never written here; only the price
+// Panda Number charges the customer.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS price_overrides (
+    id TEXT PRIMARY KEY,
+    country_slug TEXT NOT NULL,
+    card_id TEXT NOT NULL,
+    variant_id TEXT NOT NULL,
+    price REAL NOT NULL,
+    previous_price REAL,
+    profit REAL,
+    updated_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_price_overrides_unique
+    ON price_overrides(country_slug, card_id, variant_id);
+
+  CREATE TABLE IF NOT EXISTS service_availability (
+    card_id TEXT PRIMARY KEY,
+    sellable INTEGER NOT NULL DEFAULT 1,
+    updated_by TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS announcements (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT 'all',
+    selected_user_ids TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'draft',
+    recipient_count INTEGER NOT NULL DEFAULT 0,
+    created_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_by_email TEXT NOT NULL DEFAULT '',
+    sent_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_announcements_status
+    ON announcements(status, created_at DESC);
+`);
+
+// One row per customer per announcement. UNIQUE(announcement_id, user_id) is
+// what makes a retried send idempotent instead of duplicating the notification.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    announcement_id TEXT,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'announcement',
+    read_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_announcement_user
+    ON notifications(announcement_id, user_id)
+    WHERE announcement_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_notifications_user
+    ON notifications(user_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS activity_logs (
+    id TEXT PRIMARY KEY,
+    actor_id TEXT NOT NULL DEFAULT '',
+    actor_name TEXT NOT NULL DEFAULT '',
+    actor_role TEXT NOT NULL DEFAULT '',
+    actor_type TEXT NOT NULL DEFAULT 'admin',
+    action TEXT NOT NULL,
+    action_label TEXT NOT NULL DEFAULT '',
+    target_type TEXT NOT NULL DEFAULT '',
+    target_id TEXT NOT NULL DEFAULT '',
+    target_label TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'success',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_activity_logs_recent
+    ON activity_logs(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_activity_logs_actor
+    ON activity_logs(actor_id, created_at DESC);
+`);
 
 if (!hasColumn("password_reset_codes", "verified_at")) {
   // Set when the six-digit code has been checked and accepted. A verified code
@@ -529,6 +651,8 @@ function normalizeUser(row) {
     activations: parseJson(row.activations, []),
     referralData: parseJson(row.referral_data, {}),
     profileData: parseJson(row.profile_data, {}),
+    preferences: parseJson(row.preferences, {}),
+    lastSeenAt: row.last_seen_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -560,10 +684,19 @@ export function safeUser(user) {
     activations: Array.isArray(user.activations) ? user.activations : [],
     referralData: user.referralData || {},
     profileData: user.profileData || {},
+    // Interface preferences chosen in Settings, so the console can restore them
+    // after a refresh or a new login.
+    preferences: user.preferences || {},
+    lastSeenAt: user.lastSeenAt || null,
   };
 }
 
-export function createSession({ userId, token }) {
+export function createSession({
+  userId,
+  token,
+  userAgent = "",
+  ipAddress = "",
+}) {
   const id = crypto.randomUUID();
   const tokenHash = hashToken(token);
   const now = nowIso();
@@ -571,12 +704,29 @@ export function createSession({ userId, token }) {
     Date.now() + 1000 * 60 * 60 * 24 * 7,
   ).toISOString();
 
+  // A brand-new session is live right now: stamping last_seen_at (and the
+  // device that opened it) is what makes the customer appear Online the moment
+  // they log in, instead of waiting for the first heartbeat.
   db.prepare(
     `
-      INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
-      VALUES (@id, @userId, @tokenHash, @expiresAt, @createdAt)
+      INSERT INTO sessions
+        (id, user_id, token_hash, expires_at, created_at, last_seen_at,
+         user_agent, ip_address)
+      VALUES (@id, @userId, @tokenHash, @expiresAt, @createdAt, @createdAt,
+              @userAgent, @ipAddress)
     `,
-  ).run({ id, userId, tokenHash, expiresAt, createdAt: now });
+  ).run({
+    id,
+    userId,
+    tokenHash,
+    expiresAt,
+    createdAt: now,
+    userAgent: String(userAgent || "").slice(0, 300),
+    ipAddress: String(ipAddress || "").slice(0, 80),
+  });
+
+  // Reflect the login in the user's own presence timestamp as well.
+  db.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").run(now, userId);
 
   return { id, token, expiresAt };
 }
@@ -2121,28 +2271,57 @@ export function listWebhookEventsForAdmin({ limit, offset } = {}) {
  * the ONLY admin read that touches the users table, so there is a single place
  * to check that a secret cannot leak into the admin console.
  */
-export function listUsersForAdmin({ search = "", limit, offset } = {}) {
+export function listUsersForAdmin({ search = "", limit, offset, presence = "" } = {}) {
   const page = boundedPage({ limit, offset });
-  const needle = String(search || "").trim().toLowerCase();
-  const where = `(? = ''
+  const needle = String(search || '').trim().toLowerCase();
+  const searchWhere = `(? = ''
       OR instr(lower(users.name), ?) > 0
       OR instr(lower(users.email), ?) > 0
       OR instr(users.phone, ?) > 0)`;
-  const params = [needle, needle, needle, String(search || "").trim()];
+  const params = [needle, needle, needle, String(search || '').trim()];
+
+  // Online means: a live, unexpired session that has sent a real browser
+  // heartbeat inside the presence window. Signing in does not count on its
+  // own, and neither does the account's active/verified state - a registered
+  // but closed customer reports Offline.
+  const onlineWhere = `EXISTS (
+      SELECT 1 FROM sessions
+       WHERE sessions.user_id = users.id
+         AND sessions.expires_at > ?
+         AND sessions.presence_confirmed_at IS NOT NULL
+         AND sessions.presence_confirmed_at >= ?)`;
+  const now = nowIso();
+  const cutoff = presenceCutoffIso();
+
+  const filter = String(presence || '').toLowerCase();
+  const where =
+    filter === "online"
+      ? `WHERE ${searchWhere} AND ${onlineWhere}`
+      : filter === "offline"
+        ? `WHERE ${searchWhere} AND NOT ${onlineWhere}`
+        : `WHERE ${searchWhere}`;
+  const whereParams =
+    filter === "online" || filter === "offline"
+      ? [...params, now, cutoff]
+      : params;
+
   const rows = db
     .prepare(
       `SELECT users.*,
               (SELECT COUNT(*) FROM wallet_ledger
-                WHERE wallet_ledger.user_id = users.id) AS transaction_count
+                WHERE wallet_ledger.user_id = users.id) AS transaction_count,
+              ${onlineWhere} AS is_online,
+              (SELECT MAX(COALESCE(sessions.presence_confirmed_at, sessions.last_seen_at, sessions.created_at))
+                 FROM sessions WHERE sessions.user_id = users.id) AS last_seen_at
          FROM users
-        WHERE ${where}
+        ${where}
         ORDER BY users.created_at DESC
         LIMIT ? OFFSET ?`,
     )
-    .all(...params, page.limit, page.offset);
+    .all(now, cutoff, ...whereParams, page.limit, page.offset);
   const total = db
-    .prepare(`SELECT COUNT(*) AS c FROM users WHERE ${where}`)
-    .get(...params)?.c;
+    .prepare(`SELECT COUNT(*) AS c FROM users ${where}`)
+    .get(...whereParams)?.c;
   const items = rows.map((row) => {
     const user = normalizeUser(row);
     return {
@@ -2156,11 +2335,52 @@ export function listUsersForAdmin({ search = "", limit, offset } = {}) {
       walletBalance: user.walletBalance,
       purchaseCount: user.numbers.length,
       transactionCount: user.transactions.length || Number(row.transaction_count || 0),
+      online: Boolean(row.is_online),
+      lastSeenAt: row.last_seen_at || user.lastSeenAt || null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
   });
-  return { items, total: Number(total || 0), ...page };
+  const online = items.filter((item) => item.online).length;
+  return {
+    items,
+    total: Number(total || 0),
+    onlineCount: online,
+    offlineCount: items.length - online,
+    ...page,
+  };
+}
+
+/**
+ * Online / offline totals across every account, for the Users KPI strip.
+ * Same rule as listUsersForAdmin: a live session with a recent heartbeat.
+ */
+export function getPresenceSummary() {
+  const now = nowIso();
+  const cutoff = presenceCutoffIso();
+  const row = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN EXISTS (
+               SELECT 1 FROM sessions
+                WHERE sessions.user_id = users.id
+                  AND sessions.expires_at > ?
+                  AND sessions.presence_confirmed_at IS NOT NULL
+                  AND sessions.presence_confirmed_at >= ?)
+             THEN 1 ELSE 0 END) AS online
+         FROM users`,
+    )
+    .get(now, cutoff);
+  const total = Number(row?.total || 0);
+  const online = Number(row?.online || 0);
+  return {
+    total,
+    online,
+    offline: total - online,
+    windowSeconds: Math.round(PRESENCE_WINDOW_MS / 1000),
+    checkedAt: nowIso(),
+  };
 }
 
 /**
@@ -2182,6 +2402,9 @@ export function getUserDetailForAdmin(userId) {
     role: user.role,
     emailVerified: Boolean(user.emailVerifiedAt),
     walletBalance: user.walletBalance,
+    preferences: user.preferences || {},
+    online: isUserOnline(user.id),
+    lastSeenAt: getLatestSessionSeen(user.id),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     purchases,
@@ -2189,6 +2412,21 @@ export function getUserDetailForAdmin(userId) {
     transactions,
     deposits: deposits.items.filter((deposit) => deposit.userId === user.id),
   };
+}
+
+/** The same presence rule as listUsersForAdmin, for a single account. */
+export function isUserOnline(userId) {
+  return Boolean(
+    db
+      .prepare(
+        `SELECT 1 FROM sessions
+          WHERE user_id = ? AND expires_at > ?
+            AND presence_confirmed_at IS NOT NULL
+            AND presence_confirmed_at >= ?
+          LIMIT 1`,
+      )
+      .get(String(userId), nowIso(), presenceCutoffIso()),
+  );
 }
 
 /**
@@ -2514,4 +2752,642 @@ export function listUnmatchedDeposits({ limit = 50 } = {}) {
     )
     .all(Math.min(Math.max(Number(limit) || 50, 1), 200))
     .map(normalizeDeposit);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Presence, preferences and the admin console's write models                 */
+/* -------------------------------------------------------------------------- */
+
+/** A session is "online" while its last heartbeat is inside this window. */
+export const PRESENCE_WINDOW_MS = 2 * 60 * 1000;
+
+export function presenceCutoffIso(windowMs = PRESENCE_WINDOW_MS) {
+  return new Date(Date.now() - windowMs).toISOString();
+}
+
+/** Record a heartbeat for a user and the session that produced it. */
+export function touchPresence(userId, sessionId = null, meta = {}) {
+  if (!userId) return;
+  const now = nowIso();
+  db.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").run(now, userId);
+  if (!sessionId) return;
+  const userAgent = String(meta.userAgent || "").slice(0, 300);
+  const ipAddress = String(meta.ipAddress || "").slice(0, 80);
+  // `confirmed` is written only by the browser's own heartbeat. An ordinary
+  // authenticated request refreshes the activity timestamp (so "last seen" and
+  // the Security device list stay useful) but does NOT by itself mark the
+  // customer online - see the onlineWhere rule in listUsersForAdmin.
+  db.prepare(
+    `UPDATE sessions
+        SET last_seen_at = ?,
+            presence_confirmed_at = CASE WHEN ? THEN ? ELSE presence_confirmed_at END,
+            user_agent = CASE WHEN ? = '' THEN COALESCE(user_agent, '') ELSE ? END,
+            ip_address = CASE WHEN ? = '' THEN COALESCE(ip_address, '') ELSE ? END
+      WHERE id = ?`,
+  ).run(
+    now,
+    meta.confirmed ? 1 : 0,
+    now,
+    userAgent,
+    userAgent,
+    ipAddress,
+    ipAddress,
+    sessionId,
+  );
+}
+
+/** The moment the user's newest live session was last seen, or null. */
+export function getLatestSessionSeen(userId) {
+  const row = db
+    .prepare(
+      `SELECT MAX(last_seen_at) AS seen FROM sessions
+        WHERE user_id = ? AND expires_at > ?`,
+    )
+    .get(userId, nowIso());
+  return row?.seen || null;
+}
+
+/** Sessions that are still valid, newest first - the device list. */
+export function listUserSessions(userId) {
+  return db
+    .prepare(
+      `SELECT id, created_at, expires_at, last_seen_at, user_agent, ip_address
+         FROM sessions
+        WHERE user_id = ? AND expires_at > ?
+        ORDER BY COALESCE(last_seen_at, created_at) DESC`,
+    )
+    .all(userId, nowIso())
+    .map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      lastSeenAt: row.last_seen_at,
+      userAgent: row.user_agent || "",
+      ipAddress: row.ip_address || "",
+    }));
+}
+
+export function getSessionIdFromToken(token) {
+  const row = db
+    .prepare("SELECT id FROM sessions WHERE token_hash = ?")
+    .get(hashToken(String(token || "")));
+  return row?.id || null;
+}
+
+export function deleteSessionById(userId, sessionId) {
+  const result = db
+    .prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?")
+    .run(String(sessionId || ""), userId);
+  return result.changes > 0;
+}
+
+/** Every session for a user except the one making the request. */
+export function deleteOtherSessions(userId, sessionId) {
+  const result = db
+    .prepare("DELETE FROM sessions WHERE user_id = ? AND id <> ?")
+    .run(userId, String(sessionId || ""));
+  return result.changes;
+}
+
+/** Interface preferences, merged over what is already stored. */
+export function updateUserPreferences(userId, patch = {}) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  const current = user.preferences || {};
+  const next = { ...current };
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (value === undefined) continue;
+    next[key] = value;
+  }
+  db.prepare("UPDATE users SET preferences = ?, updated_at = ? WHERE id = ?").run(
+    JSON.stringify(next),
+    nowIso(),
+    userId,
+  );
+  return next;
+}
+
+/** Profile picture / phone / name, kept in the existing users row. */
+export function updateUserContact({ userId, name, phone, avatar }) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  const profileData = { ...(user.profileData || {}) };
+  if (avatar !== undefined) profileData.avatar = avatar;
+  db.prepare(
+    `UPDATE users
+        SET name = ?, phone = ?, profile_data = ?, updated_at = ?
+      WHERE id = ?`,
+  ).run(
+    name !== undefined ? name : user.name,
+    phone !== undefined ? phone : user.phone,
+    JSON.stringify(profileData),
+    nowIso(),
+    userId,
+  );
+  return getUserById(userId);
+}
+
+/* ---- Selling-price overrides -------------------------------------------- */
+
+/** country/card/variant -> override, used by the catalogue and purchase routes. */
+export function getPriceOverrideMap() {
+  const map = new Map();
+  for (const row of db
+    .prepare("SELECT * FROM price_overrides")
+    .all()) {
+    map.set(`${row.country_slug}|${row.card_id}|${row.variant_id}`, {
+      id: row.id,
+      countrySlug: row.country_slug,
+      cardId: row.card_id,
+      variantId: row.variant_id,
+      price: Number(row.price),
+      previousPrice: row.previous_price == null ? null : Number(row.previous_price),
+      profit: row.profit == null ? null : Number(row.profit),
+      updatedBy: row.updated_by,
+      updatedAt: row.updated_at,
+    });
+  }
+  return map;
+}
+
+export function listPriceOverrides() {
+  return [...getPriceOverrideMap().values()];
+}
+
+export function upsertPriceOverride({
+  countrySlug,
+  cardId,
+  variantId,
+  price,
+  previousPrice = null,
+  profit = null,
+  updatedBy = "",
+}) {
+  const now = nowIso();
+  db.prepare(
+    `INSERT INTO price_overrides
+       (id, country_slug, card_id, variant_id, price, previous_price, profit,
+        updated_by, created_at, updated_at)
+     VALUES (@id, @countrySlug, @cardId, @variantId, @price, @previousPrice,
+             @profit, @updatedBy, @now, @now)
+     ON CONFLICT(country_slug, card_id, variant_id) DO UPDATE SET
+       price = excluded.price,
+       previous_price = price_overrides.price,
+       profit = excluded.profit,
+       updated_by = excluded.updated_by,
+       updated_at = excluded.updated_at`,
+  ).run({
+    id: crypto.randomUUID(),
+    countrySlug,
+    cardId,
+    variantId,
+    price,
+    previousPrice,
+    profit,
+    updatedBy,
+    now,
+  });
+  return getPriceOverride(countrySlug, cardId, variantId);
+}
+
+export function getPriceOverride(countrySlug, cardId, variantId) {
+  const row = db
+    .prepare(
+      `SELECT * FROM price_overrides
+        WHERE country_slug = ? AND card_id = ? AND variant_id = ?`,
+    )
+    .get(countrySlug, cardId, variantId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    countrySlug: row.country_slug,
+    cardId: row.card_id,
+    variantId: row.variant_id,
+    price: Number(row.price),
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at,
+  };
+}
+
+// The active map lives in priceOverrides.js, which pricing.js imports. Register
+// the reader here so that module never imports this one at load time (that
+// would be a cycle, because these tables are created above).
+applySellingPriceOverride(getPriceOverrideMap);
+
+export function deletePriceOverride(countrySlug, cardId, variantId) {
+  const result = db
+    .prepare(
+      `DELETE FROM price_overrides
+        WHERE country_slug = ? AND card_id = ? AND variant_id = ?`,
+    )
+    .run(countrySlug, cardId, variantId);
+  return result.changes > 0;
+}
+
+/* ---- Service availability ----------------------------------------------- */
+
+export function getServiceAvailability() {
+  const map = new Map();
+  for (const row of db.prepare("SELECT * FROM service_availability").all()) {
+    map.set(row.card_id, Boolean(row.sellable));
+  }
+  return map;
+}
+
+export function setServiceAvailability(cardId, sellable, updatedBy = "") {
+  db.prepare(
+    `INSERT INTO service_availability (card_id, sellable, updated_by, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(card_id) DO UPDATE SET
+       sellable = excluded.sellable,
+       updated_by = excluded.updated_by,
+       updated_at = excluded.updated_at`,
+  ).run(cardId, sellable ? 1 : 0, updatedBy, nowIso());
+  return Boolean(sellable);
+}
+
+/* ---- Announcements and notifications ------------------------------------ */
+
+function normalizeAnnouncement(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    body: row.body,
+    audience: row.audience,
+    selectedUserIds: parseJson(row.selected_user_ids, []),
+    status: row.status,
+    recipientCount: Number(row.recipient_count || 0),
+    createdCount: Number(row.created_count || 0),
+    failedCount: Number(row.failed_count || 0),
+    createdBy: row.created_by,
+    createdByEmail: row.created_by_email,
+    sentAt: row.sent_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function createAnnouncement({
+  title,
+  body,
+  audience = "all",
+  selectedUserIds = [],
+  status = "draft",
+  createdBy = "",
+  createdByEmail = "",
+}) {
+  const id = crypto.randomUUID();
+  const now = nowIso();
+  db.prepare(
+    `INSERT INTO announcements
+       (id, title, body, audience, selected_user_ids, status, created_by,
+        created_by_email, created_at, updated_at)
+     VALUES (@id, @title, @body, @audience, @selected, @status, @by, @byEmail,
+             @now, @now)`,
+  ).run({
+    id,
+    title,
+    body,
+    audience,
+    selected: JSON.stringify(selectedUserIds || []),
+    status,
+    by: createdBy,
+    byEmail: createdByEmail,
+    now,
+  });
+  return getAnnouncement(id);
+}
+
+export function updateAnnouncement(id, patch = {}) {
+  const current = getAnnouncement(id);
+  if (!current) return null;
+  db.prepare(
+    `UPDATE announcements SET
+       title = @title,
+       body = @body,
+       audience = @audience,
+       selected_user_ids = @selected,
+       status = @status,
+       updated_at = @now
+     WHERE id = @id`,
+  ).run({
+    id,
+    title: patch.title ?? current.title,
+    body: patch.body ?? current.body,
+    audience: patch.audience ?? current.audience,
+    selected: JSON.stringify(
+      patch.selectedUserIds ?? current.selectedUserIds ?? [],
+    ),
+    status: patch.status ?? current.status,
+    now: nowIso(),
+  });
+  return getAnnouncement(id);
+}
+
+export function getAnnouncement(id) {
+  return normalizeAnnouncement(
+    db.prepare("SELECT * FROM announcements WHERE id = ?").get(String(id)),
+  );
+}
+
+export function listAnnouncements({ status = "", limit = 50, offset = 0 } = {}) {
+  const pageLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const pageOffset = Math.max(Number(offset) || 0, 0);
+  const where = status ? "WHERE status = ?" : "";
+  const params = status ? [status] : [];
+  const items = db
+    .prepare(
+      `SELECT * FROM announcements ${where}
+        ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .all(...params, pageLimit, pageOffset)
+    .map(normalizeAnnouncement);
+  const total = db
+    .prepare(`SELECT COUNT(*) AS c FROM announcements ${where}`)
+    .get(...params)?.c;
+  return { items, total: Number(total || 0), limit: pageLimit, offset: pageOffset };
+}
+
+export function getAnnouncementStats() {
+  const row = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
+         SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS draft,
+         SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled,
+         COALESCE(SUM(CASE WHEN status = 'sent' THEN recipient_count ELSE 0 END), 0) AS delivered_to
+       FROM announcements`,
+    )
+    .get();
+  return {
+    total: Number(row?.total || 0),
+    sent: Number(row?.sent || 0),
+    draft: Number(row?.draft || 0),
+    scheduled: Number(row?.scheduled || 0),
+    messagesSent: Number(row?.delivered_to || 0),
+  };
+}
+
+export function deleteDraftAnnouncement(id) {
+  const result = db
+    .prepare("DELETE FROM announcements WHERE id = ? AND status = 'draft'")
+    .run(String(id));
+  return result.changes > 0;
+}
+
+/** Customer ids the next send is addressed to, resolved at send time. */
+export function resolveAnnouncementRecipients({
+  audience = "all",
+  selectedUserIds = [],
+  activeSince = null,
+} = {}) {
+  if (audience === "selected") {
+    const ids = [...new Set((selectedUserIds || []).map(String))].filter(Boolean);
+    if (!ids.length) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    return db
+      .prepare(`SELECT id FROM users WHERE id IN (${placeholders})`)
+      .all(...ids)
+      .map((row) => row.id);
+  }
+  if (audience === "active" && activeSince) {
+    return db
+      .prepare(
+        `SELECT id FROM users
+          WHERE last_seen_at IS NOT NULL AND last_seen_at >= ?`,
+      )
+      .all(activeSince)
+      .map((row) => row.id);
+  }
+  return db.prepare("SELECT id FROM users").all().map((row) => row.id);
+}
+
+/**
+ * Create one notification per recipient for an announcement, in a single
+ * transaction. A retried send cannot duplicate: the UNIQUE index on
+ * (announcement_id, user_id) turns the second insert into a no-op, and only the
+ * rows that were actually inserted are counted.
+ */
+export const deliverAnnouncement = db.transaction(
+  ({ announcementId, userIds, title, body }) => {
+    // INSERT OR IGNORE (not ON CONFLICT): the uniqueness that matters is a
+    // PARTIAL index (announcement_id IS NOT NULL), and SQLite does not accept a
+    // partial index as an ON CONFLICT target. OR IGNORE still makes a retried
+    // send a no-op, and `changes` tells us which rows were really created.
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO notifications
+         (id, user_id, announcement_id, title, body, type, created_at)
+       VALUES (?, ?, ?, ?, ?, 'announcement', ?)`,
+    );
+    const now = nowIso();
+    let created = 0;
+    let failed = 0;
+    for (const userId of userIds) {
+      try {
+        const result = insert.run(
+          crypto.randomUUID(),
+          userId,
+          announcementId,
+          title,
+          body,
+          now,
+        );
+        created += Number(result.changes || 0);
+      } catch {
+        failed += 1;
+      }
+    }
+    db.prepare(
+      `UPDATE announcements
+          SET status = 'sent', recipient_count = ?, created_count = ?,
+              failed_count = ?, sent_at = ?, updated_at = ?
+        WHERE id = ?`,
+    ).run(userIds.length, created, failed, now, now, announcementId);
+    return { recipientCount: userIds.length, created, failed, sentAt: now };
+  },
+);
+
+export function listNotificationsForUser(userId, { limit = 50 } = {}) {
+  return db
+    .prepare(
+      `SELECT * FROM notifications WHERE user_id = ?
+        ORDER BY created_at DESC LIMIT ?`,
+    )
+    .all(userId, Math.min(Math.max(Number(limit) || 50, 1), 200))
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      type: row.type,
+      read: Boolean(row.read_at),
+      readAt: row.read_at,
+      createdAt: row.created_at,
+    }));
+}
+
+export function markNotificationRead(userId, notificationId) {
+  const result = db
+    .prepare(
+      `UPDATE notifications SET read_at = ?
+        WHERE id = ? AND user_id = ? AND read_at IS NULL`,
+    )
+    .run(nowIso(), String(notificationId), userId);
+  return result.changes > 0;
+}
+
+export function markAllNotificationsReadForUser(userId) {
+  return db
+    .prepare(
+      "UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL",
+    )
+    .run(nowIso(), userId).changes;
+}
+
+/* ---- Activity log (admin audit trail) ----------------------------------- */
+
+export function recordActivity({
+  actor = {},
+  action,
+  actionLabel = "",
+  targetType = "",
+  targetId = "",
+  targetLabel = "",
+  detail = "",
+  ipAddress = "",
+  status = "success",
+  actorType = "admin",
+}) {
+  db.prepare(
+    `INSERT INTO activity_logs
+       (id, actor_id, actor_name, actor_role, actor_type, action, action_label,
+        target_type, target_id, target_label, detail, ip_address, status,
+        created_at)
+     VALUES (@id, @actorId, @actorName, @actorRole, @actorType, @action,
+             @actionLabel, @targetType, @targetId, @targetLabel, @detail,
+             @ip, @status, @now)`,
+  ).run({
+    id: crypto.randomUUID(),
+    actorId: String(actor.id || ""),
+    actorName: String(actor.name || ""),
+    actorRole: String(actor.role || ""),
+    actorType,
+    action: String(action || "unknown"),
+    actionLabel: String(actionLabel || action || ""),
+    targetType: String(targetType || ""),
+    targetId: String(targetId || ""),
+    targetLabel: String(targetLabel || ""),
+    detail: String(detail || ""),
+    ip: String(ipAddress || ""),
+    status,
+    now: nowIso(),
+  });
+}
+
+function normalizeActivity(row) {
+  return {
+    id: row.id,
+    actorId: row.actor_id,
+    actorName: row.actor_name,
+    actorRole: row.actor_role,
+    actorType: row.actor_type,
+    action: row.action,
+    actionLabel: row.action_label || row.action,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    targetLabel: row.target_label,
+    detail: row.detail,
+    ipAddress: row.ip_address,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+export function listActivityLogs({
+  search = "",
+  actorId = "",
+  action = "",
+  status = "",
+  from = "",
+  to = "",
+  limit = 50,
+  offset = 0,
+} = {}) {
+  const pageLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const pageOffset = Math.max(Number(offset) || 0, 0);
+  const clauses = [];
+  const params = [];
+  const needle = String(search || "").trim();
+  if (needle) {
+    clauses.push(
+      `(instr(lower(actor_name), ?) > 0 OR instr(lower(action_label), ?) > 0
+        OR instr(lower(target_label), ?) > 0 OR instr(lower(detail), ?) > 0)`,
+    );
+    const lower = needle.toLowerCase();
+    params.push(lower, lower, lower, lower);
+  }
+  if (actorId) {
+    clauses.push("actor_id = ?");
+    params.push(String(actorId));
+  }
+  if (action) {
+    clauses.push("action = ?");
+    params.push(String(action));
+  }
+  if (status) {
+    clauses.push("status = ?");
+    params.push(String(status));
+  }
+  if (from) {
+    clauses.push("created_at >= ?");
+    params.push(String(from));
+  }
+  if (to) {
+    clauses.push("created_at <= ?");
+    params.push(String(to));
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const items = db
+    .prepare(
+      `SELECT * FROM activity_logs ${where}
+        ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .all(...params, pageLimit, pageOffset)
+    .map(normalizeActivity);
+  const total = db
+    .prepare(`SELECT COUNT(*) AS c FROM activity_logs ${where}`)
+    .get(...params)?.c;
+  return { items, total: Number(total || 0), limit: pageLimit, offset: pageOffset };
+}
+
+export function getActivityLogStats() {
+  const row = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN actor_type = 'staff' THEN 1 ELSE 0 END) AS staff,
+         SUM(CASE WHEN actor_type = 'admin' THEN 1 ELSE 0 END) AS admin,
+         SUM(CASE WHEN action LIKE 'security.%' OR action LIKE 'auth.%' THEN 1 ELSE 0 END) AS security
+       FROM activity_logs`,
+    )
+    .get();
+  return {
+    total: Number(row?.total || 0),
+    admin: Number(row?.admin || 0),
+    staff: Number(row?.staff || 0),
+    security: Number(row?.security || 0),
+  };
+}
+
+/** Distinct actors, for the activity-log filter dropdown. */
+export function listActivityActors() {
+  return db
+    .prepare(
+      `SELECT actor_id AS id, MAX(actor_name) AS name, COUNT(*) AS count
+         FROM activity_logs WHERE actor_id <> ''
+        GROUP BY actor_id ORDER BY count DESC LIMIT 50`,
+    )
+    .all()
+    .map((row) => ({ id: row.id, name: row.name || row.id, count: Number(row.count) }));
 }

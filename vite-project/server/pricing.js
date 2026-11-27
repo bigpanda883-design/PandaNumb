@@ -28,6 +28,8 @@
  * the environment applies on the next request.
  */
 
+import { getSellingPriceOverride } from "./priceOverrides.js";
+
 /** Every supported service is priced by exactly one of these tiers. */
 export const PRICE_TIERS = {
   google: { label: "Google", mode: "fixed", base: 500, min: 450, max: 700 },
@@ -508,7 +510,8 @@ function roundUpToNearestTen(value) {
 /**
  * Price ONE variant.
  *
- * @param {{cost:number, serviceId?:string, variantId?:string, tierKey?:string}} input
+ * @param {{cost:number, serviceId?:string, variantId?:string, tierKey?:string,
+ *   countrySlug?:string}} input
  * @param {ReturnType<typeof getPricingConfig>} [config]
  * @returns {null | {
  *   tierKey:string, tierLabel:string, price:number, cost:number, fee:number,
@@ -555,6 +558,22 @@ export function priceVariant(input, config = getPricingConfig()) {
 
   price = Math.min(Math.max(price, 1), 10_000_000);
 
+  // An administrator may have set the SELLING price for this exact offer on the
+  // Numbers Inventory screen. That price wins - it is the price Panda Number
+  // charges - but the provider cost above is untouched, so the profit reported
+  // here is always real. A price the operator chose below cost is surfaced as
+  // "below-min-profit" instead of being silently re-priced.
+  const override = getSellingPriceOverride(
+    input?.countrySlug,
+    input?.serviceId,
+    input?.variantId,
+  );
+  let priceSource = "auto";
+  if (override !== null) {
+    price = override;
+    priceSource = "override";
+  }
+
   const profit = price - cost - fee;
   let status = "ok";
   let note = null;
@@ -581,6 +600,10 @@ export function priceVariant(input, config = getPricingConfig()) {
       `so this sells at ₦${price.toLocaleString()} (${tier.markupPercent}% over cost).`;
   }
 
+  if (priceSource === "override" && status === "ok") {
+    note = `Custom selling price set by an administrator (provider cost ₦${cost.toLocaleString()}).`;
+  }
+
   return {
     tierKey,
     tierLabel: tier.label,
@@ -590,6 +613,7 @@ export function priceVariant(input, config = getPricingConfig()) {
     profit,
     status,
     requestedPrice: requested,
+    priceSource,
     note,
   };
 }

@@ -1,0 +1,78 @@
+
+> dev
+> npm --prefix vite-project run dev
+
+
+> vite-project@0.0.0 dev
+> node scripts/dev.mjs
+
+
+  [32m[1mVITE[22m v8.3.0[39m  [2mready in [0m[1m1918[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://172.20.10.3:[1m5173[22m/[39m  [2mWiFi 2[22m
+[panda-server] listening on http://localhost:8787
+[panda-server] also reachable on the LAN - use the Vite URL printed by the dev server (http://<your-lan-ip>:5173) to test on a phone.
+[panda-server] authentication and SMS routes are active
+[panda-server] database: C:\Users\owner\Desktop\PandaNumb\vite-project\server\data\panda.db (97 accounts, no DATA_DIR - ephemeral on Render)
+[panda-server] allowed frontend origins: https://pandanumbers.vercel.app, https://panda-numb.vercel.app, https://pandanumb.vercel.app, https://*.vercel.app, http://localhost:5173, http://localhost:4173
+[panda-server] price catalogue cached (155 countries)
+[2m22:45:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/ActivityLogsPage.jsx[22m
+[2m22:47:27[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/SettingsPage.jsx[22m
+[2m22:48:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/SettingsPage.jsx[22m
+[2m03:10:04[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m03:10:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:39:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:39:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:04[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:11[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:18[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:39:21[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:24[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:28[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:38[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:43[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:50[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:56[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:39:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:02[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:05[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:07[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:18[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:40:22[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:40:27[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:40:30[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m10:45:35[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/CSS/dashboard/pages/AdminPayments.css[22m
+[2m10:45:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/CSS/dashboard/pages/AdminPayments.css[22m
+[2m10:45:54[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/CSS/dashboard/pages/AdminPayments.css[22m
+[2m10:45:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/CSS/dashboard/pages/AdminPayments.css[22m
+[2m10:49:20[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:52:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m10:52:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/AdminPayments.jsx[22m
+[2m11:14:54[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdist-audit/index.html[22m
+[2m11:29:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/UsersPage.jsx[22m
+[2m11:30:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/InventoryPage.jsx[22m
+[2m11:30:04[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/AnnouncementsPage.jsx[22m
+[2m11:30:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/ActivityLogsPage.jsx[22m
+[2m11:30:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/SettingsPage.jsx[22m
+[2m11:30:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/admin/ActivityLogsPage.jsx[22m
+[2m11:33:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:33:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:34:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:34:18[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:34:21[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:34:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:35:30[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:36:10[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/CSS/dashboard/admin/admin.css[22m
+[2m11:37:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/routes/AppRoutes.jsx[22m
+[2m11:37:35[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdist-audit/index.html[22m
+[2m11:38:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/CSS/dashboard/admin/admin.css[22m
+[2m11:38:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdist-audit/index.html[22m
