@@ -64,6 +64,38 @@ import {
   updateUserNumber,
   updateUserPassword,
   verifyUserEmail,
+  PRESENCE_WINDOW_MS,
+  presenceCutoffIso,
+  touchPresence,
+  getSessionIdFromToken,
+  getLatestSessionSeen,
+  listUserSessions,
+  deleteSessionById,
+  deleteOtherSessions,
+  updateUserPreferences,
+  updateUserContact,
+  getPresenceSummary,
+  isUserOnline,
+  listPriceOverrides,
+  upsertPriceOverride,
+  deletePriceOverride,
+  getServiceAvailability,
+  setServiceAvailability,
+  createAnnouncement,
+  updateAnnouncement,
+  getAnnouncement,
+  listAnnouncements,
+  getAnnouncementStats,
+  deleteDraftAnnouncement,
+  resolveAnnouncementRecipients,
+  deliverAnnouncement,
+  listNotificationsForUser,
+  markNotificationRead,
+  markAllNotificationsReadForUser,
+  recordActivity,
+  listActivityLogs,
+  getActivityLogStats,
+  listActivityActors,
 } from "./db.js";
 import {
   RESET_CODE_TTL_MINUTES,
@@ -88,6 +120,8 @@ import {
 } from "./providerMapping.js";
 import smsProxyRouter from "./smsProxy.js";
 import smsRouter from "./smsRouter.js";
+import { reloadSellingPriceOverrides } from "./priceOverrides.js";
+import { getCountryEntry } from "../src/config/countryCatalog.js";
 import {
   describeConfig as describeNeuraPayConfig,
   createPermanentVirtualAccount,
@@ -341,22 +375,70 @@ async function authMiddleware(req, res, next) {
   }
   req.user = user;
   req.token = token;
+  req.sessionId = session.id;
+  // Every authenticated request is proof the account is in use right now, so it
+  // also refreshes presence and the device label shown under Settings > Security.
+  try {
+    touchPresence(user.id, session.id, {
+      userAgent: req.headers["user-agent"],
+      ipAddress: req.ip,
+    });
+  } catch {
+    // Presence is best-effort: never fail a real request because of it.
+  }
   next();
 }
 
 function adminMiddleware(req, res, next) {
   const role = String(req.user?.role || "customer").toLowerCase();
-  const isAuthorizedAdmin = [
-    "super_admin",
-    "admin",
-    "finance_manager",
-    "support_agent",
-    "inventory_manager",
-  ].includes(role);
+  const isAuthorizedAdmin = STAFF_ROLES.includes(role);
   if (!isAuthorizedAdmin) {
     return fail(res, 403, "FORBIDDEN", "This area is not available.");
   }
   return next();
+}
+
+/** Roles allowed into the admin console. "customer" is never one of them. */
+const STAFF_ROLES = [
+  "super_admin",
+  "admin",
+  "finance_manager",
+  "support_agent",
+  "inventory_manager",
+];
+
+/** The caller's IP, honouring the proxy header Vercel/Render set. */
+function clientIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  return forwarded || String(req.ip || req.connection?.remoteAddress || "");
+}
+
+/**
+ * Write one admin audit row. Never throws: an audit failure must not turn a
+ * successful action into an error response for the operator.
+ */
+function recordAdminActivity(req, actor, details) {
+  try {
+    recordActivity({
+      actor: {
+        id: actor?.id,
+        name: actor?.name || actor?.fullName || actor?.email || "",
+        role: actor?.role || "",
+      },
+      actorType: String(actor?.role || "").toLowerCase() === "support_agent"
+        ? "staff"
+        : "admin",
+      ipAddress: clientIp(req),
+      ...details,
+    });
+  } catch (error) {
+    console.warn(
+      "[audit] could not record activity:",
+      error?.message || error,
+    );
+  }
 }
 
 
@@ -839,6 +921,17 @@ app.post("/api/auth/login", async (req, res) => {
   const token = generateToken();
   createSession({ userId: user.id, token });
 
+  // Sign-ins are part of the admin audit trail. Recorded here (not in the
+  // middleware) so the login itself is captured, and only for staff roles.
+  if (STAFF_ROLES.includes(String(user.role || "").toLowerCase())) {
+    recordAdminActivity(req, user, {
+      action: "auth.login",
+      actionLabel: "Administrator signed in",
+      targetType: "session",
+      targetLabel: user.email,
+    });
+  }
+
   // Credentials are verified and the session exists - only now is the
   // notification sent. Every failure path above returns before this line, so a
   // wrong password or unknown email can never trigger a "successful login"
@@ -1266,7 +1359,8 @@ app.get("/api/admin/payments/summary", authMiddleware, adminMiddleware, (_req, r
 app.get("/api/admin/users", authMiddleware, adminMiddleware, (req, res) =>
   res.json(
     listUsersForAdmin({
-      search: String(req.query.search || "").slice(0, 100),
+      search: querySearch(req),
+      presence: String(req.query.presence || ""),
       limit: req.query.limit,
       offset: req.query.offset,
     }),
@@ -1579,8 +1673,1055 @@ app.get("/api/health/ledger", authMiddleware, adminMiddleware, (req, res) => {
 });
 
 app.post("/api/auth/logout", authMiddleware, (req, res) => {
+  // A staff sign-out is an auditable event; the actor is still authenticated
+  // at this point, so the log write can name them.
+  if (STAFF_ROLES.includes(String(req.user?.role || "").toLowerCase())) {
+    recordAdminActivity(req, req.user, {
+      action: "auth.logout",
+      actionLabel: "Administrator signed out",
+      targetType: "session",
+      targetLabel: req.user.email,
+    });
+  }
   deleteSessionByToken(req.token);
   return res.json({ ok: true, message: "Logged out successfully." });
+});
+
+/* ------------------------------------------------------------------ *
+ * Admin console: presence, inventory, selling prices, announcements,
+ * notifications, audit trail and settings.
+ *
+ * Every value returned here is read from the live database or the upstream
+ * provider. Nothing is fabricated and no secret (provider key, payment
+ * credentials, password hash) is ever included in a response.
+ * ------------------------------------------------------------------ */
+
+function pagination(req, defaultLimit = 50) {
+  return {
+    limit: Math.min(Math.max(Number(req.query.limit) || defaultLimit, 1), 200),
+    offset: Math.max(Number(req.query.offset) || 0, 0),
+  };
+}
+
+function querySearch(req) {
+  return String(req.query.search || "").slice(0, 100);
+}
+
+/** Presence heartbeat from the browser. Keeps the session "online". */
+app.post("/api/presence/heartbeat", authMiddleware, (req, res) => {
+  touchPresence(req.user.id, req.sessionId, {
+    confirmed: true,
+    userAgent: req.headers["user-agent"] || "",
+    ipAddress: clientIp(req),
+  });
+  return res.json({
+    ok: true,
+    online: true,
+    windowSeconds: Math.round(PRESENCE_WINDOW_MS / 1000),
+    lastSeenAt: new Date().toISOString(),
+  });
+});
+
+/* ---- Users: online / offline -------------------------------------------- */
+
+app.get("/api/admin/presence", authMiddleware, adminMiddleware, (_req, res) =>
+  res.json(getPresenceSummary()),
+);
+
+app.get("/api/admin/staff", authMiddleware, adminMiddleware, (req, res) => {
+  const page = pagination(req);
+  const search = querySearch(req);
+  // "/api/admin/staff" must be registered before "/api/admin/users/:id" is used
+  // with an id of "staff"; it is, because it is a distinct path.
+  const all = listUsersForAdmin({ search, limit: 200, offset: 0 });
+  const staff = all.items.filter(
+    (user) => String(user.role || "customer") !== "customer",
+  );
+  return res.json({
+    items: staff.slice(page.offset, page.offset + page.limit),
+    total: staff.length,
+    ...page,
+  });
+});
+
+/**
+ * One customer's sessions and the activities recorded against them. Used by
+ * the Security screen; never returns a token or a password hash.
+ */
+app.get(
+  "/api/admin/users/:id/sessions",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const userId = String(req.params.id || "").trim();
+    const user = getUserById(userId);
+    if (!user) return fail(res, 404, "NOT_FOUND", "That account does not exist.");
+    return res.json({
+      online: isUserOnline(userId),
+      lastSeenAt: getLatestSessionSeen(userId),
+      sessions: listUserSessions(userId).map((session) => ({
+        ...session,
+        current: session.id === req.sessionId,
+      })),
+    });
+  },
+);
+
+app.delete(
+  "/api/admin/users/:id/sessions/:sessionId",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const userId = String(req.params.id || "").trim();
+    const removed = deleteSessionById(userId, req.params.sessionId);
+    if (!removed) {
+      return fail(res, 404, "NOT_FOUND", "That session is no longer active.");
+    }
+    recordAdminActivity(req, req.user, {
+      action: "security.session_revoked",
+      actionLabel: "Session terminated",
+      targetType: "user",
+      targetId: userId,
+      targetLabel: getUserById(userId)?.email || userId,
+      detail: `Session ${req.params.sessionId} was ended by an administrator.`,
+    });
+    return res.json({ ok: true });
+  },
+);
+
+/* ---- Inventory: provider data, availability and selling prices ---------- */
+
+/**
+ * Flatten the provider catalogue into one row per country/card/variant.
+ * The cost comes from the upstream payload; the price is whatever pricing.js
+ * (with any operator override) says Panda Number charges. A row is never
+ * invented: a variant the provider does not list does not appear.
+ */
+function buildInventoryRows({ search = "", country = "", card = "", pageLimit = 100, pageOffset = 0 }) {
+  const payload = pricesCache.payload;
+  if (!payload) {
+    return {
+      ready: false,
+      items: [],
+      total: 0,
+      stats: null,
+      rows: [],
+    };
+  }
+
+  const pricing = getPricingConfig();
+  const overrides = listPriceOverrides();
+  const overrideMap = new Map(
+    overrides.map((entry) => [
+      `${entry.countrySlug}|${entry.cardId}|${entry.variantId}`,
+      entry,
+    ]),
+  );
+  const availability = getServiceAvailability();
+  const rows = [];
+
+  for (const [countrySlug, services] of Object.entries(payload)) {
+    if (!services || typeof services !== "object") continue;
+    for (const [cardId, entry] of Object.entries(SELLABLE_SERVICES)) {
+      const catalogueService = entry.catalogueService || cardId;
+      const variants = services[catalogueService];
+      if (!variants || typeof variants !== "object") continue;
+      for (const [variantId, info] of Object.entries(variants)) {
+        if (!info || typeof info !== "object") continue;
+        const cost = Number(info.cost);
+        const count = Number(info.count);
+        if (!Number.isFinite(cost) || cost <= 0) continue;
+        if (!Number.isFinite(count) || count < 0) continue;
+
+        const quote = priceVariant(
+          { cost, serviceId: cardId, variantId, countrySlug },
+          pricing,
+        );
+        if (!quote) continue;
+
+        const override = overrideMap.get(`${countrySlug}|${cardId}|${variantId}`);
+        const sellable = quote.status !== "below-min-profit";
+        rows.push({
+          id: `${countrySlug}:${cardId}:${variantId}`,
+          countrySlug,
+          countryName: countryLabels[countrySlug] || countrySlug,
+          countryFlag: countryFlags[countrySlug] || null,
+          cardId,
+          service: entry.displayName || cardId,
+          providerService: entry.provider || cardId,
+          providerServiceId: catalogueService,
+          variantId,
+          stock: count,
+          providerCost: cost,
+          sellingPrice: sellable ? quote.price : null,
+          autoPrice: quote.price,
+          profit: sellable ? quote.profit : null,
+          priceSource: quote.priceSource,
+          priceNote: quote.note,
+          sellable: sellable && availability.get(cardId) !== false,
+          serviceEnabled: availability.get(cardId) !== false,
+          serviceBlocked: quote.status === "below-min-profit",
+          customPrice: Boolean(override),
+          updatedAt: override?.updatedAt || null,
+          updatedBy: override?.updatedBy || null,
+        });
+      }
+    }
+  }
+
+  const needle = search.trim().toLowerCase();
+  const filtered = rows.filter((row) => {
+    if (country && row.countrySlug !== country) return false;
+    if (card && row.cardId !== card) return false;
+    if (!needle) return true;
+    return (
+      row.countryName.toLowerCase().includes(needle) ||
+      row.service.toLowerCase().includes(needle) ||
+      row.variantId.toLowerCase().includes(needle) ||
+      row.providerServiceId.toLowerCase().includes(needle)
+    );
+  });
+
+  const countries = new Set(rows.map((row) => row.countrySlug));
+  const stats = {
+    countries: countries.size,
+    services: new Set(rows.map((row) => row.cardId)).size,
+    totalStock: rows.reduce((sum, row) => sum + row.stock, 0),
+    activeServices: rows.filter((row) => row.sellable).length,
+    lowStock: rows.filter((row) => row.sellable && row.stock > 0 && row.stock <= 5)
+      .length,
+    outOfStock: rows.filter((row) => row.stock <= 0).length,
+    customPrices: rows.filter((row) => row.customPrice).length,
+    totalVariants: rows.length,
+  };
+
+  return {
+    ready: true,
+    items: filtered.slice(pageOffset, pageOffset + pageLimit),
+    total: filtered.length,
+    stats,
+    rows,
+  };
+}
+
+/** Country labels for inventory rows (the payload only carries slugs). */
+let countryLabels = Object.create(null);
+let countryFlags = Object.create(null);
+function refreshCountryLabels() {
+  const built = buildCountryLabels(Object.keys(pricesCache.payload || {}));
+  countryLabels = built.labels;
+  countryFlags = built.flags;
+}
+
+/** "united_states" -> "United States", using the app's own catalogue names. */
+function buildCountryLabels(slugs) {
+  const labels = Object.create(null);
+  const flags = Object.create(null);
+  for (const slug of slugs) {
+    const entry = getCountryEntry(slug);
+    labels[slug] =
+      entry?.name ||
+      slug
+        .split(/[_-]/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    flags[slug] = entry?.flagUrl || null;
+  }
+  return { labels, flags };
+}
+
+function providerStatus() {
+  const ready = pricesCache.payload !== null;
+  return {
+    name: "ACC Numbers catalogue",
+    configured: Boolean(API_KEY),
+    connected: ready && !pricesCache.lastError,
+    ready,
+    loading: pricesCache.inflight !== null,
+    lastFetchedAt: ready ? new Date(pricesCache.fetchedAt).toISOString() : null,
+    lastError: pricesCache.lastError || null,
+    stale:
+      ready && Date.now() - pricesCache.fetchedAt >= PRICES_CACHE_TTL_MS,
+  };
+}
+
+app.get("/api/admin/inventory", authMiddleware, adminMiddleware, (req, res) => {
+  const { limit, offset } = pagination(req, 100);
+  if (pricesCache.payload && Object.keys(countryLabels).length === 0) {
+    refreshCountryLabels();
+  }
+  const result = buildInventoryRows({
+    search: querySearch(req),
+    country: String(req.query.country || ""),
+    card: String(req.query.card || ""),
+    pageLimit: limit,
+    pageOffset: offset,
+  });
+  const { rows, ...rest } = result;
+  if (!result.ready) {
+    return fail(
+      res,
+      503,
+      "CATALOGUE_NOT_READY",
+      "The provider inventory is still loading. Try again in a moment.",
+    );
+  }
+  return res.json({
+    ...rest,
+    limit,
+    offset,
+    provider: providerStatus(),
+    countries: [...new Set(rows.map((row) => row.countrySlug))]
+      .sort()
+      .map((slug) => ({ id: slug, label: countryLabels[slug] || slug })),
+    services: [...new Set(rows.map((row) => row.cardId))].sort().map((id) => ({
+      id,
+      label: SELLABLE_SERVICES[id]?.displayName || id,
+    })),
+  });
+});
+
+app.get("/api/admin/inventory/status", authMiddleware, adminMiddleware, (_req, res) =>
+  res.json(providerStatus()),
+);
+
+app.post(
+  "/api/admin/inventory/refresh",
+  authMiddleware,
+  adminMiddleware,
+  async (req, res) => {
+    try {
+      await loadPrices();
+      refreshCountryLabels();
+      recordAdminActivity(req, req.user, {
+        action: "inventory.refreshed",
+        actionLabel: "Inventory refreshed from provider",
+        targetType: "inventory",
+        targetLabel: "Provider catalogue",
+      });
+      return res.json({ ok: true, provider: providerStatus() });
+    } catch (error) {
+      return fail(
+        res,
+        502,
+        "PROVIDER_UNAVAILABLE",
+        `Could not refresh the provider inventory: ${
+          error?.code || error?.message || "unknown error"
+        }`,
+      );
+    }
+  },
+);
+
+/**
+ * Set the customer-facing SELLING price for one offer. The provider cost is
+ * read from the catalogue and never written. The price is refused when it
+ * would sell below the provider cost (that is a loss, not a discount).
+ */
+app.put(
+  "/api/admin/inventory/price",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const countrySlug = String(req.body.countrySlug || "").trim();
+    const cardId = String(req.body.cardId || "").trim();
+    const variantId = String(req.body.variantId || "").trim();
+    const price = Number(req.body.price);
+
+    if (!countrySlug || !cardId || !variantId) {
+      return fail(
+        res,
+        400,
+        "INVALID_INPUT",
+        "Country, service and variant are required to set a price.",
+      );
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      return fail(res, 400, "INVALID_PRICE", "Enter a price greater than zero.");
+    }
+    if (price > 10_000_000) {
+      return fail(
+        res,
+        400,
+        "PRICE_TOO_HIGH",
+        "That price is above the maximum allowed selling price.",
+      );
+    }
+
+    const entry = SELLABLE_SERVICES[cardId];
+    if (!entry) {
+      return fail(res, 404, "UNKNOWN_SERVICE", "That service is not sold here.");
+    }
+    const catalogueService = entry.catalogueService || cardId;
+    const variant =
+      pricesCache.payload?.[countrySlug]?.[catalogueService]?.[variantId];
+    if (!variant) {
+      return fail(
+        res,
+        404,
+        "UNKNOWN_OFFER",
+        "That offer is not in the provider catalogue.",
+      );
+    }
+
+    const cost = Number(variant.cost);
+    if (Number.isFinite(cost) && cost > 0 && price < cost) {
+      // Not refused: the operator owns the price. But it is recorded plainly,
+      // and the offer is shown as unavailable rather than silently sold at a
+      // loss (priceVariant reports "below-min-profit").
+      console.warn(
+        `[inventory] ${req.user.email} set ${countrySlug}/${cardId}/${variantId} to ₦${price} below provider cost ₦${cost}`,
+      );
+    }
+
+    const rounded = Math.round(price * 100) / 100;
+    const profit = Math.round((rounded - cost) * 100) / 100;
+    upsertPriceOverride({
+      countrySlug,
+      cardId,
+      variantId,
+      price: rounded,
+      profit,
+      updatedBy: req.user.email || req.user.name || req.user.id,
+    });
+    reloadSellingPriceOverrides();
+
+    recordAdminActivity(req, req.user, {
+      action: "price.updated",
+      actionLabel: "Selling price updated",
+      targetType: "offer",
+      targetId: `${countrySlug}:${cardId}:${variantId}`,
+      targetLabel: `${countryLabels[countrySlug] || countrySlug} · ${entry.displayName} · ${variantId}`,
+      detail: `Selling price set to ₦${rounded.toLocaleString()} (provider cost ₦${cost.toLocaleString()}, profit ₦${profit.toLocaleString()}).`,
+      status:
+        Number.isFinite(cost) && rounded < cost ? "warning" : "success",
+    });
+
+    return res.json({
+      ok: true,
+      offer: {
+        countrySlug,
+        cardId,
+        variantId,
+        sellingPrice: rounded,
+        providerCost: cost,
+        profit,
+      },
+      message: "Selling price saved. The Buy page will charge the new price.",
+    });
+  },
+);
+
+/** Bulk set a price for every in-stock offer of one service in one country. */
+app.put(
+  "/api/admin/inventory/prices/bulk",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const countrySlug = String(req.body.countrySlug || "").trim();
+    const cardId = String(req.body.cardId || "").trim();
+    const price = Number(req.body.price);
+    if (!countrySlug || !cardId) {
+      return fail(res, 400, "INVALID_INPUT", "Choose a country and a service.");
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      return fail(res, 400, "INVALID_PRICE", "Enter a price greater than zero.");
+    }
+
+    const { rows } = buildInventoryRows({ country: countrySlug, card: cardId });
+    let saved = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      if (row.stock <= 0) {
+        skipped += 1;
+        continue;
+      }
+      if (price < row.providerCost) {
+        skipped += 1;
+        continue;
+      }
+      upsertPriceOverride({
+        countrySlug,
+        cardId,
+        variantId: row.variantId,
+        price: Math.round(price * 100) / 100,
+        profit: Math.round((price - row.providerCost) * 100) / 100,
+        updatedBy: req.user.email || req.user.id,
+      });
+      saved += 1;
+    }
+    reloadSellingPriceOverrides();
+    recordAdminActivity(req, req.user, {
+      action: "price.bulk_updated",
+      actionLabel: "Bulk selling price update",
+      targetType: "service",
+      targetId: `${countrySlug}:${cardId}`,
+      targetLabel: `${countryLabels[countrySlug] || countrySlug} · ${SELLABLE_SERVICES[cardId]?.displayName || cardId}`,
+      detail: `${saved} offer(s) set to ₦${price.toLocaleString()}; ${skipped} skipped (out of stock or below provider cost).`,
+    });
+    return res.json({ ok: true, saved, skipped });
+  },
+);
+
+/** Remove an operator price so the automatic pricing rule applies again. */
+app.delete(
+  "/api/admin/inventory/price",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const countrySlug = String(req.query.countrySlug || "").trim();
+    const cardId = String(req.query.cardId || "").trim();
+    const variantId = String(req.query.variantId || "").trim();
+    const removed = deletePriceOverride(countrySlug, cardId, variantId);
+    if (!removed) {
+      return fail(
+        res,
+        404,
+        "NO_OVERRIDE",
+        "This offer already uses the automatic price.",
+      );
+    }
+    reloadSellingPriceOverrides();
+    recordAdminActivity(req, req.user, {
+      action: "price.override_removed",
+      actionLabel: "Custom price removed",
+      targetType: "offer",
+      targetId: `${countrySlug}:${cardId}:${variantId}`,
+      targetLabel: `${countryLabels[countrySlug] || countrySlug} · ${SELLABLE_SERVICES[cardId]?.displayName || cardId}`,
+      detail: "The automatic pricing rule applies again.",
+    });
+    return res.json({ ok: true });
+  },
+);
+
+/** Enable or disable a whole service for customers. */
+app.put(
+  "/api/admin/inventory/service",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const cardId = String(req.body.cardId || "").trim();
+    if (!SELLABLE_SERVICES[cardId]) {
+      return fail(res, 404, "UNKNOWN_SERVICE", "That service is not sold here.");
+    }
+    const sellable = Boolean(req.body.sellable);
+    setServiceAvailability(cardId, sellable, req.user.email || req.user.id);
+    recordAdminActivity(req, req.user, {
+      action: sellable ? "inventory.service_enabled" : "inventory.service_disabled",
+      actionLabel: sellable ? "Service enabled" : "Service disabled",
+      targetType: "service",
+      targetId: cardId,
+      targetLabel: SELLABLE_SERVICES[cardId].displayName || cardId,
+      detail: sellable
+        ? "Customers can buy this service again."
+        : "Customers can no longer buy this service.",
+    });
+    return res.json({ ok: true, cardId, sellable });
+  },
+);
+
+/* ---- Announcements ------------------------------------------------------- */
+
+app.get(
+  "/api/admin/announcements",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const { limit, offset } = pagination(req);
+    const status = String(req.query.status || "").trim().toLowerCase();
+    const allowed = ["", "sent", "draft", "scheduled"];
+    if (!allowed.includes(status)) {
+      return fail(res, 400, "INVALID_STATUS", "Choose a valid announcement status.");
+    }
+    return res.json({
+      ...listAnnouncements({ status, limit, offset }),
+      stats: getAnnouncementStats(),
+    });
+  },
+);
+
+app.get(
+  "/api/admin/announcements/audience",
+  authMiddleware,
+  adminMiddleware,
+  (_req, res) => {
+    const presence = getPresenceSummary();
+    const all = resolveAnnouncementRecipients({ audience: "all" });
+    return res.json({
+      all: { count: all.length, label: "All registered customers" },
+      active: {
+        count: resolveAnnouncementRecipients({
+          audience: "active",
+          activeSince: presenceCutoffIso(24 * 60 * 60 * 1000),
+        }).length,
+        label: "Customers active in the last 24 hours",
+      },
+      online: {
+        count: presence.online,
+        label: `Online right now (${presence.windowSeconds}s heartbeat)`,
+      },
+      selected: { count: 0, label: "Selected customers" },
+    });
+  },
+);
+
+app.post(
+  "/api/admin/announcements",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const title = String(req.body.title || "").trim();
+    const body = String(req.body.body || "").trim();
+    const audience = ["all", "active", "selected"].includes(req.body.audience)
+      ? req.body.audience
+      : "all";
+    const selectedUserIds = Array.isArray(req.body.selectedUserIds)
+      ? req.body.selectedUserIds.map(String).slice(0, 20000)
+      : [];
+    const send = Boolean(req.body.send);
+
+    if (!title) return fail(res, 400, "TITLE_REQUIRED", "Give the announcement a title.");
+    if (title.length > 140) {
+      return fail(res, 400, "TITLE_TOO_LONG", "Keep the title under 140 characters.");
+    }
+    if (send && !body) {
+      return fail(res, 400, "BODY_REQUIRED", "Write the message before sending it.");
+    }
+    if (body.length > 4000) {
+      return fail(res, 400, "BODY_TOO_LONG", "Keep the message under 4000 characters.");
+    }
+    if (send && audience === "selected" && selectedUserIds.length === 0) {
+      return fail(
+        res,
+        400,
+        "NO_RECIPIENTS",
+        "Select at least one customer, or send to all customers.",
+      );
+    }
+
+    const announcement = createAnnouncement({
+      title,
+      body,
+      audience,
+      selectedUserIds,
+      status: send ? "sending" : "draft",
+      createdBy: req.user.id,
+      createdByEmail: req.user.email || "",
+    });
+
+    if (!send) {
+      recordAdminActivity(req, req.user, {
+        action: "announcement.draft_saved",
+        actionLabel: "Announcement saved as draft",
+        targetType: "announcement",
+        targetId: announcement.id,
+        targetLabel: title,
+      });
+      return res.status(201).json({ announcement });
+    }
+
+    const recipients = resolveAnnouncementRecipients({
+      audience,
+      selectedUserIds,
+      activeSince: presenceCutoffIso(24 * 60 * 60 * 1000),
+    });
+
+    if (recipients.length === 0) {
+      updateAnnouncement(announcement.id, { status: "draft" });
+      return fail(
+        res,
+        409,
+        "NO_RECIPIENTS",
+        "There are no customers matching that audience, so nothing was sent.",
+      );
+    }
+
+    let delivery;
+    try {
+      delivery = deliverAnnouncement({
+        announcementId: announcement.id,
+        userIds: recipients,
+        title,
+        body,
+      });
+    } catch (error) {
+      updateAnnouncement(announcement.id, { status: "failed" });
+      recordAdminActivity(req, req.user, {
+        action: "announcement.failed",
+        actionLabel: "Announcement delivery failed",
+        targetType: "announcement",
+        targetId: announcement.id,
+        targetLabel: title,
+        detail: String(error?.message || error),
+        status: "failed",
+      });
+      return fail(
+        res,
+        500,
+        "DELIVERY_FAILED",
+        "The notifications could not be created. Nothing was sent - please try again.",
+      );
+    }
+
+    recordAdminActivity(req, req.user, {
+      action: "announcement.sent",
+      actionLabel: "Announcement sent",
+      targetType: "announcement",
+      targetId: announcement.id,
+      targetLabel: title,
+      detail: `${delivery.created} notification(s) created for ${delivery.recipientCount} recipient(s), ${delivery.failed} failed.`,
+    });
+
+    // Honest wording: a row in `notifications` means CREATED and waiting in the
+    // customer's Notifications page. It is not a read receipt.
+    return res.status(201).json({
+      announcement: getAnnouncement(announcement.id),
+      delivery: {
+        ...delivery,
+        createdLabel:
+          "Notifications created - they now appear in each customer's Notifications page.",
+      },
+    });
+  },
+);
+
+app.put(
+  "/api/admin/announcements/:id",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const current = getAnnouncement(req.params.id);
+    if (!current) return fail(res, 404, "NOT_FOUND", "That announcement does not exist.");
+    if (current.status === "sent") {
+      return fail(
+        res,
+        409,
+        "ALREADY_SENT",
+        "A sent announcement cannot be edited. Send a new one instead.",
+      );
+    }
+    const title = req.body.title !== undefined ? String(req.body.title).trim() : undefined;
+    const body = req.body.body !== undefined ? String(req.body.body).trim() : undefined;
+    if (title !== undefined && !title) {
+      return fail(res, 400, "TITLE_REQUIRED", "Give the announcement a title.");
+    }
+    const updated = updateAnnouncement(req.params.id, {
+      title,
+      body,
+      audience: req.body.audience,
+      selectedUserIds: req.body.selectedUserIds,
+    });
+    recordAdminActivity(req, req.user, {
+      action: "announcement.draft_updated",
+      actionLabel: "Announcement draft updated",
+      targetType: "announcement",
+      targetId: updated.id,
+      targetLabel: updated.title,
+    });
+    return res.json({ announcement: updated });
+  },
+);
+
+app.delete(
+  "/api/admin/announcements/:id",
+  authMiddleware,
+  adminMiddleware,
+  (req, res) => {
+    const current = getAnnouncement(req.params.id);
+    if (!current) return fail(res, 404, "NOT_FOUND", "That announcement does not exist.");
+    if (current.status !== "draft") {
+      return fail(
+        res,
+        409,
+        "NOT_A_DRAFT",
+        "Only drafts can be deleted. A sent announcement is part of the record.",
+      );
+    }
+    deleteDraftAnnouncement(current.id);
+    recordAdminActivity(req, req.user, {
+      action: "announcement.draft_deleted",
+      actionLabel: "Announcement draft deleted",
+      targetType: "announcement",
+      targetId: current.id,
+      targetLabel: current.title,
+    });
+    return res.json({ ok: true });
+  },
+);
+
+/* ---- Customer notifications (the recipient's side of an announcement) ---- */
+
+app.get("/api/notifications", authMiddleware, (req, res) => {
+  const items = listNotificationsForUser(req.user.id, {
+    limit: req.query.limit,
+  });
+  return res.json({
+    items,
+    unreadCount: items.filter((item) => !item.read).length,
+  });
+});
+
+app.post("/api/notifications/:id/read", authMiddleware, (req, res) => {
+  markNotificationRead(req.user.id, req.params.id);
+  const items = listNotificationsForUser(req.user.id, { limit: 100 });
+  return res.json({
+    ok: true,
+    unreadCount: items.filter((item) => !item.read).length,
+  });
+});
+
+app.post("/api/notifications/read-all", authMiddleware, (req, res) =>
+  res.json({ ok: true, updated: markAllNotificationsReadForUser(req.user.id) }),
+);
+
+/* ---- Activity log -------------------------------------------------------- */
+
+app.get("/api/admin/activity-logs", authMiddleware, adminMiddleware, (req, res) => {
+  const { limit, offset } = pagination(req);
+  const result = listActivityLogs({
+    search: querySearch(req),
+    actorId: String(req.query.actorId || ""),
+    action: String(req.query.action || ""),
+    status: String(req.query.status || ""),
+    from: String(req.query.from || ""),
+    to: String(req.query.to || ""),
+    limit,
+    offset,
+  });
+  return res.json({
+    ...result,
+    stats: getActivityLogStats(),
+    actors: listActivityActors(),
+  });
+});
+
+/* ---- Settings: profile, preferences, security, privacy, system ---------- */
+
+app.get("/api/admin/settings", authMiddleware, adminMiddleware, (req, res) => {
+  const user = getUserById(req.user.id);
+  const paymentSummary = getAdminPaymentSummary();
+  const paymentProvider = describeNeuraPayConfig();
+  const provider = providerStatus();
+
+  let database = { connected: false, path: "", users: 0 };
+  try {
+    const row = db.prepare("SELECT COUNT(*) AS c FROM users").get();
+    database = {
+      connected: true,
+      path: DATABASE_PATH,
+      users: Number(row?.c || 0),
+    };
+  } catch (error) {
+    database = {
+      connected: false,
+      path: DATABASE_PATH,
+      users: 0,
+      error: String(error?.message || error),
+    };
+  }
+
+  return res.json({
+    profile: {
+      id: user.id,
+      fullName: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      avatar: user.profileData?.avatar || null,
+      emailVerified: Boolean(user.emailVerifiedAt),
+      createdAt: user.createdAt,
+    },
+    preferences: {
+      theme: "light",
+      sidebarCollapsed: false,
+      interfaceScale: 100,
+      tableDensity: "comfortable",
+      twoFactorEnabled: false,
+      securityAlerts: true,
+      ...(user.preferences || {}),
+    },
+    sessions: listUserSessions(user.id).map((session) => ({
+      ...session,
+      current: session.id === req.sessionId,
+    })),
+    security: {
+      twoFactorAvailable: false,
+      twoFactorEnabled: Boolean(user.preferences?.twoFactorEnabled),
+      passwordChangedAt: null,
+      recentLogins: listActivityLogs({
+        actorId: user.id,
+        limit: 10,
+        offset: 0,
+      }).items,
+    },
+    payments: {
+      provider: paymentProvider.name || "NeuraPay",
+      mode: paymentProvider.mode,
+      configured: paymentProvider.configured,
+      missing: paymentProvider.missing || [],
+      webhooks: paymentSummary.webhooks,
+      accounts: paymentSummary.accounts,
+      deposits: paymentSummary.deposits,
+    },
+    system: {
+      server: {
+        ok: true,
+        node: process.version,
+        uptimeSeconds: Math.round(process.uptime()),
+      },
+      database,
+      inventoryProvider: provider,
+      paymentProvider: {
+        name: paymentProvider.name || "NeuraPay",
+        configured: paymentProvider.configured,
+        mode: paymentProvider.mode,
+      },
+      maintenanceMode: Boolean(user.preferences?.maintenanceMode),
+      checkedAt: new Date().toISOString(),
+    },
+  });
+});
+
+app.put("/api/admin/settings/profile", authMiddleware, adminMiddleware, (req, res) => {
+  const name = String(req.body.fullName || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const avatar = req.body.avatar === undefined ? undefined : String(req.body.avatar);
+
+  if (name.length < 2 || name.length > 80) {
+    return fail(
+      res,
+      400,
+      "INVALID_NAME",
+      "Full name must be between 2 and 80 characters.",
+    );
+  }
+  if (phone && !/^\+?[0-9][0-9\s()-]{6,19}$/.test(phone)) {
+    return fail(res, 400, "INVALID_PHONE", "Enter a valid phone number.");
+  }
+  if (avatar !== undefined && avatar.length > 400_000) {
+    return fail(
+      res,
+      400,
+      "AVATAR_TOO_LARGE",
+      "That image is too large. Choose one under 300 KB.",
+    );
+  }
+  const phoneOwner = getUserByPhone(phone);
+  if (phoneOwner && phoneOwner.id !== req.user.id) {
+    return fail(
+      res,
+      409,
+      "PHONE_ALREADY_EXISTS",
+      "That phone number belongs to another account.",
+    );
+  }
+  const email = String(req.body.email || "").trim().toLowerCase();
+  if (email && email !== String(req.user.email || "").toLowerCase()) {
+    return fail(
+      res,
+      409,
+      "EMAIL_CHANGE_NOT_ALLOWED",
+      "The sign-in email is tied to this account's history and cannot be changed here. Contact a super administrator to move the account.",
+    );
+  }
+
+  const updated = updateUserContact({ userId: req.user.id, name, phone, avatar });
+  recordAdminActivity(req, req.user, {
+    action: "profile.updated",
+    actionLabel: "Administrator profile updated",
+    targetType: "user",
+    targetId: req.user.id,
+    targetLabel: updated.email,
+  });
+  return res.json({ ok: true, profile: safeUser(updated) });
+});
+
+app.put("/api/admin/settings/preferences", authMiddleware, adminMiddleware, (req, res) => {
+  const allowed = {
+    theme: ["light", "dark"],
+    tableDensity: ["comfortable", "compact"],
+  };
+  const patch = {};
+
+  for (const key of ["theme", "tableDensity"]) {
+    if (req.body[key] === undefined) continue;
+    const value = String(req.body[key]);
+    if (!allowed[key].includes(value)) {
+      return fail(res, 400, "INVALID_PREFERENCE", `Invalid ${key}.`);
+    }
+    patch[key] = value;
+  }
+  if (req.body.sidebarCollapsed !== undefined) {
+    patch.sidebarCollapsed = Boolean(req.body.sidebarCollapsed);
+  }
+  if (req.body.interfaceScale !== undefined) {
+    const scale = Number(req.body.interfaceScale);
+    if (![90, 100, 110, 125].includes(scale)) {
+      return fail(
+        res,
+        400,
+        "INVALID_PREFERENCE",
+        "Choose an interface scale of 90%, 100%, 110% or 125%.",
+      );
+    }
+    patch.interfaceScale = scale;
+  }
+  for (const key of ["twoFactorEnabled", "securityAlerts", "maintenanceMode"]) {
+    if (req.body[key] !== undefined) patch[key] = Boolean(req.body[key]);
+  }
+
+  const preferences = updateUserPreferences(req.user.id, patch);
+  if (patch.twoFactorEnabled !== undefined) {
+    recordAdminActivity(req, req.user, {
+      action: "security.two_factor_changed",
+      actionLabel: patch.twoFactorEnabled
+        ? "Two-factor authentication enabled"
+        : "Two-factor authentication disabled",
+      targetType: "user",
+      targetId: req.user.id,
+      targetLabel: req.user.email,
+    });
+  }
+  if (patch.maintenanceMode !== undefined) {
+    recordAdminActivity(req, req.user, {
+      action: "system.maintenance_mode",
+      actionLabel: patch.maintenanceMode
+        ? "Maintenance mode enabled"
+        : "Maintenance mode disabled",
+      targetType: "system",
+      targetLabel: "Storefront",
+    });
+  }
+  return res.json({ ok: true, preferences });
+});
+
+app.delete("/api/admin/settings/sessions", authMiddleware, adminMiddleware, (req, res) => {
+  const removed = deleteOtherSessions(req.user.id, req.sessionId);
+  recordAdminActivity(req, req.user, {
+    action: "security.other_sessions_ended",
+    actionLabel: "Other sessions signed out",
+    targetType: "user",
+    targetId: req.user.id,
+    targetLabel: req.user.email,
+    detail: `${removed} session(s) ended.`,
+  });
+  return res.json({ ok: true, removed });
+});
+
+app.delete("/api/admin/settings/sessions/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const removed = deleteSessionById(req.user.id, req.params.id);
+  if (!removed) {
+    return fail(res, 404, "NOT_FOUND", "That session is no longer active.");
+  }
+  recordAdminActivity(req, req.user, {
+    action: "security.session_revoked",
+    actionLabel: "Session terminated",
+    targetType: "user",
+    targetId: req.user.id,
+    targetLabel: req.user.email,
+  });
+  return res.json({ ok: true });
 });
 
 /* ------------------------------------------------------------------ *
@@ -1682,6 +2823,20 @@ async function quotePurchasePrice({
     };
   }
 
+  // An administrator can switch a whole service off from the admin console.
+  // The Buy page hides it, and this keeps a stale tab or a direct API call from
+  // buying it anyway.
+  if (getServiceAvailability().get(serviceId) === false) {
+    return {
+      error: {
+        status: 409,
+        code: "SERVICE_DISABLED",
+        message:
+          "That service is not available right now. Please choose another.",
+      },
+    };
+  }
+
   // Variants live under the card's CATALOGUE service: "gmail" is sold from the
   // google_* variants because ACC has no gmail entry, so looking up the body's
   // id directly would report every Gmail offer as unavailable.
@@ -1707,6 +2862,7 @@ async function quotePurchasePrice({
     cost: variant.cost,
     serviceId,
     variantId: variant.variantId,
+    countrySlug,
   });
   if (!priced) {
     return {
@@ -3012,7 +4168,7 @@ app.get("/api/prices/audit", (req, res) => {
         if (!info || typeof info !== "object") continue;
         if (!(Number(info.count) > 0)) continue;
         const priced = priceVariant(
-          { cost: info.cost, serviceId, variantId },
+          { cost: info.cost, serviceId, variantId, countrySlug: slug },
           pricing,
         );
         if (!priced) continue;
@@ -3125,6 +4281,11 @@ app.get("/api/prices", async (req, res) => {
     const pricing = getPricingConfig();
     const cards = Object.entries(SELLABLE_SERVICES);
 
+    // A service an administrator switched off on the Numbers Inventory screen
+    // must not be buyable, so it is priced as unavailable below. The lookup is
+    // one small table read per request.
+    const availability = getServiceAvailability();
+
     // country -> card -> variant -> priced entry. Cards borrow the catalogue
     // service that holds their variants ("gmail" -> "google"), and each card is
     // priced by ITS OWN tiers so two cards never show the same price by accident.
@@ -3144,14 +4305,16 @@ app.get("/api/prices", async (req, res) => {
           if (!(Number(info.count) > 0)) continue;
 
           const quote = priceVariant(
-            { cost: info.cost, serviceId: cardId, variantId },
+            { cost: info.cost, serviceId: cardId, variantId, countrySlug: slug },
             pricing,
           );
           // Not sellable here (unpriced card, or cost too high). There is no
           // honest price to show, so no price is invented.
           if (!quote) continue;
 
-          const sellable = quote.status !== "below-min-profit";
+          const sellable =
+            quote.status !== "below-min-profit" &&
+            availability.get(cardId) !== false;
           const bucket = (priced[slug] ||= Object.create(null));
           const card = (bucket[cardId] ||= Object.create(null));
           card[variantId] = {
@@ -3160,7 +4323,11 @@ app.get("/api/prices", async (req, res) => {
             price: sellable ? quote.price : null,
             profit: sellable ? quote.profit : null,
             tier: quote.tierKey,
-            blocked: sellable ? null : quote.note,
+            blocked: sellable
+              ? null
+              : availability.get(cardId) === false
+                ? "This service is currently switched off."
+                : quote.note,
           };
         }
       }
@@ -3176,6 +4343,7 @@ app.get("/api/prices", async (req, res) => {
     const sold = Object.create(null);
     for (const bucket of Object.values(priced)) {
       for (const [cardId, variants] of Object.entries(bucket)) {
+        if (availability.get(cardId) === false) continue;
         for (const variant of Object.values(variants)) {
           if (variant.blocked) continue;
           const current = sold[cardId];
@@ -3461,6 +4629,9 @@ function warmPricesCache() {
         payload && typeof payload === "object"
           ? Object.keys(payload).length
           : 0;
+      // Inventory rows show a country NAME, so build the label table as soon as
+      // the catalogue is in memory instead of on the first admin request.
+      refreshCountryLabels();
       console.log(
         `[panda-server] price catalogue cached (${countries} countries)`,
       );

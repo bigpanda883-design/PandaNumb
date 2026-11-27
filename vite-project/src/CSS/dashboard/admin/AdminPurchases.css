@@ -1,0 +1,70 @@
+/**
+ * AdminPurchases.jsx -> /admin/purchases
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-purchases-page` ONLY.
+ */
+.admin-purchases-page {
+  --pur-radius: var(--admin-radius, 12px);
+  --pur-border: var(--admin-line, #edf1f7);
+  --pur-card-bg: var(--admin-surface, #fff);
+  --pur-th-font: 9px;
+  --pur-td-font: 11px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-purchases-page .admin-panel {
+  border-radius: var(--pur-radius);
+  border-color: var(--pur-border);
+  background: var(--pur-card-bg);
+}
+
+.admin-purchases-page .admin-panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.admin-purchases-page .admin-table thead th {
+  font-size: var(--pur-th-font);
+  letter-spacing: 0.5px;
+}
+
+.admin-purchases-page .admin-table tbody td {
+  font-size: var(--pur-td-font);
+}
+
+.admin-purchases-page .admin-table tbody tr:hover td {
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-purchases-page .admin-amount,
+.admin-purchases-page td strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* status cell */
+.admin-purchases-page .admin-status-tag.is-delivered {
+  background: var(--admin-green-tone, #e3f8ed);
+  color: var(--admin-green-ink, #087c50);
+}
+
+.admin-purchases-page .admin-status-tag.is-pending {
+  background: var(--admin-amber-tone, #fff4df);
+  color: var(--admin-amber-ink, #a66508);
+}
+
+.admin-purchases-page .admin-status-tag.is-failed {
+  background: var(--admin-red-tone, #ffebeb);
+  color: var(--admin-red-ink, #b83232);
+}
+
+@media (max-width: 760px) {
+  .admin-purchases-page .admin-table tbody td {
+    font-size: 10px;
+  }
+}

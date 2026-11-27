@@ -1,0 +1,166 @@
+/**
+ * AdminAnnouncements.jsx -> /admin/announcements
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-announcements-page` ONLY.
+ */
+.admin-announcements-page {
+  --ann-radius: var(--admin-radius, 12px);
+  --ann-border: var(--admin-line, #edf1f7);
+  --ann-card-bg: var(--admin-surface, #fff);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+.admin-announcements-page .admin-panel,
+.admin-announcements-page .admin-stat-card {
+  border-radius: var(--ann-radius);
+  border-color: var(--ann-border);
+  background: var(--ann-card-bg);
+}
+
+/* composer */
+.admin-announcements-page .admin-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-announcements-page .admin-composer textarea {
+  min-height: 120px;
+}
+
+.admin-announcements-page .admin-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-announcements-page .admin-counter {
+  color: var(--admin-muted, #7c899e);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-announcements-page .admin-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-announcements-page .admin-choice-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--ann-border);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-announcements-page .admin-choice-row label:has(input:checked) {
+  border-color: var(--admin-blue, #1767ff);
+  background: var(--admin-blue-soft, #edf4ff);
+  color: var(--admin-blue, #1767ff);
+}
+
+/* delivery result */
+.admin-announcements-page .admin-delivery-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--admin-green-tone, #e3f8ed);
+  color: var(--admin-green-ink, #087c50);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* list */
+.admin-announcements-page .admin-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-announcements-page .admin-timeline > li {
+  padding: 12px 14px;
+  border: 1px solid var(--ann-border);
+  border-radius: calc(var(--ann-radius) - 2px);
+  background: var(--admin-surface-3, #f9fbfd);
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.admin-announcements-page .admin-timeline > li:hover {
+  border-color: var(--admin-blue, #1767ff);
+  transform: translateX(2px);
+}
+
+.admin-announcements-page .admin-timeline h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.admin-announcements-page .admin-timeline p {
+  margin: 0 0 8px;
+  color: var(--admin-ink-2, #536176);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.admin-announcements-page .admin-timeline footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+}
+
+.admin-announcements-page .admin-preview-card {
+  padding: 14px;
+  border-radius: calc(var(--ann-radius) - 2px);
+  background: linear-gradient(120deg, #1b5fff, #276df1);
+  color: #fff;
+}
+
+.admin-announcements-page .admin-preview-card h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.admin-announcements-page .admin-preview-card p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: pre-wrap;
+}
+
+.admin-announcements-page .admin-preview-tag {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+html[data-theme="dark"] .admin-announcements-page .admin-timeline > li {
+  background: var(--admin-surface-2, #17233a);
+}

@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import App from "../App";
 import DashboardLayout from "../components/DashboardLayout";
 import ActiveSMS from "../pages/ActiveSMS";
-import AdminPayments from "../pages/AdminPayments";
 import Buy from "../pages/Buy";
 import DashboardHome from "../pages/DashboardHome";
 import Deposit from "../pages/Deposit";
@@ -20,7 +19,19 @@ import NotFound from "../pages/NotFound";
 import ScrollToTop from "../components/ScrollToTop";
 import ProtectedRoute from "./ProtectedRoute";
 import ProtectedAdminRoute from "./ProtectedAdminRoute";
-import AdminManagement from "../pages/AdminManagement";
+import AdminLayout from "../pages/admin/AdminLayout";
+import AdminDashboard from "../pages/admin/AdminDashboard";
+import UsersPage from "../pages/admin/UsersPage";
+import PurchasesPage from "../pages/admin/PurchasesPage";
+import TransactionsPage from "../pages/admin/TransactionsPage";
+import InventoryPage from "../pages/admin/InventoryPage";
+import PaymentsPage from "../pages/admin/PaymentsPage";
+import StaffPage from "../pages/admin/StaffPage";
+import AnnouncementsPage from "../pages/admin/AnnouncementsPage";
+import SupportPage from "../pages/admin/SupportPage";
+import ActivityLogsPage from "../pages/admin/ActivityLogsPage";
+import SettingsPage from "../pages/admin/SettingsPage";
+import NotificationsPage from "../pages/admin/NotificationsPage";
 
 function AppRoutes() {
   return (
@@ -35,26 +46,49 @@ function AppRoutes() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/help" element={<Navigate to="/help-center" replace />} />
         <Route element={<ProtectedAdminRoute />}>
-          <Route path="/admin/dashboard" element={<AdminPayments />} />
-          <Route path="/admin/payments" element={<AdminManagement />} />
-          <Route path="/admin/users" element={<AdminManagement />} />
-          <Route path="/admin/users/:id" element={<AdminManagement />} />
-          <Route path="/admin/purchases" element={<AdminManagement />} />
-          <Route path="/admin/purchases/:id" element={<AdminManagement />} />
-          <Route path="/admin/transactions" element={<AdminManagement />} />
-          <Route path="/admin/transactions/:id" element={<AdminManagement />} />
-          <Route path="/admin/inventory" element={<AdminManagement />} />
-          <Route path="/admin/staff" element={<AdminManagement />} />
-          <Route path="/admin/staff/:id" element={<AdminManagement />} />
-          <Route path="/admin/announcements" element={<AdminManagement />} />
-          <Route path="/admin/support" element={<AdminManagement />} />
-          <Route path="/admin/support/:id" element={<AdminManagement />} />
-          <Route path="/admin/reports" element={<AdminManagement />} />
-          <Route path="/admin/referrals" element={<AdminManagement />} />
-          <Route path="/admin/activity-logs" element={<AdminManagement />} />
-          <Route path="/admin/settings" element={<AdminManagement />} />
-          <Route path="/admin/profile" element={<AdminManagement />} />
-          <Route path="/admin/notifications" element={<AdminManagement />} />
+          {/* One shared shell for every admin page, one page component per route. */}
+          <Route element={<AdminLayout />}>
+            <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<UsersPage />} />
+            <Route path="/admin/users/:id" element={<UsersPage />} />
+            <Route path="/admin/purchases" element={<PurchasesPage />} />
+            <Route path="/admin/transactions" element={<TransactionsPage />} />
+            <Route path="/admin/inventory" element={<InventoryPage />} />
+            <Route path="/admin/payments" element={<PaymentsPage />} />
+            <Route path="/admin/staff" element={<StaffPage />} />
+            <Route
+              path="/admin/announcements"
+              element={<AnnouncementsPage />}
+            />
+            <Route path="/admin/support" element={<SupportPage />} />
+            <Route
+              path="/admin/activity-logs"
+              element={<ActivityLogsPage />}
+            />
+            <Route path="/admin/settings" element={<SettingsPage />} />
+            <Route
+              path="/admin/notifications"
+              element={<NotificationsPage />}
+            />
+            {/* Legacy links keep working: /admin/profile is Settings, and the
+                two retired modules bounce to the page that covers them. */}
+            <Route path="/admin/profile" element={<SettingsPage />} />
+            <Route
+              path="/admin/reports"
+              element={<Navigate to="/admin/dashboard" replace />}
+            />
+            <Route
+              path="/admin/referrals"
+              element={<Navigate to="/admin/users" replace />}
+            />
+            {/* Anything else under /admin falls back to the Overview, so no
+                admin link can ever land on a blank screen. */}
+            <Route
+              path="/admin/*"
+              element={<Navigate to="/admin/dashboard" replace />}
+            />
+          </Route>
         </Route>
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>

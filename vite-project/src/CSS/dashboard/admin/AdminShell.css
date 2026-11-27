@@ -1,0 +1,744 @@
+   /* =============================================================================
+   Panda Number - Admin design system
+   -----------------------------------------------------------------------------
+   Every value in the block below was taken from the approved Overview page
+   (AdminPayments.css): 250px sidebar, 78px header, #1767ff primary, #f6f8fc
+   canvas, #edf1f7 hairlines, 12px card radius, 0 3px 12px rgba(28,44,78,.025)
+   card shadow. Each admin page imports admin.css, which imports this file, so
+   the console shares ONE design system instead of ten near-copies.
+
+   Dark mode lives at the bottom as html[data-theme="dark"] overrides of the same
+   variables - no page needs its own dark stylesheet.
+   ========================================================================== */
+
+.admin-dashboard-shell {
+  /* Design tokens. The `--admin-*` names are the public contract that every
+     page stylesheet (AdminUsers.css, AdminPayments.css, ...) reads, so a page
+     can restyle itself while staying on-brand. */
+  --blue: #1767ff;
+  --blue-strong: #0f57e6;
+  --blue-soft: #edf4ff;
+  --ink: #172033;
+  --ink-2: #536176;
+  --muted: #7c899e;
+  --line: #edf1f7;
+  --line-soft: #f1f4f8;
+  --surface: #fff;
+  --surface-2: #f8fafc;
+  --surface-3: #f9fbfd;
+  --canvas: #f6f8fc;
+  --green: #17a76b;
+  --green-tone: #e3f7ed;
+  --green-ink: #087c50;
+  --amber: #ec9a35;
+  --amber-tone: #fff4df;
+  --amber-ink: #a66508;
+  --red: #ef3f67;
+  --red-tone: #ffebeb;
+  --red-ink: #b83232;
+  --purple-tone: #f1edff;
+  --purple-ink: #7956db;
+  --orange-tone: #fff1df;
+  --orange-ink: #ec9a35;
+  --shadow-card: 0 3px 12px rgba(28, 44, 78, 0.025);
+  --shadow-pop: 0 18px 44px rgba(15, 23, 42, 0.16);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --sidebar-width: 250px;
+  --header-height: 78px;
+  --font:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+
+  --admin-blue: var(--blue);
+  --admin-blue-soft: var(--blue-soft);
+  --admin-ink: var(--ink);
+  --admin-ink-2: var(--ink-2);
+  --admin-muted: var(--muted);
+  --admin-line: var(--line);
+  --admin-line-soft: var(--line-soft);
+  --admin-surface: var(--surface);
+  --admin-surface-2: var(--surface-2);
+  --admin-surface-3: var(--surface-3);
+  --admin-canvas: var(--canvas);
+  --admin-green: var(--green);
+  --admin-green-tone: var(--green-tone);
+  --admin-green-ink: var(--green-ink);
+  --admin-amber: var(--amber);
+  --admin-amber-tone: var(--amber-tone);
+  --admin-amber-ink: var(--amber-ink);
+  --admin-red: var(--red);
+  --admin-red-tone: var(--red-tone);
+  --admin-red-ink: var(--red-ink);
+  --admin-red-soft: #fff8f8;
+  --admin-purple-tone: var(--purple-tone);
+  --admin-purple-ink: var(--purple-ink);
+  --admin-orange-tone: var(--orange-tone);
+  --admin-orange-ink: var(--orange-ink);
+  --admin-radius: var(--radius);
+  --admin-radius-sm: var(--radius-sm);
+  --admin-shadow-card: var(--shadow-card);
+  --admin-shadow-pop: var(--shadow-pop);
+  --admin-shadow-hover: 0 10px 24px rgba(28, 44, 78, 0.08);
+
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fallback tokens for the split second before the shell is mounted (the
+   protected-route gate renders nothing, but keeps variables defined). */
+:root {
+  --admin-shadow-hover: 0 10px 24px rgba(28, 44, 78, 0.08);
+  --admin-red-soft: #fff8f8;
+}
+
+.admin-dashboard-shell *,
+.admin-dashboard-shell *::before,
+.admin-dashboard-shell *::after {
+  box-sizing: border-box;
+}
+
+/* -----------------------------------------------------------------------------
+   Sidebar
+   -------------------------------------------------------------------------- */
+.admin-dashboard-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.admin-side-brand {
+  min-height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-side-logo {
+  width: 43px;
+  height: 43px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 23px;
+  font-weight: 900;
+  box-shadow: 0 8px 16px rgba(23, 103, 255, 0.18);
+}
+
+.admin-side-brand-text {
+  min-width: 0;
+}
+
+.admin-side-brand strong,
+.admin-side-brand span {
+  display: block;
+}
+
+.admin-side-brand strong {
+  color: var(--ink);
+  font-size: 15px;
+  letter-spacing: -0.2px;
+}
+
+.admin-side-brand span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.admin-side-brand span svg {
+  width: 11px;
+  height: 11px;
+  color: #f3ad25;
+}
+
+.admin-side-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.admin-side-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px 8px;
+  scrollbar-width: thin;
+}
+
+.admin-side-nav p {
+  margin: 12px 12px 7px;
+  color: #a1aaba;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.admin-side-item {
+  position: relative;
+  width: 100%;
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 2px 0;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.admin-side-item svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  transition: transform 0.18s ease;
+}
+
+.admin-side-item:hover {
+  background: #f4f7fd;
+  color: var(--blue);
+  transform: translateX(2px);
+}
+
+.admin-side-item:hover svg {
+  transform: scale(1.06);
+}
+
+.admin-side-item.active {
+  background: var(--blue);
+  color: #fff;
+  font-weight: 750;
+  box-shadow: 0 8px 16px rgba(23, 103, 255, 0.15);
+  transform: none;
+}
+
+.admin-side-badge {
+  margin-left: auto;
+  min-width: 19px;
+  height: 19px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #fff1f3;
+  color: #d4274c;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.admin-side-item.active .admin-side-badge {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+.admin-side-foot {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-side-logout {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #68768b;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.admin-side-logout svg {
+  width: 17px;
+  height: 17px;
+}
+
+.admin-side-logout:hover {
+  background: var(--red-tone);
+  color: var(--red-ink);
+}
+
+.admin-mobile-overlay {
+  display: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Header + content frame
+   -------------------------------------------------------------------------- */
+.admin-dashboard-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-dashboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 31px;
+  border-bottom: 1px solid var(--line);
+  background: var(--header-bg, rgba(255, 255, 255, 0.96));
+  backdrop-filter: saturate(160%) blur(10px);
+}
+
+.admin-header-title span,
+.admin-header-title strong {
+  display: block;
+}
+
+.admin-header-title span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-header-title strong {
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.admin-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-header-icon,
+.admin-menu-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.admin-header-icon {
+  position: relative;
+  width: 37px;
+  height: 37px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: #69778b;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.admin-header-icon:hover {
+  border-color: #d6e4ff;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.admin-header-icon span {
+  position: absolute;
+  top: -3px;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  padding: 0 3px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.admin-profile-button {
+  height: 37px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 4px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease;
+}
+
+.admin-profile-button:hover {
+  box-shadow: 0 0 0 3px rgba(23, 103, 255, 0.1);
+}
+
+.admin-profile-button::before {
+  content: attr(data-initials);
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #d8e7ff;
+  color: #3d78ce;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+}
+
+.admin-menu-button {
+  display: none;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.admin-dashboard-content {
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 24px 28px 32px;
+}
+
+.admin-dashboard-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 2px 0;
+  color: #98a3b2;
+  font-size: 10px;
+}
+
+/* -----------------------------------------------------------------------------
+   Motion
+   -------------------------------------------------------------------------- */
+@keyframes adminFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes adminFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes adminPop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes adminSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes adminShimmer {
+  from {
+    background-position: -420px 0;
+  }
+  to {
+    background-position: 420px 0;
+  }
+}
+
+/* Shared page-entry animation. Page stylesheets reference this keyframe with
+   their own animation shorthand (e.g. `animation: adminPageEnter .3s both`). */
+@keyframes adminPageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-page-enter {
+  animation: adminFadeUp 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+}
+
+.admin-page-enter > * {
+  animation: adminFadeUp 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+.admin-spin {
+  animation: adminSpin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-dashboard-shell *,
+  .admin-dashboard-shell *::before,
+  .admin-dashboard-shell *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   Responsive frame
+   -------------------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .admin-dashboard-shell {
+    --sidebar-width: 214px;
+  }
+  .admin-dashboard-content {
+    padding: 20px 20px 28px;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-dashboard-shell {
+    display: block;
+  }
+
+  .admin-dashboard-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 260px;
+    max-width: 84vw;
+    height: 100vh;
+    height: 100dvh;
+    transform: translateX(-102%);
+    transition: transform 0.24s cubic-bezier(0.22, 0.8, 0.3, 1);
+    box-shadow: 0 0 0 rgba(15, 23, 42, 0);
+  }
+
+  .admin-dashboard-sidebar.open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-pop);
+  }
+
+  .admin-side-close {
+    display: inline-flex;
+  }
+
+  .admin-mobile-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    display: block;
+    border: 0;
+    background: rgba(15, 23, 42, 0.42);
+    animation: adminFadeIn 0.2s ease both;
+  }
+
+  .admin-dashboard-header {
+    height: 66px;
+    padding: 0 14px;
+  }
+
+  .admin-menu-button {
+    display: grid;
+  }
+
+  .admin-dashboard-content {
+    padding: 16px 14px 26px;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-profile-button {
+    width: 37px;
+    padding: 4px;
+    font-size: 0;
+  }
+  .admin-profile-button svg {
+    display: none;
+  }
+  .admin-header-title span {
+    display: none;
+  }
+  .admin-header-title strong {
+    font-size: 14px;
+  }
+  .admin-dashboard-footer {
+    display: none;
+  }
+}
+
+/* =============================================================================
+   DARK MODE - one place, every page follows
+   ========================================================================== */
+html[data-theme="dark"] .admin-dashboard-shell {
+  --blue: #3b82f6;
+  --blue-strong: #2563eb;
+  --blue-soft: rgba(59, 130, 246, 0.14);
+  --ink: #e6edfa;
+  --ink-2: #b3c0d4;
+  --muted: #8b9bb4;
+  --line: #243149;
+  --line-soft: #1d283a;
+  --surface: #121c2d;
+  --surface-2: #17233a;
+  --surface-3: #162234;
+  --canvas: #0b1120;
+  --header-bg: rgba(13, 19, 33, 0.92);
+  --green-tone: rgba(23, 167, 107, 0.16);
+  --green-ink: #5fdc9f;
+  --amber-tone: rgba(236, 154, 53, 0.16);
+  --amber-ink: #f5c173;
+  --red-tone: rgba(239, 63, 103, 0.16);
+  --red-ink: #ff8ba2;
+  --purple-tone: rgba(121, 86, 219, 0.2);
+  --purple-ink: #b7a4ff;
+  --orange-tone: rgba(236, 154, 53, 0.16);
+  --shadow-card: 0 3px 14px rgba(0, 0, 0, 0.22);
+  --shadow-pop: 0 24px 60px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .admin-dashboard-sidebar,
+html[data-theme="dark"] .admin-dashboard-header {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+html[data-theme="dark"] .admin-dashboard-header {
+  background: var(--header-bg);
+}
+
+html[data-theme="dark"] .admin-side-item {
+  color: #a9b7cc;
+}
+
+html[data-theme="dark"] .admin-side-item:hover {
+  background: #1a2740;
+  color: #8ec1ff;
+}
+
+html[data-theme="dark"] .admin-side-item.active {
+  background: #1d6bff;
+  color: #fff;
+}
+
+html[data-theme="dark"] .admin-side-item.active .admin-side-badge {
+  background: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+
+html[data-theme="dark"] .admin-side-badge {
+  background: rgba(239, 63, 103, 0.22);
+  color: #ff9fb2;
+}
+
+html[data-theme="dark"] .admin-side-nav p {
+  color: #6f7f97;
+}
+
+html[data-theme="dark"] .admin-side-logout {
+  color: #a4b2c8;
+}
+
+html[data-theme="dark"] .admin-side-close,
+html[data-theme="dark"] .admin-menu-button {
+  background: #17233a;
+  color: #dbe6f7;
+}
+
+html[data-theme="dark"] .admin-header-icon {
+  background: #16233a;
+  border-color: #2a3750;
+  color: #a9b7cc;
+}
+
+html[data-theme="dark"] .admin-header-icon:hover {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: #2b4b78;
+  color: #8ec1ff;
+}
+
+html[data-theme="dark"] .admin-header-icon span {
+  border-color: #121c2d;
+}
+
+html[data-theme="dark"] .admin-profile-button {
+  background: rgba(59, 130, 246, 0.16);
+  color: #8ec1ff;
+}
+
+html[data-theme="dark"] .admin-profile-button::before {
+  background: #1d3a63;
+  color: #bfd8ff;
+}
+
+html[data-theme="dark"] .admin-dashboard-footer {
+  color: #6e7d95;
+}

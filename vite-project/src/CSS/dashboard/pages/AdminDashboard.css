@@ -1,0 +1,805 @@
+/**
+ * AdminDashboard.jsx -> /admin/dashboard  (Dashboard Overview)
+ * -----------------------------------------------------------------------------
+ * PAGE-ONLY stylesheet. Every selector starts with `.admin-dashboard-page`,
+ * so editing this file can never touch Users, Payments, the sidebar or the
+ * header. The shell (sidebar / header / brand) lives in AdminShell.css.
+ *
+ * Edit these variables to restyle only this page:
+ *   --ov-canvas      page background
+ *   --ov-surface     card background
+ *   --ov-line        card border
+ *   --ov-radius      card radius
+ *   --ov-shadow      card shadow
+ *   --ov-hero-from   hero banner gradient start
+ *   --ov-hero-to     hero banner gradient end
+ *   --ov-th-font     table heading size
+ *   --ov-td-font     table cell size
+ */
+.admin-dashboard-page {
+  --ov-canvas: transparent;
+  --ov-surface: var(--admin-surface, #fff);
+  --ov-surface-2: var(--admin-surface-2, #f8fafc);
+  --ov-line: var(--admin-line, #edf1f7);
+  --ov-line-soft: var(--admin-line-soft, #f1f4f8);
+  --ov-ink: var(--admin-ink, #172033);
+  --ov-ink-2: var(--admin-ink-2, #536176);
+  --ov-muted: var(--admin-muted, #7c899e);
+  --ov-blue: var(--admin-blue, #1767ff);
+  --ov-radius: var(--admin-radius, 12px);
+  --ov-radius-sm: var(--admin-radius-sm, 8px);
+  --ov-shadow: var(--admin-shadow-card, 0 3px 12px rgba(28, 44, 78, 0.025));
+  --ov-hero-from: #1660ed;
+  --ov-hero-to: #2859cb;
+  --ov-th-font: 9px;
+  --ov-td-font: 10px;
+  --ov-gap: 12px;
+
+  display: block;
+  background: var(--ov-canvas);
+  color: var(--ov-ink);
+  animation: adminPageEnter 0.36s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+}
+
+/* ---------------------------------------------------------------- alert/state */
+.admin-dashboard-page .admin-dashboard-alert,
+.admin-dashboard-page .admin-access-state {
+  border: 1px solid var(--admin-red-tone, #f1d8dc);
+  border-radius: var(--ov-radius);
+  background: var(--admin-red-soft, #fff8f8);
+  color: var(--admin-red-ink, #9a3b47);
+}
+
+.admin-dashboard-page .admin-dashboard-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  font-size: 12px;
+}
+
+.admin-dashboard-page .admin-dashboard-alert button {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-dashboard-page .admin-access-state {
+  min-height: 440px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+  background: var(--ov-surface);
+}
+
+.admin-dashboard-page .admin-access-state > svg {
+  width: 44px;
+  height: 44px;
+}
+
+.admin-dashboard-page .admin-access-state h1 {
+  margin: 16px 0 8px;
+  font-size: 22px;
+}
+
+.admin-dashboard-page .admin-access-state p {
+  margin: 0;
+  color: var(--ov-muted, #7c899e);
+}
+
+.admin-dashboard-page .admin-access-state button {
+  margin-top: 16px;
+  border: 0;
+  border-radius: var(--ov-radius-sm);
+  padding: 10px 17px;
+  background: var(--ov-blue);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- hero banner */
+.admin-dashboard-page .admin-hero-banner {
+  min-height: 126px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 25px 30px;
+  border-radius: 13px;
+  background:
+    radial-gradient(
+      circle at 88% 0%,
+      rgba(255, 255, 255, 0.13) 0 16%,
+      transparent 17%
+    ),
+    linear-gradient(
+      115deg,
+      var(--ov-hero-from) 0%,
+      #1768ff 65%,
+      var(--ov-hero-to) 100%
+    );
+  color: #fff;
+  overflow: hidden;
+}
+
+.admin-dashboard-page .admin-hero-banner > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff1aa;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-dashboard-page .admin-hero-banner h1 {
+  margin: 7px 0 5px;
+  font-size: 27px;
+  letter-spacing: -0.7px;
+}
+
+.admin-dashboard-page .admin-hero-banner p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+}
+
+.admin-dashboard-page .admin-hero-banner > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--ov-radius-sm);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.admin-dashboard-page .admin-hero-banner > button:hover {
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.admin-dashboard-page .admin-hero-banner > button:disabled {
+  opacity: 0.65;
+  cursor: default;
+  transform: none;
+}
+
+/* ---------------------------------------------------------------- KPI cards */
+.admin-dashboard-page .admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ov-gap);
+  margin-bottom: 14px;
+}
+
+.admin-dashboard-page .admin-kpi-card {
+  min-height: 84px;
+  display: grid;
+  grid-template-columns: 43px minmax(0, 1fr);
+  align-items: center;
+  position: relative;
+  padding: 13px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius);
+  background: var(--ov-surface);
+  box-shadow: var(--ov-shadow);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.admin-dashboard-page .admin-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--admin-shadow-hover, 0 10px 24px rgba(28, 44, 78, 0.08));
+}
+
+.admin-dashboard-page .admin-kpi-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.admin-dashboard-page .admin-kpi-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-dashboard-page .admin-kpi-icon.blue {
+  background: var(--admin-blue-soft, #edf4ff);
+  color: #3579ef;
+}
+.admin-dashboard-page .admin-kpi-icon.green {
+  background: var(--admin-green-tone, #e3f8ed);
+  color: #20a66c;
+}
+.admin-dashboard-page .admin-kpi-icon.purple {
+  background: var(--admin-purple-tone, #f1edff);
+  color: var(--admin-purple-ink, #7956db);
+}
+.admin-dashboard-page .admin-kpi-icon.orange {
+  background: var(--admin-orange-tone, #fff1df);
+  color: var(--admin-orange-ink, #ec9a35);
+}
+
+.admin-dashboard-page .admin-kpi-card small,
+.admin-dashboard-page .admin-kpi-card strong {
+  display: block;
+}
+
+.admin-dashboard-page .admin-kpi-card small {
+  color: var(--ov-muted);
+  font-size: 10px;
+}
+
+.admin-dashboard-page .admin-kpi-card strong {
+  margin-top: 4px;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.admin-dashboard-page .admin-kpi-live {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  color: var(--admin-green, #17a76b);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- overview grid */
+.admin-dashboard-page .admin-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(240px, 0.85fr) 230px;
+  grid-template-areas:
+    "sales activity balance"
+    "sales activity actions";
+  gap: var(--ov-gap);
+  margin-bottom: 14px;
+}
+
+.admin-dashboard-page .admin-data-card,
+.admin-dashboard-page .admin-actions-card {
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius);
+  background: var(--ov-surface);
+  box-shadow: var(--ov-shadow);
+}
+
+.admin-dashboard-page .admin-sales-card {
+  grid-area: sales;
+  min-height: 260px;
+  padding: 14px;
+}
+
+.admin-dashboard-page .admin-activity-card {
+  grid-area: activity;
+  min-height: 260px;
+  padding: 14px;
+}
+
+.admin-dashboard-page .admin-balance-card {
+  grid-area: balance;
+  min-height: 125px;
+  position: relative;
+  padding: 18px;
+  border-radius: var(--ov-radius);
+  background: linear-gradient(120deg, #1b5fff, #276df1);
+  color: #fff;
+  overflow: hidden;
+}
+
+.admin-dashboard-page .admin-actions-card {
+  grid-area: actions;
+  min-height: 123px;
+  padding: 14px;
+}
+
+.admin-dashboard-page .admin-card-heading {
+  min-height: 36px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-dashboard-page .admin-card-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-dashboard-page .admin-card-heading h2,
+.admin-dashboard-page .admin-actions-card h2 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.admin-dashboard-page .admin-card-title-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--admin-blue-soft, #edf4ff);
+  color: var(--ov-blue);
+}
+
+.admin-dashboard-page .admin-card-title-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.admin-dashboard-page .admin-card-heading > strong {
+  color: #1d65c9;
+  font-size: 15px;
+}
+
+/* chart */
+.admin-dashboard-page .admin-chart {
+  height: 205px;
+  position: relative;
+  padding-top: 8px;
+}
+
+.admin-dashboard-page .admin-chart-grid {
+  position: absolute;
+  inset: 18px 0 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.admin-dashboard-page .admin-chart-grid i {
+  display: block;
+  border-top: 1px dashed var(--ov-line);
+}
+
+.admin-dashboard-page .admin-chart svg {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+}
+
+.admin-dashboard-page .admin-live-dot {
+  color: #20a66c;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.admin-dashboard-page .admin-live-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #20b77a;
+}
+
+/* recent activity list */
+.admin-dashboard-page .admin-activity-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-dashboard-page .admin-activity-row {
+  min-height: 43px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--ov-line-soft);
+}
+
+.admin-dashboard-page .admin-activity-row:last-child {
+  border-bottom: 0;
+}
+
+.admin-dashboard-page .admin-person-avatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--admin-blue-soft, #edf4ff);
+  color: #3476cf;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-dashboard-page .admin-activity-row strong,
+.admin-dashboard-page .admin-activity-row small {
+  display: block;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-dashboard-page .admin-activity-row strong {
+  color: var(--ov-ink);
+  font-size: 10px;
+}
+
+.admin-dashboard-page .admin-activity-row small {
+  margin-top: 2px;
+  color: var(--ov-muted);
+  font-size: 8px;
+}
+
+.admin-dashboard-page .admin-activity-row > span:last-child {
+  color: #1c6cdd;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.admin-dashboard-page .admin-empty-copy {
+  margin: 20px 0;
+  color: var(--ov-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* wallet liabilities card */
+.admin-dashboard-page .admin-balance-card span,
+.admin-dashboard-page .admin-balance-card strong {
+  display: block;
+}
+
+.admin-dashboard-page .admin-balance-card span {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 10px;
+}
+
+.admin-dashboard-page .admin-balance-card strong {
+  margin-top: 6px;
+  font-size: 21px;
+}
+
+.admin-dashboard-page .admin-balance-card button {
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  z-index: 3;
+  border: 0;
+  border-radius: 7px;
+  background: #fff;
+  color: #2767e2;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-dashboard-page .admin-balance-art {
+  position: absolute;
+  right: 10px;
+  bottom: -18px;
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.11);
+  color: rgba(255, 255, 255, 0.65);
+  transform: rotate(-12deg);
+}
+
+.admin-dashboard-page .admin-balance-art svg {
+  width: 42px;
+  height: 42px;
+}
+
+/* quick actions */
+.admin-dashboard-page .admin-actions-card h2 {
+  margin-bottom: 10px;
+}
+
+.admin-dashboard-page .admin-actions-card > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.admin-dashboard-page .admin-actions-card button {
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+  background: var(--admin-surface-3, #f9fbfd);
+  color: var(--ov-ink-2);
+  font: inherit;
+  font-size: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.admin-dashboard-page .admin-actions-card button:hover {
+  border-color: var(--ov-blue);
+  color: var(--ov-blue);
+  transform: translateY(-1px);
+}
+
+.admin-dashboard-page .admin-actions-card button svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ov-blue);
+}
+
+/* ---------------------------------------------------------------- tables */
+.admin-dashboard-page .admin-dashboard-table {
+  margin-bottom: 14px;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.admin-dashboard-page .admin-dashboard-table .admin-card-heading {
+  margin-bottom: 8px;
+}
+
+.admin-dashboard-page .admin-dashboard-search {
+  width: 180px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+  background: var(--ov-surface);
+  color: #96a1af;
+}
+
+.admin-dashboard-page .admin-dashboard-search svg {
+  width: 13px;
+  height: 13px;
+}
+
+.admin-dashboard-page .admin-dashboard-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ov-ink);
+  font: inherit;
+  font-size: 10px;
+}
+
+.admin-dashboard-page .admin-dashboard-total {
+  color: var(--ov-muted);
+  font-size: 10px;
+}
+
+.admin-dashboard-page .admin-dashboard-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-dashboard-page .admin-dashboard-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.admin-dashboard-page .admin-dashboard-table th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--ov-line);
+  background: var(--ov-surface-2);
+  color: var(--ov-muted);
+  font-size: var(--ov-th-font);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.admin-dashboard-page .admin-dashboard-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--ov-line-soft);
+  color: var(--ov-ink-2);
+  font-size: var(--ov-td-font);
+}
+
+.admin-dashboard-page .admin-dashboard-table tbody tr:hover td {
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-dashboard-page .admin-dashboard-table td strong,
+.admin-dashboard-page .admin-dashboard-table td small {
+  display: block;
+}
+
+.admin-dashboard-page .admin-dashboard-table td strong {
+  color: var(--ov-ink);
+  font-size: var(--ov-td-font);
+}
+
+.admin-dashboard-page .admin-dashboard-table td small {
+  margin-top: 3px;
+  color: var(--ov-muted);
+  font-size: 8px;
+}
+
+.admin-dashboard-page .admin-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.admin-dashboard-page .admin-status-pill.success {
+  background: var(--admin-green-tone, #e3f7ed);
+  color: var(--admin-green-ink, #087c50);
+}
+.admin-dashboard-page .admin-status-pill.pending {
+  background: var(--admin-amber-tone, #fff4df);
+  color: var(--admin-amber-ink, #a66508);
+}
+.admin-dashboard-page .admin-status-pill.danger {
+  background: var(--admin-red-tone, #ffebeb);
+  color: var(--admin-red-ink, #b83232);
+}
+.admin-dashboard-page .admin-status-pill.neutral {
+  background: var(--admin-line, #edf1f5);
+  color: #64748b;
+}
+
+.admin-dashboard-page .admin-dashboard-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 2px 0;
+  color: var(--ov-muted);
+  font-size: 9px;
+}
+
+/* ---------------------------------------------------------------- responsive */
+@media (max-width: 1180px) {
+  .admin-dashboard-page .admin-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-dashboard-page .admin-overview-grid {
+    grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.7fr);
+    grid-template-areas:
+      "sales activity"
+      "balance actions";
+  }
+
+  .admin-dashboard-page .admin-balance-card,
+  .admin-dashboard-page .admin-actions-card {
+    min-height: 110px;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-dashboard-page .admin-hero-banner {
+    min-height: 112px;
+    padding: 20px;
+  }
+
+  .admin-dashboard-page .admin-hero-banner h1 {
+    font-size: 21px;
+  }
+
+  .admin-dashboard-page .admin-overview-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "sales"
+      "activity"
+      "balance"
+      "actions";
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-dashboard-page .admin-hero-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-dashboard-page .admin-hero-banner > button {
+    align-self: flex-start;
+  }
+
+  .admin-dashboard-page .admin-dashboard-footer {
+    display: none;
+  }
+
+  .admin-dashboard-page .admin-dashboard-search {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-dashboard-page .admin-kpi-grid {
+    gap: 8px;
+  }
+
+  .admin-dashboard-page .admin-kpi-card {
+    min-height: 78px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 9px;
+  }
+
+  .admin-dashboard-page .admin-kpi-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .admin-dashboard-page .admin-kpi-card strong {
+    font-size: 16px;
+  }
+
+  .admin-dashboard-page .admin-kpi-live {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- dark mode */
+html[data-theme="dark"] .admin-dashboard-page {
+  --ov-hero-from: #123f9c;
+  --ov-hero-to: #1b3570;
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] .admin-dashboard-page .admin-dashboard-alert {
+  background: rgba(239, 63, 103, 0.1);
+  border-color: rgba(239, 63, 103, 0.3);
+  color: #ff9fb2;
+}
+
+html[data-theme="dark"] .admin-dashboard-page .admin-balance-card {
+  background: linear-gradient(120deg, #1a4fd0, #1d3f9e);
+}
+
+html[data-theme="dark"] .admin-dashboard-page .admin-status-pill.neutral {
+  background: #22304a;
+  color: #a9b7cc;
+}
+
+html[data-theme="dark"] .admin-dashboard-page .admin-card-heading > strong,
+html[data-theme="dark"]
+  .admin-dashboard-page
+  .admin-activity-row
+  > span:last-child {
+  color: #8ec1ff;
+}

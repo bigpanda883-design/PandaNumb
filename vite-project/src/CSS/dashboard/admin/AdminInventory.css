@@ -1,0 +1,248 @@
+/**
+ * AdminInventory.jsx -> /admin/inventory  (Numbers Inventory)
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-inventory-page` ONLY.
+ */
+.admin-inventory-page {
+  --inv-radius: var(--admin-radius, 12px);
+  --inv-border: var(--admin-line, #edf1f7);
+  --inv-card-bg: var(--admin-surface, #fff);
+  --inv-low: var(--admin-amber, #ec9a35);
+  --inv-out: var(--admin-red, #ef3f67);
+  --inv-ok: var(--admin-green, #17a76b);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: adminPageEnter 0.3s ease both;
+}
+
+/* six stats on this page, so it gets its own column count */
+.admin-inventory-page .admin-stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+
+.admin-inventory-page .admin-stat-card,
+.admin-inventory-page .admin-panel {
+  border-radius: var(--inv-radius);
+  border-color: var(--inv-border);
+  background: var(--inv-card-bg);
+}
+
+/* ---------------------------------------------------------------- filters */
+.admin-inventory-page .admin-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--inv-border);
+  border-radius: calc(var(--inv-radius) - 2px);
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-inventory-page .admin-filter-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-inventory-page .admin-filter-grid span {
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.admin-inventory-page .admin-filter-grid select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--inv-border);
+  border-radius: 8px;
+  background: var(--admin-surface, #fff);
+  color: var(--admin-ink, #172033);
+  font: inherit;
+  font-size: 11px;
+  outline: 0;
+}
+
+.admin-inventory-page .admin-filter-grid select:focus {
+  border-color: var(--admin-blue, #1767ff);
+  box-shadow: 0 0 0 3px rgba(23, 103, 255, 0.1);
+}
+
+.admin-inventory-page .admin-service-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  align-self: end;
+  padding: 6px 10px;
+  border: 1px solid var(--inv-border);
+  border-radius: 8px;
+  background: var(--admin-surface, #fff);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.admin-inventory-page .admin-switch {
+  width: 34px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--admin-line, #dfe6f0);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.admin-inventory-page .admin-switch svg {
+  width: 11px;
+  height: 11px;
+}
+
+.admin-inventory-page .admin-switch.on {
+  background: var(--admin-blue, #1767ff);
+}
+
+/* ---------------------------------------------------------------- table */
+.admin-inventory-page .admin-country-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-inventory-page .admin-country-cell img,
+.admin-inventory-page .admin-flag-fallback {
+  width: 20px;
+  height: 14px;
+  flex: none;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--admin-line, #edf1f7);
+}
+
+.admin-inventory-page .admin-table thead th {
+  font-size: 9px;
+  letter-spacing: 0.4px;
+}
+
+.admin-inventory-page .admin-table tbody td {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-inventory-page .admin-table tbody tr:hover td {
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-inventory-page .admin-code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--admin-surface-2, #f8fafc);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.admin-inventory-page .admin-custom-tag {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--admin-purple-tone, #f1edff);
+  color: var(--admin-purple-ink, #7956db);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.admin-inventory-page .admin-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* stock + availability pills */
+.admin-inventory-page .admin-stock,
+.admin-inventory-page .admin-availability {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--admin-green-tone, #e3f8ed);
+  color: var(--admin-green-ink, #087c50);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.admin-inventory-page .admin-stock.is-low {
+  background: var(--admin-amber-tone, #fff4df);
+  color: var(--admin-amber-ink, #a66508);
+}
+
+.admin-inventory-page .admin-stock.is-out,
+.admin-inventory-page .admin-availability.is-off {
+  background: var(--admin-red-tone, #ffebeb);
+  color: var(--admin-red-ink, #b83232);
+}
+
+/* ---------------------------------------------------------------- modal bits */
+.admin-inventory-page .admin-form-readonly {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--inv-border);
+  border-radius: calc(var(--inv-radius) - 2px);
+}
+
+.admin-inventory-page .admin-form-readonly span {
+  display: block;
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.admin-inventory-page .admin-form-readonly strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.admin-inventory-page .admin-profit-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--admin-blue-soft, #edf4ff);
+  font-size: 11px;
+}
+
+.admin-inventory-page .admin-profit-preview strong {
+  color: var(--admin-green-ink, #087c50);
+  font-size: 14px;
+}
+
+.admin-inventory-page .admin-profit-preview strong.is-loss {
+  color: var(--admin-red-ink, #b83232);
+}
+
+@media (max-width: 760px) {
+  .admin-inventory-page .admin-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+html[data-theme="dark"] .admin-inventory-page .admin-custom-tag {
+  background: rgba(121, 86, 219, 0.2);
+  color: var(--admin-purple-ink, #b7a4ff);
+}
+
+html[data-theme="dark"] .admin-inventory-page .admin-filter-grid {
+  background: var(--admin-surface-2, #17233a);
+}

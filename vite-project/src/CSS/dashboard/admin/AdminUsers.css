@@ -1,0 +1,111 @@
+/**
+ * AdminUsers.jsx -> /admin/users  (Users Management + customer detail)
+ * -----------------------------------------------------------------------------
+ * Scoped to `.admin-users-page` ONLY. Editing this file changes nothing else.
+ * Shared panel/table/button primitives come from admin/adminKit.css.
+ *
+ * Quick knobs:
+ *   --usr-radius     card radius
+ *   --usr-card-bg    panel background
+ *   --usr-row-hover  table row hover colour
+ *   --usr-th-font    table heading size
+ *   --usr-td-font    table cell size
+ */
+.admin-users-page {
+  --usr-radius: var(--admin-radius, 12px);
+  --usr-card-bg: var(--admin-surface, #fff);
+  --usr-border: var(--admin-line, #edf1f7);
+  --usr-row-hover: var(--admin-surface-3, #f9fbfd);
+  --usr-th-font: 9px;
+  --usr-td-font: 11px;
+  --usr-accent: var(--admin-blue, #1767ff);
+
+  animation: adminPageEnter 0.3s ease both;
+}
+
+/* panels */
+.admin-users-page .admin-panel {
+  border-radius: var(--usr-radius);
+  background: var(--usr-card-bg);
+  border-color: var(--usr-border);
+}
+
+.admin-users-page .admin-panel-head h2 {
+  font-size: 15px;
+  letter-spacing: -0.2px;
+}
+
+/* table */
+.admin-users-page .admin-table thead th {
+  font-size: var(--usr-th-font);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.admin-users-page .admin-table tbody td {
+  font-size: var(--usr-td-font);
+  height: 56px;
+}
+
+.admin-users-page .admin-table tbody tr:hover td {
+  background: var(--usr-row-hover);
+}
+
+.admin-users-page .admin-user-cell strong {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-users-page .admin-amount {
+  color: var(--admin-ink, #172033);
+  font-weight: 700;
+}
+
+/* detail view */
+.admin-users-page .admin-detail-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 6px 0 0;
+}
+
+.admin-users-page .admin-detail-list > div {
+  padding: 10px 12px;
+  border: 1px solid var(--usr-border);
+  border-radius: calc(var(--usr-radius) - 2px);
+  background: var(--admin-surface-3, #f9fbfd);
+}
+
+.admin-users-page .admin-detail-list dt {
+  color: var(--admin-muted, #7c899e);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.admin-users-page .admin-detail-list dd {
+  margin: 5px 0 0;
+  color: var(--admin-ink, #172033);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* responsive */
+@media (max-width: 760px) {
+  .admin-users-page .admin-search {
+    min-width: 0;
+  }
+
+  .admin-users-page .admin-user-cell strong {
+    max-width: 150px;
+  }
+}
+
+/* dark mode */
+html[data-theme="dark"] .admin-users-page .admin-detail-list > div {
+  background: var(--admin-surface-2, #17233a);
+}

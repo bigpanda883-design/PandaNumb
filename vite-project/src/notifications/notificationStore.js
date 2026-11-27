@@ -130,6 +130,55 @@ export function clearNotifications() {
   writeStore([]);
 }
 
+/**
+ * Merge notifications the BACKEND created (an admin announcement) into the
+ * local store.
+ *
+ * Server rows are authoritative for their own id: the same announcement is
+ * never listed twice, and a row already marked read on the server stays read
+ * here. Notifications created locally by this app (purchases, deposits) are
+ * left untouched, so nothing already on the page disappears.
+ */
+export function syncServerNotifications(serverItems = []) {
+  if (!Array.isArray(serverItems) || serverItems.length === 0) return;
+
+  const existing = readStore();
+  const byId = new Map(existing.map((item) => [String(item.id), item]));
+  let changed = false;
+
+  for (const row of serverItems) {
+    if (!row?.id) continue;
+    const id = String(row.id);
+    const current = byId.get(id);
+    const mapped = {
+      id,
+      type: row.type || "announcement",
+      title: row.title,
+      description: row.body,
+      read: Boolean(row.read),
+      date: formatNotificationDate(new Date(row.createdAt)),
+      createdAt: new Date(row.createdAt).getTime(),
+      source: "server",
+    };
+
+    if (!current) {
+      byId.set(id, mapped);
+      changed = true;
+    } else if (current.read !== mapped.read) {
+      // Read state is decided by the server (another device may have read it).
+      byId.set(id, { ...current, read: mapped.read });
+      changed = true;
+    }
+  }
+
+  if (!changed) return;
+
+  const merged = [...byId.values()].sort(
+    (a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0),
+  );
+  writeStore(merged);
+}
+
 /** Subscribe to changes; returns an unsubscribe function. */
 export function subscribeToNotifications(callback) {
   const handler = () => callback();
